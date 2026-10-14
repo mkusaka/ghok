@@ -330,7 +330,9 @@ var commandAliases = map[string]string{
 	"workflow ls":          "workflow list",
 }
 
-func builtinTopLevel(name string) bool {
+// IsBuiltinCommand reports whether a root command or built-in alias exists.
+// Wrappers use it to avoid loading gh's alias configuration for built-ins.
+func IsBuiltinCommand(name string) bool {
 	if _, ok := registry[name]; ok {
 		return true
 	}

@@ -28,8 +28,11 @@ type Evaluation struct {
 	Decision  protocol.Decision `json:"decision"`
 	WouldDeny bool              `json:"wouldDeny"`
 	Reasons   []string          `json:"reasons,omitempty"`
-	Rules     []string          `json:"rules,omitempty"`
-	PerOp     []OpEvaluation    `json:"perOp,omitempty"`
+	// DenyReasons contains only deny-causing reasons, even in observe mode.
+	// Operation-scoped reasons include the action; Reasons retains diagnostics.
+	DenyReasons []string       `json:"denyReasons,omitempty"`
+	Rules       []string       `json:"rules,omitempty"`
+	PerOp       []OpEvaluation `json:"perOp,omitempty"`
 }
 
 func merge(a, b protocol.Decision) protocol.Decision {
@@ -71,6 +74,9 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		v.Decision = merge(v.Decision, decision)
 		v.Reasons = append(v.Reasons, reason)
 		e.Reasons = append(e.Reasons, fmt.Sprintf("operation %d: %s", index, reason))
+		if decision == protocol.DecisionDeny {
+			e.DenyReasons = append(e.DenyReasons, fmt.Sprintf("%s (%s)", reason, s.Result.Operations[index].Action))
+		}
 	}
 	if s.Result.Classification.MutationFree {
 		e.Reasons = append(e.Reasons, "normalization proved mutation-free")
@@ -118,6 +124,9 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 				matched = true
 				e.Decision = merge(e.Decision, decision)
 				e.Reasons = append(e.Reasons, "rule "+rule.ID+": "+rule.Reason)
+				if decision == protocol.DecisionDeny {
+					e.DenyReasons = append(e.DenyReasons, "rule "+rule.ID+": "+rule.Reason)
+				}
 			}
 		}
 		for i, op := range s.Result.Operations {

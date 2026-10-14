@@ -232,3 +232,71 @@ func TestRulesAggregationAndEvidence(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestDenyReasons(t *testing.T) {
+	known := operation("pr.merge.direct", "org/repo", model.EffectWrite)
+	known.Unresolved = []model.Unresolved{{Field: "target.number", Reason: "informational unresolved selector"}}
+	unknown := model.NewUnknown(model.LevelL3, model.UnknownMutation, "unrecognized mutation").Operations[0]
+	unknown.Target.Repository = "org/repo"
+	unresolved := known
+	unresolved.Target.Repository = ""
+	rules := []config.Rule{
+		{ID: "audit", Decision: "audit", Reason: "audit-only diagnostic"},
+		{ID: "no-admin", Decision: "deny", Reason: "direct merges are forbidden"},
+	}
+	combined := config.Policy{Mode: config.ModeEnforce, Rules: rules, UnknownMutation: config.UnknownDeny, ProtectedRepositories: []string{"org/*"}}
+	observe := combined
+	observe.Mode = config.ModeObserve
+	for _, tc := range []struct {
+		name    string
+		policy  config.Policy
+		subject Subject
+		want    []string
+	}{
+		{"rule", config.Policy{Mode: config.ModeEnforce, Rules: rules}, subject(known),
+			[]string{"rule no-admin: direct merges are forbidden (pr.merge.direct)"}},
+		{"unknown mutation", config.Policy{Mode: config.ModeEnforce, UnknownMutation: config.UnknownDeny}, subject(unknown),
+			[]string{"unclassified-write: unknownMutation policy (unknown)"}},
+		{"unresolved protected", config.Policy{Mode: config.ModeEnforce, ProtectedRepositories: []string{"org/*"}}, subject(unresolved),
+			[]string{"target repository unresolved; cannot prove it is not protected (pr.merge.direct)"}},
+		{"unknown protected", config.Policy{Mode: config.ModeEnforce, UnknownMutation: config.UnknownAllow, ProtectedRepositories: []string{"org/*"}}, subject(unknown),
+			[]string{"unclassified-write targets protected repository org/repo (unknown)"}},
+		{"combined", combined, subject(unknown),
+			[]string{"rule no-admin: direct merges are forbidden (unknown)", "unclassified-write: unknownMutation policy (unknown)", "unclassified-write targets protected repository org/repo (unknown)"}},
+		{"observe retains would-deny reasons", observe, subject(unknown),
+			[]string{"rule no-admin: direct merges are forbidden (unknown)", "unclassified-write: unknownMutation policy (unknown)", "unclassified-write targets protected repository org/repo (unknown)"}},
+		{"invocation-only rule", config.Policy{Mode: config.ModeEnforce, Rules: rules}, subject(),
+			[]string{"rule no-admin: direct merges are forbidden"}},
+		{"multiple operations", config.Policy{Mode: config.ModeEnforce, Rules: rules}, subject(known, operation("pr.review.approve", "org/repo", model.EffectWrite)),
+			[]string{"rule no-admin: direct merges are forbidden (pr.merge.direct)", "rule no-admin: direct merges are forbidden (pr.review.approve)"}},
+		{"audit is not deny", config.Policy{Mode: config.ModeEnforce, UnknownMutation: config.UnknownAudit, ProtectedUnknown: config.UnknownAudit, ProtectedRepositories: []string{"org/*"}, Rules: rules[:1]}, subject(unknown), nil},
+		{"allow is not deny", config.Policy{Mode: config.ModeEnforce, UnknownMutation: config.UnknownAllow, ProtectedUnknown: config.UnknownAllow, ProtectedRepositories: []string{"org/*"}}, subject(unknown), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Evaluate(tc.policy, tc.subject)
+			if !reflect.DeepEqual(got.DenyReasons, tc.want) {
+				t.Fatalf("deny reasons=%q, want=%q", got.DenyReasons, tc.want)
+			}
+			if got.WouldDeny != (len(tc.want) > 0) {
+				t.Fatalf("wouldDeny=%t, deny reasons=%q", got.WouldDeny, got.DenyReasons)
+			}
+			for _, op := range tc.subject.Result.Operations {
+				for _, unresolved := range op.Unresolved {
+					if !strings.Contains(strings.Join(got.Reasons, " "), unresolved.Reason) {
+						t.Fatal("deny-only reasons replaced unresolved diagnostics")
+					}
+				}
+			}
+			if tc.policy.Mode == config.ModeObserve && got.Decision == protocol.DecisionDeny {
+				t.Fatal("observe enforced a would-be denial")
+			}
+		})
+	}
+	for _, execution := range []model.Execution{model.ExecutionSkipped, model.ExecutionNotSelected} {
+		skipped := unknown
+		skipped.Execution = execution
+		if got := Evaluate(combined, subject(skipped)); len(got.DenyReasons) != 0 {
+			t.Fatalf("%s operation produced deny reasons: %q", execution, got.DenyReasons)
+		}
+	}
+}
