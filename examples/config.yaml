@@ -1,0 +1,44 @@
+# Run these commands from the repository root (Go is needed only to build).
+# Respect an existing GHOK_CONFIG_DIR; otherwise use ghok's default location:
+#   config_dir="${GHOK_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ghok}"
+#   mkdir -p "$config_dir/hooks" "$config_dir/logs"
+#   chmod 700 "$config_dir" "$config_dir/hooks" "$config_dir/logs"
+#   go build -o "$config_dir/hooks/deny-admin-merge" ./examples/hooks/deny-admin-merge
+#   go build -o "$config_dir/hooks/audit-merge" ./examples/hooks/audit-merge
+#   cp examples/config.yaml "$config_dir/config.yaml"
+#   chmod 600 "$config_dir/config.yaml"
+# The config works unchanged after installation: hook executable paths are
+# relative to this config, and audit-merge writes to its sibling ../logs directory.
+# Existing configs must be merged manually rather than overwritten with cp.
+#
+# Optional Python equivalent (only this alternative requires Python 3):
+#   cp examples/hooks/deny-admin-merge.py "$config_dir/hooks/deny-admin-merge.py"
+#   chmod 700 "$config_dir/hooks/deny-admin-merge.py"
+# Replace the pre-hook command below with:
+#   command: ["./hooks/deny-admin-merge.py"]
+# Use either Go OR Python, not both; they implement the same check.
+#
+# Inspect without running gh: ghok hooks test -- pr merge 123 --admin -R org/repo
+# This runs the real pre-hook, but never executes gh or merges a PR.
+# Hook code is trusted. This is a convenience guardrail, not a security boundary;
+# it rejects explicit admin=true merge requests, not unknown API/extension calls.
+# The post-hook audits command outcomes, not confirmed server-side merge events.
+version: 1
+policy:
+  mode: enforce # observe would record denials without blocking gh.
+hooks:
+  - id: deny-admin-merge
+    phase: pre
+    match:
+      operation: "pr.merge.*"
+    command: ["./hooks/deny-admin-merge"]
+    timeout: 5s
+    onError: deny
+  - id: audit-merge
+    phase: post
+    match:
+      operation: "pr.merge.*"
+    command: ["./hooks/audit-merge"]
+    timeout: 5s
+    onError: ignore
+    # No captureOutput: preserve gh's inherited stdio/TTY behavior.

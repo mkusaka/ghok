@@ -1,0 +1,188 @@
+# Security and trust
+
+**ghok is not a security boundary.** It is a user-controlled guardrail and audit
+convenience around selected GitHub CLI invocations. Enforce authoritative policy
+with GitHub branch protection, repository/organization rulesets, permissions,
+and credential scoping. Do not rely on local hooks to stop a malicious user or
+untrusted program with your account's access.
+
+## Threat model and bypasses
+
+The intended use is preventing accidental disallowed commands and recording
+local intent/outcomes. The user controls the executable, PATH, environment,
+config, hooks, and credentials. There is no sandbox, privileged service, token
+broker, or server-side enforcement.
+
+- An absolute real-gh path, `curl`, SDK, browser, or another API client bypasses
+  the shim. Shell aliases/functions can select a different executable.
+- `GHOK_NESTED=1` explicitly bypasses normalization/policy/hooks. Hooks receive
+  it to avoid recursive evaluation. The depth guard detects runaway activations,
+  not unauthorized execution: depths 1–4 are allowed; the fifth/malformed depth
+  fails.
+- `GHOK_REAL_GH` overrides `runtime.realGh`; both are user-controlled absolute
+  executable paths. Discovery excludes known wrappers using symlinks/identity
+  and state, not code signature verification. An arbitrary renamed different
+  wrapper cannot always be identified.
+- Real gh generally supplies its stable executable path through `GH_PATH` to
+  extensions and configured credential helpers. Those paths can bypass hooks.
+  Extensions calling plain `gh` can reenter the shim. Inherited shim-valued
+  `GH_PATH` can instead propagate recursion or affect credential-helper setup.
+  ghok preserves it, does not repair it, and doctor reports the risk.
+- Normalization is bounded, registry-based analysis, not a complete interpreter
+  for arbitrary extensions/shell aliases/new gh syntax. Unknown does not mean
+  read-only; configure unknown handling according to your risk tolerance.
+- A local check can race server-side changes, file replacement, credential
+  changes, or concurrent users. Pre-hooks cannot atomically enforce the later
+  GitHub operation. A post exit-zero result does not prove a merge occurred.
+
+Availability takes precedence on **invalid effective configuration**: the
+wrapper prints a redacted warning and executes real gh without hooks/logging,
+including when the broken file was intended to enforce policy. Validate config
+before use, and do not describe this as fail-closed installation. Runtime
+pre-hook errors default to deny only when valid config establishes enforce mode;
+observe records would-deny and still runs gh.
+
+## Hooks are trusted code
+
+Hooks execute as your user, with inherited cwd and environment plus configured
+`env` overrides and ghok metadata. They can read credentials, files, keychains,
+original payload files, and call APIs independently. **Redacted stdin is not a
+sandbox:** inherited GH_TOKEN/GITHUB_TOKEN and other credentials are not removed
+from hook environments. Inspect hook code before installing it.
+
+Commands are argv arrays without implicit shell evaluation. Relative executable
+paths containing `/` resolve against their originating config directory; bare
+names search the hook's effective PATH. Timeout/cancellation kills ordinary
+members of the hook process group (TERM then KILL after 500 ms), not descendants
+that deliberately leave it. Interactive hooks and escaped-process cleanup are
+unsupported. Hook stderr/response diagnostics are redacted before display/logs.
+
+SIGINT/SIGTERM/SIGHUP during resolver/pre-hook execution cancel helper groups
+and re-raise the signal after reaping; during post-hooks they cancel/reap hooks
+but preserve the completed gh result and log the interruption. Startup-ignored
+signals are not watched (subject to Go's documented disposition limits).
+**SIGKILL cannot be intercepted: hooks may outlive ghok when the wrapper is
+killed with SIGKILL.** Deliberately escaped descendants remain unsupported.
+
+## Project configuration trust
+
+Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then
+HOME/.config/ghok. The nearest discovered repository's `.ghok.yaml` is ignored
+without parsing unless its **canonical absolute config path** exactly appears in
+`trust.projects` globally:
+
+```yaml
+version: 1
+trust:
+  projects:
+    - /absolute/trusted/repository/.ghok.yaml
+```
+
+Symlink spelling alone does not trust the destination. Trust grants execution
+of repository-specified hooks; inspect the repository and any hook changes.
+Trusted project executable paths resolve against the repository config's
+containing directory, even if the config itself is a symlink.
+
+Projects may add hooks/rules/protected repositories and tighten observe to
+enforce or allow to audit to deny. Weakening is ignored with a diagnostic note.
+Projects cannot set runtime/logging/trust, even empty sections. Duplicate IDs,
+invalid dependencies, or other invalid merged config fail validation; remember
+that wrapper config failure then passes through without hooks.
+
+Group/world-writable configs and hook files produce diagnostic notes, not a
+mandatory refusal. Trust/path checks do not protect against concurrent
+filesystem replacement. No ownership/signature check authenticates hook code.
+
+## Redaction rules and limits
+
+The CLI creates display copies for hook JSON, logs, normalize/explain, errors,
+and reasons. Real gh gets original arguments/environment/request bytes;
+redaction must never rewrite API requests or stdout/stderr.
+
+| Rule | Coverage |
+| --- | --- |
+| Learned environment values | All nonempty GH_TOKEN, GITHUB_TOKEN, GH_ENTERPRISE_TOKEN, GITHUB_ENTERPRISE_TOKEN, even short values; other names containing TOKEN/SECRET/PASSWORD/PASSWD/API_KEY/PRIVATE_KEY/CREDENTIAL when value is at least 8 bytes. |
+| Token patterns | Classic `gh[pousr]_` with at least 36 suffix characters, `github_pat_` with at least 20, `v1.` plus 40 hex characters, JWT-like `eyJ` strings. |
+| Credentials in strings | Bearer/token/Basic authorization values; Authorization/Proxy-Authorization headers; URL passwords; complete or unfinished PEM private-key blocks. |
+| Sensitive field names | token/accessToken/refreshToken/idToken/authToken, GitHub token names, password/passwd/secret/clientSecret/apiKey/privateKey/credential/credentials/authorization/proxyAuthorization; ASCII case, underscores/hyphens, dotted/bracket paths normalized. |
+| argv context | Sensitive flags, attached/equals/separate headers/API fields, bundled API flags, `secret set --body/-b`; `--` ends contextual interpretation, not learned/pattern scrubbing. |
+| GraphQL | AST-based sensitive arguments/input/defaults and learned/pattern strings; display reformats and drops comments. Invalid/truncated GraphQL is withheld. |
+| Captured hook bodies | Decode/redact/re-encode base64; malformed base64/structured bodies withheld; original size/truncation metadata retained. |
+
+The usual marker is `[REDACTED]`; a credential contained inside that marker is
+removed too. Longest-first replacement plus removal handles overlapping learned
+values. JSON number precision is preserved.
+
+Limits:
+
+- Unknown secrets under ordinary field names and unrecognized encodings can
+  remain visible. Arbitrary binary/encrypted/base64 secrets are not inferred.
+- `key`, `keyboard`, `publicKey`, and `tokenizer` are not sensitive names.
+  `variable set` bodies are ordinary data, unlike secret-set bodies.
+- Redaction operates on JSON-like values, not arbitrary application structs,
+  pointers, or cyclic object graphs. Pure normalizer output remains raw until
+  the caller applies redaction; Source contract comments are not a guarantee.
+- Original gh output is never redacted. A gh command itself can print secrets
+  to your terminal or redirected output. Hook code can expose inherited tokens.
+- `explain --show-secrets` intentionally displays unredacted analysis; treat
+  that output as sensitive and do not attach it to tickets.
+
+## Files, permissions, and logging
+
+Recommended user-created config mode: 0600; hook/config directories: 0700;
+executable hooks: 0700. ghok does not create or harden your config automatically.
+`enable` creates a missing bin directory as 0755 (subject to umask), an owned
+symlink, and shim state. Newly created state directories are 0700 and atomic
+state files 0600; existing directory permissions remain unchanged. Disable
+removes only owned shims, never real gh or foreign files. Concurrent external
+shim/state mutation is unsupported.
+
+Logs default to `<config-dir>/logs/ghok.jsonl` and are enabled even without a
+config file. A newly created log directory is 0700; a preexisting possibly
+shared directory is left unchanged. Log and persistent `.lock` files are opened
+as regular files with modes tightened to 0600. Final-directory/file symlinks
+and nonregular log/lock files are rejected; ancestor symlinks are allowed.
+Secure stdin spool files are 0600 and immediately unlinked.
+
+JSONL contains invocation ID/time/duration, redacted argv/operations,
+classification/unresolved evidence, policy/hook results, diagnostics, and
+execution metadata when supervised. **Captured gh output bodies are omitted.**
+Exec-path logs precede execution and cannot include final gh status. Info logs
+every invocation; decision logs retain non-allow decisions/errors/hook failures,
+not every ordinary nonzero child exit.
+
+A mutex and persistent-file flock serialize cooperating writers; the append
+file is reopened under lock after rotation. Logs rotate once an existing file
+exceeds 10 MiB, retaining `.1`–`.3`; oversized records remain whole. No fsync or
+crash-durability guarantee; network-filesystem flock semantics are not promised.
+Do not remove the lock file while writers may be active. Logging failures never
+change gh execution; only GHOK_DEBUG=1 exposes them on stderr. This is not a
+reliable tamper-proof audit trail.
+
+## Supply chain
+
+Actions are pinned by full commit SHA with version comments. CI grants only
+contents:read; the release job alone grants contents:write, id-token:write, and
+attestations:write. Release tar archives/checksum manifest are attested, and
+binaries use CGO_ENABLED=0, -trimpath, explicit version/commit, and disabled
+implicit VCS metadata. Tar ownership/timestamps and gzip metadata are normalized.
+The host image/toolchain/dependency sources remain trusted inputs; these flags
+are not proof of bit-for-bit reproducibility across arbitrary Go versions/hosts.
+
+Verify the complete checksum manifest and the selected archive provenance as
+shown in [README](../README.md#release-archive). Private-repository attestation
+availability depends on GitHub plan/feature support; attest failure stops the
+workflow before release publication rather than silently publishing unattested
+assets. Releases are not notarized or Developer ID signed.
+
+## Evidence
+
+Implementation: `internal/config/project.go`, `internal/redact/`,
+`internal/logging/logger_unix.go`, `internal/hooks/execute_unix.go`,
+`internal/install/`, and `internal/cli/wrapper_unix.go`.
+Detailed engineering records: [configuration/redaction/logging](notes/config-logging-redaction.md),
+[installation](notes/install.md), and [hooks/policy](notes/hooks-policy.md).
+Upstream GH_PATH/helper behavior was verified there against cli/cli 2.102.0
+[`internal/ghcmd/cmd.go`](https://github.com/cli/cli/blob/v2.102.0/internal/ghcmd/cmd.go),
+[`pkg/cmd/extension/manager.go`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/extension/manager.go),
+and [`pkg/cmd/auth/shared/gitcredentials/helper_config.go`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/auth/shared/gitcredentials/helper_config.go).
