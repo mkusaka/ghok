@@ -237,3 +237,62 @@ func TestProbeRejectsWrongOutputAndExit(t *testing.T) {
 		}
 	}
 }
+
+// A Homebrew install resolves to a versioned Cellar path that `brew upgrade`
+// deletes; the shim must point at the stable opt path instead.
+func TestEnableHomebrewShimSurvivesUpgrade(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	install := func(version string) string {
+		cellar := filepath.Join(root, "Cellar", "ghok", version, "bin")
+		if err := os.MkdirAll(cellar, 0755); err != nil {
+			t.Fatal(err)
+		}
+		self := filepath.Join(cellar, "ghok")
+		if err := os.Rename(testSelf(t, root, "ghok-build"), self); err != nil {
+			t.Fatal(err)
+		}
+		opt := filepath.Join(root, "opt", "ghok")
+		_ = os.Remove(opt)
+		if err := os.MkdirAll(filepath.Dir(opt), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join("..", "Cellar", "ghok", version), opt); err != nil {
+			t.Fatal(err)
+		}
+		return self
+	}
+	self := install("1.0.0")
+	real := executable(t, filepath.Join(root, "real", "gh"), "true")
+	bin := filepath.Join(root, "local", "bin")
+	o := EnableOptions{BinDir: bin, Self: self, StateDir: filepath.Join(root, "state"), PathEnv: bin + ":" + filepath.Dir(real)}
+	r, err := Enable(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable := filepath.Join(root, "opt", "ghok", "bin", "ghok")
+	if target, err := os.Readlink(r.ShimPath); err != nil || target != stable {
+		t.Fatalf("shim target %q err=%v, want %q", target, err, stable)
+	}
+	// brew upgrade: new Cellar version, opt repointed, old version removed.
+	newSelf := install("1.1.0")
+	if err := os.RemoveAll(filepath.Join(root, "Cellar", "ghok", "1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(r.ShimPath); err != nil {
+		t.Fatalf("shim broken after upgrade: %v", err)
+	}
+	o.Self = newSelf
+	again, err := Enable(o)
+	if err != nil || again.Created {
+		t.Fatalf("re-install after upgrade = %+v err=%v", again, err)
+	}
+	if owned, err := IsOwnedShim(r.ShimPath, newSelf, o.StateDir); err != nil || !owned {
+		t.Fatalf("owned=%v err=%v", owned, err)
+	}
+	if removed, err := Disable(DisableOptions{BinDir: bin, Self: newSelf, StateDir: o.StateDir}); err != nil || len(removed) != 1 {
+		t.Fatalf("removed=%v err=%v", removed, err)
+	}
+}

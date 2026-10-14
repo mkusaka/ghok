@@ -170,6 +170,7 @@ func Enable(o EnableOptions) (EnableResult, error) {
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 		return result, errors.New("ghok executable must be a regular executable file")
 	}
+	target := stableTarget(self)
 	if o.BinDir == "" {
 		return result, errors.New("BinDir is required")
 	}
@@ -226,27 +227,27 @@ func Enable(o EnableOptions) (EnableResult, error) {
 		return result, errors.New("no real gh executable found after excluding owned shims")
 	}
 	if existsErr == nil {
-		target, err := os.Readlink(path)
+		current, err := os.Readlink(path)
 		if err != nil {
 			return result, err
 		}
-		if target != self {
-			if err = replaceShim(path, self, s); err != nil {
+		if current != target {
+			if err = replaceShim(path, target, s); err != nil {
 				return result, err
 			}
 		}
 	} else {
 		// Symlink creation fails on collision instead of replacing a concurrent file.
-		if err = os.Symlink(self, path); err != nil {
+		if err = os.Symlink(target, path); err != nil {
 			return result, err
 		}
 		result.Created = true
 	}
-	s[path] = self
+	s[path] = target
 	if err = saveState(o.StateDir, s); err != nil {
 		if result.Created {
 			// Roll back only if our exact newly-created link is still present.
-			if target, e := os.Readlink(path); e == nil && target == self {
+			if current, e := os.Readlink(path); e == nil && current == target {
 				_ = os.Remove(path)
 			}
 		}
@@ -254,6 +255,28 @@ func Enable(o EnableOptions) (EnableResult, error) {
 	}
 	result.OnPath, result.Precedence, result.FixHint = pathPrecedence(path, o.PathEnv)
 	return result, nil
+}
+
+// stableTarget returns the path the shim should point at. A Homebrew install
+// resolves to <prefix>/Cellar/ghok/<version>/bin/ghok, which `brew upgrade`
+// deletes; <prefix>/opt/ghok/bin/ghok follows upgrades, so prefer it when it
+// currently resolves to the same executable.
+func stableTarget(self string) string {
+	dir, name := filepath.Split(self)
+	parts := strings.Split(filepath.Clean(dir), string(filepath.Separator))
+	// .../<prefix>/Cellar/<formula>/<version>/bin/
+	n := len(parts)
+	if n < 4 || parts[n-1] != "bin" || parts[n-4] != "Cellar" {
+		return self
+	}
+	prefix := string(filepath.Separator) + filepath.Join(parts[:n-4]...)
+	opt := filepath.Join(prefix, "opt", parts[n-3], "bin", name)
+	a, err1 := os.Stat(opt)
+	b, err2 := os.Stat(self)
+	if err1 != nil || err2 != nil || !os.SameFile(a, b) {
+		return self
+	}
+	return opt
 }
 
 func replaceShim(path, self string, s shimState) error {

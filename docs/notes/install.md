@@ -46,3 +46,7 @@ Discovery cannot identify an arbitrary renamed, different ghok binary without id
 Hermetic temp-directory tests cover ordered/duplicate installs, self/renamed/other shims, absent gh, broken/looping links, permission/type/PATH rejection, overrides, depth boundaries, Homebrew upgrade plus old-version deletion, unchanged foreign collisions/replacements, repeated lifecycle, directory aliases, probes, doctor custom/multiple installs, invalid state, precedence, recursion/version/failure/timeout, and PTY detection. E2E covers custom enable followed by plain and JSON doctor. No network. BenchmarkFindRealGh measures stat-only discovery.
 
 Installation unit tests and the custom-install doctor E2E passed on macOS arm64, Linux arm64 (`node:22-bookworm-slim`), and translated Linux amd64 (`mcr.microsoft.com/powershell:7.4-ubuntu-22.04`). Required root build/vet/full tests/race and make build passed on macOS arm64. Linux runs used cross-built test/fixture binaries with network disabled, read-only mounts/images, and tmpfs; Linux race was not run. The unrelated Linux arm64 process job-control failure is recorded in [cli.md](cli.md).
+
+## Homebrew
+
+When the running binary resolves to `<prefix>/Cellar/<formula>/<version>/bin/ghok` and `<prefix>/opt/<formula>/bin/ghok` is the same file, `ghok shim install` points the shim at the `opt` path, which Homebrew repoints on `brew upgrade` (the versioned Cellar directory is deleted). Covered by `TestEnableHomebrewShimSurvivesUpgrade`.
