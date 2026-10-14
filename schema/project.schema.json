@@ -1,0 +1,376 @@
+{
+  "$id": "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/project.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hooks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "captureOutput": {
+            "description": "Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input.",
+            "type": "boolean"
+          },
+          "command": {
+            "description": "Executable and arguments; relative paths resolve against the config file directory.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dependsOn": {
+            "description": "IDs of hooks (same phase) that must finish first.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "match": {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "effect": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "read",
+                      "write",
+                      "unknown"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "enum": [
+                        "read",
+                        "write",
+                        "unknown"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "hosts": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "level": {
+                "description": "Normalization level: L1 native gh command, L2 gh api REST, L3 gh api graphql.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "L1",
+                      "L2",
+                      "L3",
+                      "none"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "enum": [
+                        "L1",
+                        "L2",
+                        "L3",
+                        "none"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "operation": {
+                "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "repositories": {
+                "description": "owner/repo globs (case-insensitive).",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "maxOutputBytes": {
+            "type": "integer"
+          },
+          "onError": {
+            "enum": [
+              "deny",
+              "allow",
+              "ignore"
+            ],
+            "type": "string"
+          },
+          "optional": {
+            "description": "Skip instead of failing when the command is missing or not executable.",
+            "type": "boolean"
+          },
+          "phase": {
+            "enum": [
+              "pre",
+              "post"
+            ],
+            "type": "string"
+          },
+          "priority": {
+            "description": "Lower runs first; ties keep config order.",
+            "type": "integer"
+          },
+          "timeout": {
+            "description": "Go duration, e.g. 10s.",
+            "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phase",
+          "command"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "policy": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "observe: classify and log only; enforce: deny according to rules, unknown handling and pre-hooks.",
+          "enum": [
+            "observe",
+            "enforce"
+          ],
+          "type": "string"
+        },
+        "protectedRepositories": {
+          "description": "owner/repo globs; unclassified or unresolved writes against them use protectedUnknown.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protectedUnknown": {
+          "description": "Handling of unclassified/unresolved writes that may target a protected repository.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "decision": {
+                "enum": [
+                  "deny",
+                  "audit"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "match": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "effect": {
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "read",
+                          "write",
+                          "unknown"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "read",
+                            "write",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "hosts": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "level": {
+                    "description": "Normalization level: L1 native gh command, L2 gh api REST, L3 gh api graphql.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "L1",
+                          "L2",
+                          "L3",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "L1",
+                            "L2",
+                            "L3",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "operation": {
+                    "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "repositories": {
+                    "description": "owner/repo globs (case-insensitive).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "decision"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "unknownMutation": {
+          "description": "Handling of write/unknown operations that could not be classified.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "description": "Config format version; must be 1.",
+      "enum": [
+        1
+      ],
+      "type": "integer"
+    }
+  },
+  "title": "ghok project .ghok.yaml",
+  "type": "object"
+}
