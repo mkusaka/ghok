@@ -60,7 +60,7 @@ func saveState(dir string, s shimState) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	_, err = f.Write(append(data, '\n'))
 	closeErr := f.Close()
 	if err != nil {
@@ -269,7 +269,7 @@ func replaceShim(path, self string, s shimState) error {
 	if err = os.Remove(temp); err != nil {
 		return err
 	}
-	defer os.Remove(temp)
+	defer func() { _ = os.Remove(temp) }()
 	if err = os.Symlink(self, temp); err != nil {
 		return err
 	}

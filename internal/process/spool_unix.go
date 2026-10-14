@@ -187,7 +187,7 @@ func (s *Spool) startPump() (func(), error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer s.writer.Close()
+		defer func() { _ = s.writer.Close() }()
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := s.prefix.Read(buf)

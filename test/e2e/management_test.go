@@ -50,7 +50,7 @@ func TestManagementUsageErrors(t *testing.T) {
 		{"normalize"}, {"normalize", "pr", "merge", "1"}, {"normalize", "--allow-api", "--", "pr", "merge", "1"},
 		{"explain", "--allow-api", "--", "pr", "merge", "1"}, {"hooks", "unknown"},
 		{"hooks", "test", "--phase", "bad", "--", "version"}, {"hooks", "test", "--"},
-		{"config", "unknown"}, {"doctor", "--unknown"}, {"enable", "--bin-dir", ""},
+		{"config", "unknown"}, {"doctor", "--unknown"}, {"shim", "install", "--bin-dir", ""},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			s := newSandbox(t)
@@ -311,7 +311,7 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 
 func TestManagementDoctorRecordedCustomInstall(t *testing.T) {
 	s := newSandbox(t)
-	s.management(nil, "enable", "--bin-dir", s.bin).code(t, 0)
+	s.management(nil, "shim", "install", "--bin-dir", s.bin).code(t, 0)
 	bin, err := filepath.EvalSymlinks(s.bin)
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestManagementDoctorHookFailures(t *testing.T) {
 
 func TestManagementEnableDisableOwnership(t *testing.T) {
 	s := newSandbox(t)
-	result := s.management(nil, "enable", "--bin-dir", s.bin)
+	result := s.management(nil, "shim", "install", "--bin-dir", s.bin)
 	result.code(t, 0)
 	for _, value := range []string{filepath.Join(s.bin, "gh"), s.real, "PATH"} {
 		if !bytes.Contains(result.stdout, []byte(value)) {
@@ -400,7 +400,7 @@ func TestManagementEnableDisableOwnership(t *testing.T) {
 			t.Fatal("enable modified shell configuration")
 		}
 	}
-	result = s.management(nil, "disable", "--bin-dir", s.bin)
+	result = s.management(nil, "shim", "uninstall", "--bin-dir", s.bin)
 	result.code(t, 0)
 	if !bytes.Contains(result.stdout, []byte(filepath.Join(s.bin, "gh"))) {
 		t.Fatal("disable omitted shim path")
@@ -411,14 +411,14 @@ func TestManagementEnableDisableOwnership(t *testing.T) {
 	if _, err := os.Stat(s.real); err != nil {
 		t.Fatal("disable removed real gh")
 	}
-	result = s.management(nil, "disable", "--bin-dir", s.bin)
+	result = s.management(nil, "shim", "uninstall", "--bin-dir", s.bin)
 	result.code(t, 0)
 	if err := os.WriteFile(filepath.Join(s.bin, "gh"), []byte("foreign file"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	result = s.management(nil, "enable", "--bin-dir", s.bin)
+	result = s.management(nil, "shim", "install", "--bin-dir", s.bin)
 	result.code(t, 1)
-	result = s.management(nil, "disable", "--bin-dir", s.bin)
+	result = s.management(nil, "shim", "uninstall", "--bin-dir", s.bin)
 	result.code(t, 0)
 	body, err := os.ReadFile(filepath.Join(s.bin, "gh"))
 	if err != nil || string(body) != "foreign file" {

@@ -1,0 +1,27 @@
+{
+  automerge: true,
+  platformAutomerge: false,
+  minimumReleaseAge: "7 days",
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices"],
+  packageRules: [
+    {
+      description: "Group non-major and pin Go module updates",
+      groupName: "gomod updates",
+      matchManagers: ["gomod"],
+      matchUpdateTypes: ["minor", "patch", "pin"],
+      automerge: true,
+      automergeType: "pr",
+      minimumReleaseAge: "7 days",
+    },
+    {
+      description: "Group non-major GitHub Actions updates",
+      groupName: "github-actions (non-major)",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
+      automerge: true,
+      automergeType: "pr",
+      minimumReleaseAge: "7 days",
+    },
+  ],
+}

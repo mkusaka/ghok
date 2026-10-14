@@ -156,11 +156,11 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 
 func managementUnresolved(w io.Writer, indent string, values []model.Unresolved) {
 	for _, value := range values {
-		fmt.Fprintf(w, "%sUnresolved %s: %s", indent, value.Field, value.Reason)
+		_, _ = fmt.Fprintf(w, "%sUnresolved %s: %s", indent, value.Field, value.Reason)
 		if value.Source != "" {
-			fmt.Fprintf(w, " (source=%s)", value.Source)
+			_, _ = fmt.Fprintf(w, " (source=%s)", value.Source)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 }
 
@@ -169,15 +169,15 @@ func managementPrintMatch(w io.Writer, indent string, match config.Match, r *red
 	if r != nil {
 		text = r.String(text)
 	}
-	fmt.Fprintln(w, indent+"criteria: "+text)
+	_, _ = fmt.Fprintln(w, indent+"criteria: "+text)
 }
 
 func managementDescribeMatch(w io.Writer, indent string, match config.Match, subject policy.Subject) {
 	yes, indexes := policy.Matches(match, subject)
 	maybe, candidates := policy.MatchMaybe(match, subject)
-	fmt.Fprintf(w, "%smatch=%t operations=%v maybe-match=%t maybe-operations=%v\n", indent, yes, indexes, maybe, candidates)
+	_, _ = fmt.Fprintf(w, "%smatch=%t operations=%v maybe-match=%t maybe-operations=%v\n", indent, yes, indexes, maybe, candidates)
 	if maybe {
-		fmt.Fprintln(w, indent+"Maybe-match is conservatively selected because repository or host is unresolved; it is not a definite match.")
+		_, _ = fmt.Fprintln(w, indent+"Maybe-match is conservatively selected because repository or host is unresolved; it is not a definite match.")
 	}
 	managementPrintMatch(w, indent, match, nil)
 	criteria := []struct {
@@ -198,9 +198,9 @@ func managementDescribeMatch(w io.Writer, indent string, match config.Match, sub
 		}
 		matched, operations := policy.Matches(criterion.match, subject)
 		possible, unresolved := policy.MatchMaybe(criterion.match, subject)
-		fmt.Fprintf(w, "%s%s: match=%t operations=%v maybe=%t operations=%v\n", indent, criterion.name, matched, operations, possible, unresolved)
+		_, _ = fmt.Fprintf(w, "%s%s: match=%t operations=%v maybe=%t operations=%v\n", indent, criterion.name, matched, operations, possible, unresolved)
 	}
 	if len(subject.Result.Operations) != 0 && !yes && !maybe {
-		fmt.Fprintln(w, indent+"All criteria are ANDed and must hold on one considered operation; skipped/not-selected operations do not match.")
+		_, _ = fmt.Fprintln(w, indent+"All criteria are ANDed and must hold on one considered operation; skipped/not-selected operations do not match.")
 	}
 }

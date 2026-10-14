@@ -51,7 +51,7 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 		} else {
 			spool, err := process.SpoolStdin(os.Stdin, c.Runtime.StdinMaxBytes, c.Runtime.StdinTimeout.D())
 			if spool != nil {
-				defer spool.Close()
+				defer func() { _ = spool.Close() }()
 				inv.Stdin = spool.Data()
 			}
 			if err != nil && spool == nil {
@@ -124,7 +124,7 @@ func managementInspect(command string, args []string) int {
 
 func managementHooks(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(os.Stdout, "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--json] -- <gh args>")
+		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--json] -- <gh args>")
 		if len(args) == 0 {
 			return 2
 		}
@@ -167,19 +167,19 @@ func managementHooks(args []string) int {
 			return managementJSON(display, r)
 		}
 		if len(display) == 0 {
-			fmt.Fprintln(os.Stdout, "No hooks configured.")
+			_, _ = fmt.Fprintln(os.Stdout, "No hooks configured.")
 		}
 		for _, h := range display {
 			enabled := h.Enabled == nil || *h.Enabled
-			fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
-			fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
+			_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
+			_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
 			managementPrintMatch(os.Stdout, "  ", h.Match, r)
 			if len(h.DependsOn) != 0 {
-				fmt.Fprintln(os.Stdout, r.String("  dependsOn: "+strings.Join(h.DependsOn, ", ")))
+				_, _ = fmt.Fprintln(os.Stdout, r.String("  dependsOn: "+strings.Join(h.DependsOn, ", ")))
 			}
 		}
 		for _, note := range notes {
-			fmt.Fprintln(os.Stdout, r.String("Note: "+note))
+			_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
 		}
 		return 0
 	}
@@ -231,16 +231,16 @@ func managementHooks(args []string) int {
 			return code
 		}
 	} else {
-		fmt.Fprintln(os.Stdout, "Synthetic hook test: original gh command is not executed.")
+		_, _ = fmt.Fprintln(os.Stdout, "Synthetic hook test: original gh command is not executed.")
 		if phase == config.PhasePost {
-			fmt.Fprintln(os.Stdout, "Post hooks receive a synthetic successful result (exitCode=0).")
+			_, _ = fmt.Fprintln(os.Stdout, "Post hooks receive a synthetic successful result (exitCode=0).")
 		}
 		for _, result := range results {
-			fmt.Fprintln(os.Stdout, r.String(managementCompact(result)))
+			_, _ = fmt.Fprintln(os.Stdout, r.String(managementCompact(result)))
 		}
-		fmt.Fprintf(os.Stdout, "Aggregate: %s (mode=%s, would-deny=%t)\n", decision, a.config.Policy.Mode, wouldDeny)
+		_, _ = fmt.Fprintf(os.Stdout, "Aggregate: %s (mode=%s, would-deny=%t)\n", decision, a.config.Policy.Mode, wouldDeny)
 		if aggregate.Message != "" {
-			fmt.Fprintln(os.Stdout, r.String("Message: "+aggregate.Message))
+			_, _ = fmt.Fprintln(os.Stdout, r.String("Message: "+aggregate.Message))
 		}
 	}
 	if decision == protocol.DecisionDeny {

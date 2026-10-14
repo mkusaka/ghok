@@ -131,7 +131,7 @@ Limits:
 
 Recommended user-created config mode: 0600; hook/config directories: 0700;
 executable hooks: 0700. ghok does not create or harden your config automatically.
-`enable` creates a missing bin directory as 0755 (subject to umask), an owned
+`ghok shim install` creates a missing bin directory as 0755 (subject to umask), an owned
 symlink, and shim state. Newly created state directories are 0700 and atomic
 state files 0600; existing directory permissions remain unchanged. Disable
 removes only owned shims, never real gh or foreign files. Concurrent external

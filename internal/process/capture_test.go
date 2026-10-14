@@ -23,8 +23,8 @@ func captureTestOutputs(t *testing.T, shared bool) (outR, outW, errR, errW *os.F
 	}
 	errR, errW, err = os.Pipe()
 	if err != nil {
-		outR.Close()
-		outW.Close()
+		_ = outR.Close()
+		_ = outW.Close()
 		t.Fatal(err)
 	}
 	oldOut, oldErr := os.Stdout, os.Stderr
@@ -34,10 +34,10 @@ func captureTestOutputs(t *testing.T, shared bool) (outR, outW, errR, errW *os.F
 	}
 	t.Cleanup(func() {
 		os.Stdout, os.Stderr = oldOut, oldErr
-		outR.Close()
-		outW.Close()
-		errR.Close()
-		errW.Close()
+		_ = outR.Close()
+		_ = outW.Close()
+		_ = errR.Close()
+		_ = errW.Close()
 	})
 	return
 }
@@ -100,8 +100,12 @@ func TestCaptureBoundedBinaryTee(t *testing.T) {
 			}
 			c.closeWrites()
 			out, stderr := captureTestFinish(t, c)
-			outW.Close()
-			errW.Close()
+			if err := outW.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := errW.Close(); err != nil {
+				t.Fatal(err)
+			}
 			captureTestWait(t, readDone)
 			if !bytes.Equal(gotOut, payload) || !bytes.Equal(gotErr, payload) {
 				t.Fatalf("tee output: stdout=%q stderr=%q", gotOut, gotErr)
@@ -142,7 +146,9 @@ func TestCaptureStreamsBeforeFinish(t *testing.T) {
 	if _, err := c.stdout.Write([]byte("first\n")); err != nil {
 		t.Fatal(err)
 	}
-	outR.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := outR.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	first := make([]byte, len("first\n"))
 	if _, err := io.ReadFull(outR, first); err != nil || string(first) != "first\n" {
 		t.Fatalf("first chunk before finish: %q, %v", first, err)
@@ -163,7 +169,9 @@ func TestCaptureStreamsBeforeFinish(t *testing.T) {
 
 func TestCaptureBrokenPipeClosesChildReadEnd(t *testing.T) {
 	outR, _, _, _ := captureTestOutputs(t, false)
-	outR.Close()
+	if err := outR.Close(); err != nil {
+		t.Fatal(err)
+	}
 	c, err := startCapture(1024)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +246,7 @@ func TestCaptureCloseCancelsFinishWithRetainedWriter(t *testing.T) {
 	if errno != 0 {
 		t.Fatal(errno)
 	}
-	defer syscall.Close(int(fd))
+	defer func() { _ = syscall.Close(int(fd)) }()
 	c.closeWrites()
 	done := make(chan struct{})
 	var out *Captured
@@ -296,7 +304,9 @@ func TestCaptureStartFailureClosesOwnedDescriptors(t *testing.T) {
 	_, outW, _, errW := captureTestOutputs(t, false)
 	fd := outW.Fd()
 	before := captureTestFlags(t, fd)
-	errW.Close()
+	if err := errW.Close(); err != nil {
+		t.Fatal(err)
+	}
 	c, err := startCapture(20)
 	if err == nil || c != nil {
 		t.Fatalf("capture with closed stderr = %v, %v", c, err)

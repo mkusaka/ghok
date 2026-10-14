@@ -23,8 +23,9 @@ import (
 const managementUsage = `Usage: ghok <command> [options]
 
 Commands:
-  enable [--bin-dir DIR]       Install the gh shim (default ~/.local/bin)
-  disable [--bin-dir DIR]      Remove only ghok's shim
+  shim install [--bin-dir DIR] Install the gh shim (default ~/.local/bin)
+  shim uninstall [--bin-dir DIR]
+                              Remove only ghok's shim
   doctor [--json]              Check installation, configuration and permissions
   version                     Show version, commit, Go version and platform
   hooks list [--json]          List configured hooks
@@ -46,12 +47,12 @@ Exit status: 0 success, 1 failure/denial, 2 usage error.
 // Management runs the management CLI. It never executes the user's gh command.
 func Management(args []string, version, commit string) int {
 	if len(args) == 0 {
-		fmt.Fprint(os.Stdout, managementUsage)
+		_, _ = fmt.Fprint(os.Stdout, managementUsage)
 		return 0
 	}
 	if args[0] == "help" {
 		if len(args) == 1 {
-			fmt.Fprint(os.Stdout, managementUsage)
+			_, _ = fmt.Fprint(os.Stdout, managementUsage)
 			return 0
 		}
 		return Management(append(append([]string(nil), args[1:]...), "--help"), version, commit)
@@ -61,10 +62,10 @@ func Management(args []string, version, commit string) int {
 		if len(args) != 1 {
 			return managementUsageError("help does not accept arguments")
 		}
-		fmt.Fprint(os.Stdout, managementUsage)
+		_, _ = fmt.Fprint(os.Stdout, managementUsage)
 		return 0
-	case "enable", "disable":
-		return managementInstall(args[0], args[1:])
+	case "shim":
+		return managementShim(args[1:])
 	case "doctor":
 		return managementDoctor(args[1:], version)
 	case "version":
@@ -75,11 +76,11 @@ func Management(args []string, version, commit string) int {
 		if version == "" {
 			version = "dev"
 		}
-		fmt.Fprintf(os.Stdout, "ghok %s\n", version)
+		_, _ = fmt.Fprintf(os.Stdout, "ghok %s\n", version)
 		if commit != "" {
-			fmt.Fprintf(os.Stdout, "commit %s\n", commit)
+			_, _ = fmt.Fprintf(os.Stdout, "commit %s\n", commit)
 		}
-		fmt.Fprintf(os.Stdout, "%s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		_, _ = fmt.Fprintf(os.Stdout, "%s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
 		return 0
 	case "hooks":
 		return managementHooks(args[1:])
@@ -96,7 +97,7 @@ func managementFlags(name, usage string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stdout, "Usage: %s\n", usage)
+		_, _ = fmt.Fprintf(os.Stdout, "Usage: %s\n", usage)
 		fs.SetOutput(os.Stdout)
 		fs.PrintDefaults()
 		fs.SetOutput(io.Discard)
@@ -167,9 +168,21 @@ func managementLoad(env map[string]string) (*config.Config, []string, string, er
 	return c, notes, cwd, err
 }
 
-func managementInstall(command string, args []string) int {
+func managementShim(args []string) int {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok shim <install|uninstall> [--bin-dir DIR]")
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
+	}
+	command := args[0]
+	if command != "install" && command != "uninstall" {
+		return managementUsageError("unknown shim command " + command)
+	}
+	args = args[1:]
 	env := environment()
-	fs := managementFlags(command, "ghok "+command+" [--bin-dir DIR]")
+	fs := managementFlags("shim "+command, "ghok shim "+command+" [--bin-dir DIR]")
 	bin := fs.String("bin-dir", filepath.Join(env["HOME"], ".local", "bin"), "directory containing the gh shim")
 	if code := managementParse(fs, args, false); code >= 0 {
 		return code
@@ -183,16 +196,16 @@ func managementInstall(command string, args []string) int {
 	}
 	state := filepath.Join(config.Dir(env), "state")
 	r := redact.New(env)
-	if command == "disable" {
+	if command == "uninstall" {
 		removed, err := install.Disable(install.DisableOptions{BinDir: *bin, Self: self, StateDir: state})
 		if err != nil {
 			return managementFailure(err)
 		}
 		if len(removed) == 0 {
-			fmt.Fprintln(os.Stdout, "No ghok shim to remove; other files are unchanged.")
+			_, _ = fmt.Fprintln(os.Stdout, "No ghok shim to remove; other files are unchanged.")
 		}
 		for _, path := range removed {
-			fmt.Fprintln(os.Stdout, r.String("Removed "+path))
+			_, _ = fmt.Fprintln(os.Stdout, r.String("Removed "+path))
 		}
 		return 0
 	}
@@ -203,19 +216,19 @@ func managementInstall(command string, args []string) int {
 	if err := install.ProbeShim(result.ShimPath, os.Environ()); err != nil {
 		return managementFailure(err)
 	}
-	fmt.Fprintln(os.Stdout, r.String("Enabled ghok shim: "+result.ShimPath))
-	fmt.Fprintln(os.Stdout, r.String("Real gh: "+result.RealGh))
-	fmt.Fprintln(os.Stdout, r.String("PATH: "+result.Precedence))
+	_, _ = fmt.Fprintln(os.Stdout, r.String("Installed ghok shim: "+result.ShimPath))
+	_, _ = fmt.Fprintln(os.Stdout, r.String("Real gh: "+result.RealGh))
+	_, _ = fmt.Fprintln(os.Stdout, r.String("PATH: "+result.Precedence))
 	if result.FixHint != "" {
-		fmt.Fprintln(os.Stdout, r.String("Fix: "+result.FixHint))
+		_, _ = fmt.Fprintln(os.Stdout, r.String("Fix: "+result.FixHint))
 	}
-	fmt.Fprintln(os.Stdout, "Shim probe passed. Shell rc files were not modified.")
+	_, _ = fmt.Fprintln(os.Stdout, "Shim probe passed. Shell rc files were not modified.")
 	return 0
 }
 
 func managementConfig(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(os.Stdout, "Usage: ghok config <validate|path>")
+		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok config <validate|path>")
 		if len(args) == 0 {
 			return 2
 		}
@@ -243,7 +256,7 @@ func managementConfig(args []string) int {
 	}
 	r := redact.New(env)
 	if args[0] == "path" {
-		fmt.Fprintln(os.Stdout, r.String(path))
+		_, _ = fmt.Fprintln(os.Stdout, r.String(path))
 		return 0
 	}
 	cwd, err := os.Getwd()
@@ -252,12 +265,12 @@ func managementConfig(args []string) int {
 	}
 	_, notes, err := config.LoadEffective(path, cwd, env)
 	for _, note := range notes {
-		fmt.Fprintln(os.Stdout, r.String("Note: "+note))
+		_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
 	}
 	if err != nil {
 		return managementFailure(err)
 	}
-	fmt.Fprintln(os.Stdout, r.String("Configuration valid: "+path+" (missing files use defaults)"))
+	_, _ = fmt.Fprintln(os.Stdout, r.String("Configuration valid: "+path+" (missing files use defaults)"))
 	return 0
 }
 
@@ -318,9 +331,9 @@ func managementDoctor(args []string, version string) int {
 		}
 	} else {
 		for _, check := range checks {
-			fmt.Fprintf(os.Stdout, "%s %s: %s\n", check.Status, check.Name, check.Detail)
+			_, _ = fmt.Fprintf(os.Stdout, "%s %s: %s\n", check.Status, check.Name, check.Detail)
 			if check.Fix != "" {
-				fmt.Fprintln(os.Stdout, "  Fix:", check.Fix)
+				_, _ = fmt.Fprintln(os.Stdout, "  Fix:", check.Fix)
 			}
 		}
 	}

@@ -92,7 +92,7 @@ func Checks(o DoctorOptions) []Check {
 				ownership.Status, ownership.Detail = StatusFail, shim+": "+err.Error()
 			} else if !owned {
 				ownership.Status, ownership.Detail = StatusWarn, shim+" is absent or not managed by ghok"
-				ownership.Fix = "Run ghok enable with --bin-dir set to " + strconv.Quote(filepath.Dir(shim)) + "; resolve any foreign path collision first."
+				ownership.Fix = "Run ghok shim install with --bin-dir set to " + strconv.Quote(filepath.Dir(shim)) + "; resolve any foreign path collision first."
 			}
 			checks = append(checks, ownership)
 		}

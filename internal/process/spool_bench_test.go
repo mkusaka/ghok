@@ -17,7 +17,11 @@ func BenchmarkSpoolStdin(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				b.Error(err)
+			}
+		}()
 		if _, err := f.Write(payload); err != nil {
 			b.Fatal(err)
 		}

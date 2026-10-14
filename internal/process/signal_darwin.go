@@ -17,8 +17,14 @@ func darwinLibcCall(fn, a1, a2, a3 uintptr) (r1, r2 uintptr, err syscall.Errno)
 func sigactionAddress() uintptr
 func sigprocmaskAddress() uintptr
 func raiseAddress() uintptr
+
+//nolint:unused // referenced from signal_darwin_arm64.s and signal_darwin_amd64.s.
 func sigactionTrampoline()
+
+//nolint:unused // referenced from signal_darwin_arm64.s and signal_darwin_amd64.s.
 func sigprocmaskTrampoline()
+
+//nolint:unused // referenced from signal_darwin_arm64.s and signal_darwin_amd64.s.
 func raiseTrampoline()
 
 //go:cgo_import_dynamic process_sigaction sigaction "/usr/lib/libSystem.B.dylib"

@@ -36,6 +36,19 @@ Install [GitHub CLI](https://cli.github.com/) first. Normalization is based on
 **gh 2.102.0**; other versions may add syntax that becomes unknown. Build and
 test with the Go version in [go.mod](go.mod).
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew install mkusaka/tap/ghok
+ghok shim install          # creates ~/.local/bin/gh -> ghok; shell rc files are not modified
+ghok doctor
+```
+
+The formula installs a prebuilt binary and depends on Homebrew's `gh`. Keep
+`~/.local/bin` before `$(brew --prefix)/bin` on PATH. `brew upgrade ghok` keeps
+the shim working because it points at the stable `opt/ghok` path, not a Cellar
+version directory.
+
 ### Go install
 
 ```sh
@@ -49,30 +62,28 @@ inject the release version/commit: `ghok version` reports `dev`.
 ### Release archive
 
 Download a tag from [Releases](https://github.com/mkusaka/ghok/releases). Archives
-are named `ghok_<tag>_<darwin|linux>_<amd64|arm64>.tar.gz` and contain a directory
-with `ghok`, `README.md`, and `LICENSE`. On Apple Silicon choose `darwin_arm64`;
-on Intel Macs choose `darwin_amd64`.
-
-For example, after setting `version` to a published tag:
+are built by GoReleaser, named `ghok_<darwin|linux>_<amd64|arm64>.tar.gz`, and
+contain `ghok`, `README.md`, and `LICENSE` at the top level. On Apple Silicon
+choose `darwin_arm64`; on Intel Macs choose `darwin_amd64`.
 
 ```sh
 # Run in a new download directory, with no existing files.
 gh release download "$version" --repo mkusaka/ghok \
   --pattern '*.tar.gz' --pattern checksums.txt
 shasum -a 256 -c checksums.txt
-archive="ghok_${version}_darwin_arm64.tar.gz" # change OS/arch as needed
+archive="ghok_darwin_arm64.tar.gz" # change OS/arch as needed
 gh attestation verify "$archive" --repo mkusaka/ghok \
   --signer-workflow mkusaka/ghok/.github/workflows/release.yml
-tar -xzf "$archive"
+tar -xzf "$archive" ghok
 mkdir -p "$HOME/.local/bin"
-install -m 755 "ghok_${version}_darwin_arm64/ghok" "$HOME/.local/bin/ghok"
+install -m 755 ghok "$HOME/.local/bin/ghok"
 ```
 
 Download all four archives for the complete checksum manifest check. Checksums
 detect corruption; provenance associates an artifact with this repository's
 release workflow. Neither proves the source safe. The release workflow uses
-trimmed build paths, explicit version/commit injection, normalized tar metadata,
-and gzip without timestamps; binaries are not Apple Developer-signed/notarized.
+trimmed build paths, explicit version/commit injection and commit-timestamped
+binaries. Binaries are not Apple Developer-signed/notarized.
 See [release engineering notes](docs/notes/docs.md).
 
 ### Build from source
@@ -91,14 +102,14 @@ empty). To label a build explicitly: `make build VERSION=v1.2.3 COMMIT=<sha>`.
 ## Enable, disable, upgrade, uninstall
 
 ```sh
-ghok enable                    # owned symlink ~/.local/bin/gh -> ghok
+ghok shim install                    # owned symlink ~/.local/bin/gh -> ghok
 export PATH="$HOME/.local/bin:$PATH"
 command -v gh                  # should identify the shim
 ghok doctor
-ghok disable                   # removes only the owned shim, idempotently
+ghok shim uninstall                   # removes only the owned shim, idempotently
 ```
 
-`enable` requires a discoverable real gh. It refuses foreign collisions,
+`shim install` requires a discoverable real gh. It refuses foreign collisions,
 checks the installed shim with a probe, and prints PATH instructions rather
 than editing shell startup files. Shells may cache command paths; refresh your
 shell's command cache (`hash -r` in bash, `rehash` in zsh) after PATH changes.
@@ -108,7 +119,7 @@ automatically checks every shim recorded there, including custom locations;
 without records it checks `~/.local/bin/gh`.
 
 Upgrade the `ghok` executable at its stable installation path, then run
-`ghok enable` and `ghok doctor` again. If the executable moved, enable replaces
+`ghok shim install` and `ghok doctor` again. If the executable moved, `shim install` replaces
 only the owned shim target. Real gh discovery follows current PATH-facing
 symlinks, so Homebrew's Cellar path need not be pinned.
 
@@ -309,7 +320,7 @@ measured; startup allocations describe the parent, not the child. Methodology:
 ```sh
 gofmt -l .                     # must print nothing
 go build ./...
-make vet
+make lint                      # golangci-lint v2.14.0 (includes govet)
 make test
 make race
 make fuzz                      # existing target: FuzzParse, 30s

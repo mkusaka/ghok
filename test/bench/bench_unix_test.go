@@ -47,7 +47,7 @@ func runBenchmarks(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer os.RemoveAll(benchmarkDir)
+	defer func() { _ = os.RemoveAll(benchmarkDir) }()
 	for _, name := range []string{"bin", "real", "home", "config", "gh-config", "tmp", "work"} {
 		if err := os.MkdirAll(filepath.Join(benchmarkDir, name), 0700); err != nil {
 			fmt.Fprintln(os.Stderr, err)

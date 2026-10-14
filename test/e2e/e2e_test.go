@@ -131,7 +131,7 @@ func newSandbox(t *testing.T) *sandbox {
 	}
 	s.env = map[string]string{"HOME": filepath.Join(root, "home"), "XDG_CONFIG_HOME": filepath.Join(root, "xdg"), "GH_CONFIG_DIR": filepath.Join(root, "gh-config"), "GHOK_CONFIG_DIR": filepath.Dir(s.cfg), "PATH": s.bin + string(os.PathListSeparator) + filepath.Dir(s.real), "TMPDIR": filepath.Join(root, "tmp"), "FAKEGH_RECORD": s.record, "LANG": "C", "TERM": "xterm"}
 	s.configure(nil)
-	result := s.management(nil, "enable", "--bin-dir", s.bin)
+	result := s.management(nil, "shim", "install", "--bin-dir", s.bin)
 	result.code(t, 0)
 	info, err := os.Lstat(filepath.Join(s.bin, "gh"))
 	if err != nil || info.Mode()&os.ModeSymlink == 0 {

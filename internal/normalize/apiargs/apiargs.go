@@ -121,9 +121,7 @@ func Parse(args []string) (model.APIRequest, error) {
 			req.MethodExplicit = true
 		case "preview":
 			// StringSlice: comma separated, repeatable.
-			for _, p := range strings.Split(val, ",") {
-				req.Previews = append(req.Previews, p)
-			}
+			req.Previews = append(req.Previews, strings.Split(val, ",")...)
 		case "template":
 			req.Template = val
 		}

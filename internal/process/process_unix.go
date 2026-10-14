@@ -41,7 +41,7 @@ type Result struct {
 // pump or output capture needs Run instead. Failed exec restores the original fd 0.
 func Exec(opts Options) (err error) {
 	if opts.Stdin != nil {
-		defer opts.Stdin.Close()
+		defer func() { _ = opts.Stdin.Close() }()
 	}
 	if len(opts.Args) == 0 || opts.Capture || (opts.Stdin != nil && opts.Stdin.RequiresSupervision()) {
 		return fmt.Errorf("exec requires argv and file-backed, uncaptured stdio: %w", syscall.EINVAL)
@@ -52,7 +52,7 @@ func Exec(opts Options) (err error) {
 			return e
 		}
 		syscall.CloseOnExec(saved)
-		defer syscall.Close(saved)
+		defer func() { _ = syscall.Close(saved) }()
 		if e = dupStandardInput(int(opts.Stdin.File().Fd())); e != nil {
 			return e
 		}
@@ -81,7 +81,7 @@ func Run(ctx context.Context, opts Options) (result Result) {
 	result.ExitCode = -1
 	defer func() { result.Duration = time.Since(start) }()
 	if opts.Stdin != nil {
-		defer opts.Stdin.Close()
+		defer func() { _ = opts.Stdin.Close() }()
 	}
 	if len(opts.Args) == 0 {
 		result.StartErr = syscall.EINVAL
@@ -315,7 +315,7 @@ func foregroundTTY() bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var pg int32
 	return ioctl(f.Fd(), syscall.TIOCGPGRP, unsafe.Pointer(&pg)) == nil && int(pg) == syscall.Getpgrp()
 }

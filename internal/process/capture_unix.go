@@ -70,10 +70,10 @@ func startCapture(limit int64) (*capture, error) {
 	if err != nil {
 		c.closeWrites()
 		if c.out.read != nil {
-			c.out.read.Close()
+			_ = c.out.read.Close()
 		}
 		if c.err.read != nil {
-			c.err.read.Close()
+			_ = c.err.read.Close()
 		}
 		c.closeSinks()
 		return nil, err
@@ -103,7 +103,7 @@ func duplicateCaptureSink(original *os.File) (captureSink, error) {
 		sink.fd = int(fd)
 		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFL, 0)
 		if errno != 0 {
-			syscall.Close(sink.fd)
+			_ = syscall.Close(sink.fd)
 			sink.fd = -1
 			dupErr = os.NewSyscallError("fcntl(F_GETFL)", errno)
 			return
@@ -137,17 +137,17 @@ func (s *captureSink) prepare() error {
 func (c *capture) closeWrites() {
 	c.writesOnce.Do(func() {
 		if c.stdout != nil {
-			c.stdout.Close()
+			_ = c.stdout.Close()
 		}
 		if c.stderr != nil {
-			c.stderr.Close()
+			_ = c.stderr.Close()
 		}
 	})
 }
 
 func (s *captureStream) pump(limit int64) {
 	defer close(s.done)
-	defer s.read.Close()
+	defer func() { _ = s.read.Close() }()
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := s.read.Read(buf)
@@ -197,8 +197,8 @@ func (c *capture) close() {
 			// closing the sink before its shared status flags can be restored.
 			// Regular files/devices without deadline support cannot have a
 			// stalled kernel write interrupted portably.
-			s.read.SetReadDeadline(time.Now())
-			s.sink.file.SetWriteDeadline(time.Now())
+			_ = s.read.SetReadDeadline(time.Now())
+			_ = s.sink.file.SetWriteDeadline(time.Now())
 		}
 	})
 	c.join()
@@ -223,9 +223,9 @@ func (c *capture) closeSinks() {
 	}
 	for _, s := range []*captureStream{c.out, c.err} {
 		if s.sink.file != nil {
-			s.sink.file.Close()
+			_ = s.sink.file.Close()
 		} else if s.sink.fd >= 0 {
-			syscall.Close(s.sink.fd)
+			_ = syscall.Close(s.sink.fd)
 		}
 		s.sink.fd = -1
 	}

@@ -163,7 +163,7 @@ func TestOpenRejectsUnsafeFiles(t *testing.T) {
 			}
 			logger, err := OpenWithRedactor(path, "info", redact.New(nil))
 			if err == nil {
-				logger.Close()
+				_ = logger.Close()
 				t.Fatal("unsafe path accepted")
 			}
 			data, err := os.ReadFile(target)
@@ -178,7 +178,7 @@ func TestOpenRejectsUnsafeFiles(t *testing.T) {
 func TestOpenValidationAndClose(t *testing.T) {
 	for _, input := range []struct{ path, level string }{{"", "info"}, {filepath.Join(t.TempDir(), "log"), "debug"}} {
 		if logger, err := Open(input.path, input.level); err == nil {
-			logger.Close()
+			_ = logger.Close()
 			t.Errorf("accepted invalid input %+v", input)
 		}
 	}
@@ -255,7 +255,11 @@ func TestRedactionDoesNotMutateRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer logger.Close()
+	defer func() {
+		if err := logger.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	record := Record{
 		Time:         time.Date(2026, 10, 14, 1, 2, 3, 4, time.UTC),
 		InvocationID: secret, Mode: secret, DurationMs: 123,
@@ -475,8 +479,8 @@ func runProcessWriters(t *testing.T, path string, workers, count int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gateRead.Close()
-	defer gateWrite.Close()
+	defer func() { _ = gateRead.Close() }()
+	defer func() { _ = gateWrite.Close() }()
 	commands := make([]*exec.Cmd, 0, workers)
 	outputs := make([]*bytes.Buffer, 0, workers)
 	for worker := range workers {
@@ -495,24 +499,27 @@ func runProcessWriters(t *testing.T, path string, workers, count int) {
 		output := new(bytes.Buffer)
 		cmd.Stdout, cmd.Stderr = output, output
 		if err := cmd.Start(); err != nil {
-			readyRead.Close()
-			readyWrite.Close()
+			_ = readyRead.Close()
+			_ = readyWrite.Close()
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
 			if cmd.ProcessState == nil {
-				cmd.Process.Kill()
-				cmd.Wait()
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
 			}
 		})
-		readyWrite.Close()
+		if err := readyWrite.Close(); err != nil {
+			_ = readyRead.Close()
+			t.Fatal(err)
+		}
 		if err := readyRead.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-			readyRead.Close()
+			_ = readyRead.Close()
 			t.Fatal(err)
 		}
 		var ready [1]byte
 		_, err = io.ReadFull(readyRead, ready[:])
-		readyRead.Close()
+		_ = readyRead.Close()
 		if err != nil {
 			t.Fatalf("helper did not become ready: %v", err)
 		}
@@ -541,7 +548,9 @@ func TestLoggingProcessHelper(t *testing.T) {
 	if _, err := ready.Write([]byte{'x'}); err != nil {
 		t.Fatal(err)
 	}
-	ready.Close()
+	if err := ready.Close(); err != nil {
+		t.Fatal(err)
+	}
 	var gate [1]byte
 	if _, err := io.ReadFull(os.Stdin, gate[:]); err != nil {
 		t.Fatal(err)

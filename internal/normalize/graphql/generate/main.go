@@ -96,7 +96,7 @@ func readSchema(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch schema: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch schema: HTTP %s", response.Status)
 	}

@@ -44,8 +44,8 @@ func TestStdinTimeoutReplaysPrefixAndLiveRemainder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
 	cmd.Stdin = reader
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -130,8 +130,8 @@ func TestUnneededStdinAnalysisStartsGhBeforeEOF(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer reader.Close()
-				defer writer.Close()
+				defer func() { _ = reader.Close() }()
+				defer func() { _ = writer.Close() }()
 				cmd.Stdin = reader
 				var stdout, stderr bytes.Buffer
 				cmd.Stdout, cmd.Stderr = &stdout, &stderr

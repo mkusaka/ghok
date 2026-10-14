@@ -56,7 +56,7 @@ func invocation(c *config.Config, args []string, env map[string]string, cwd stri
 		if err != nil {
 			return nil, err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		limit := c.Runtime.FileMaxBytes
 		if limit < math.MaxInt64 {
 			limit++

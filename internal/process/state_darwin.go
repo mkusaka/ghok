@@ -13,6 +13,8 @@ func darwinLibcCall6(fn, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err sy
 
 //go:cgo_import_dynamic process_pidinfo proc_pidinfo "/usr/lib/libSystem.B.dylib"
 func pidinfoAddress() uintptr
+
+//nolint:unused // referenced from signal_darwin_arm64.s and signal_darwin_amd64.s.
 func pidinfoTrampoline()
 
 func childStillStopped(pid int) bool {

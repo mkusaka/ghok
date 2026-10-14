@@ -101,7 +101,7 @@ func readConfig(path, home string, depth int) ([]configEntry, error) {
 			return fail()
 		}
 		for i, c := range key {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || i > 0 && (c >= '0' && c <= '9' || c == '-')) {
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (i == 0 || (c < '0' || c > '9') && c != '-') {
 				return fail()
 			}
 		}

@@ -84,7 +84,7 @@ func wrapperMain() {
 		opts.Stdin, err = SpoolStdin(os.Stdin, cfg.SpoolLimit, cfg.Timeout)
 		if err != nil {
 			if opts.Stdin != nil {
-				opts.Stdin.Close()
+				_ = opts.Stdin.Close()
 			}
 			os.Exit(125)
 		}
@@ -250,7 +250,7 @@ func childMain() {
 		if err := cmd.Start(); err != nil {
 			panic(err)
 		}
-		r.Close()
+		_ = r.Close()
 		waiter := beginCommandWait(cmd, func() { _ = w.Close() })
 		fmt.Printf("READY %d\n", cmd.Process.Pid)
 		select {
@@ -339,8 +339,8 @@ func startPiped(t *testing.T, cfg wrapperConfig) (*commandWait, *bufio.Reader, *
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	inR.Close()
-	outW.Close()
+	_ = inR.Close()
+	_ = outW.Close()
 	waiter := beginCommandWait(cmd, func() { _ = inW.Close(); _ = outR.Close() })
 	t.Cleanup(func() {
 		_ = inW.Close()
@@ -559,7 +559,7 @@ func TestLargeOutputAndStreaming(t *testing.T) {
 			if lineWithin(t, reader) != "second" {
 				t.Fatal("second chunk")
 			}
-			input.Close()
+			_ = input.Close()
 			if s = waitCommand(t, piped); !s.Exited() || s.ExitStatus() != 0 {
 				t.Fatal(s)
 			}
@@ -586,12 +586,12 @@ func TestBrokenPipe(t *testing.T) {
 			if err := r.SetReadDeadline(time.Now().Add(commandTimeout)); err != nil {
 				t.Fatal(err)
 			}
-			w.Close()
+			_ = w.Close()
 			var b [1]byte
 			if _, err = io.ReadFull(r, b[:]); err != nil {
 				t.Fatal(err)
 			}
-			r.Close()
+			_ = r.Close()
 			s := waitCommand(t, waiter)
 			if !s.Signaled() || s.Signal() != syscall.SIGPIPE {
 				t.Fatalf("status %v want SIGPIPE", s)

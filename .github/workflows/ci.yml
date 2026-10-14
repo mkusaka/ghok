@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,6 +17,7 @@ jobs:
     name: ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
@@ -38,11 +39,11 @@ jobs:
         shell: bash
     steps:
       - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -53,8 +54,6 @@ jobs:
         run: |
           test "$(go env GOOS)" = "$EXPECTED_OS"
           test "$(go env GOARCH)" = "$EXPECTED_ARCH"
-      - name: Vet
-        run: go vet ./...
       - name: Check formatting
         run: |
           unformatted="$(gofmt -l .)"
@@ -90,3 +89,33 @@ jobs:
               GOOS="$os" GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/ghok-cross/ghok_${os}_${arch}" ./cmd/ghok
             done
           done
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: golangci-lint (linux)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          install-mode: binary
+          args: ./...
+      - name: golangci-lint (darwin build constraints)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        env:
+          GOOS: darwin
+        with:
+          version: v2.14.0
+          install-mode: binary
+          args: ./...

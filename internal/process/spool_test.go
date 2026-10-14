@@ -112,7 +112,11 @@ func TestSpoolRegularOffsetAndLimit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
 			if _, err = f.Write(payload); err != nil {
 				t.Fatal(err)
 			}
@@ -215,7 +219,7 @@ func TestSpoolInheritedBlockingDescriptorTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := os.NewFile(uintptr(fd), "inherited-stdin")
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	if err := input.SetReadDeadline(time.Now()); !errors.Is(err, os.ErrNoDeadline) {
 		t.Fatalf("expected non-pollable inherited descriptor, got %v", err)
 	}
@@ -370,7 +374,7 @@ func TestSpoolReadErrorAndInvalidArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write([]byte{1, 2})
 	_, _ = f.Seek(1, io.SeekStart)
 	s, err = SpoolStdin(f, 10, 0)
@@ -382,7 +386,9 @@ func TestSpoolReadErrorAndInvalidArguments(t *testing.T) {
 		t.Fatalf("error changed offset=%d err=%v", offset, seekErr)
 	}
 	spoolTestClose(t, s)
-	_ = f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	s, err = SpoolStdin(f, 10, 0)
 	if err == nil || s.Data().Status != model.StdinError {
 		t.Fatalf("closed input: %+v err=%v", s.Data(), err)
@@ -403,8 +409,8 @@ func TestSpoolSocketReplay(t *testing.T) {
 	}
 	r := os.NewFile(uintptr(fds[0]), "socket-input")
 	w := os.NewFile(uintptr(fds[1]), "socket-producer")
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 	payload := []byte{0, 255, 42, 0}
 	if _, err := w.Write(payload); err != nil {
 		t.Fatal(err)
@@ -444,7 +450,7 @@ func TestSpoolStreamReadErrorUsableReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	s, err := SpoolStdin(f, 10, time.Second)
 	if err == nil || s == nil || s.Data().Status != model.StdinError || s.Data().Error == "" {
 		t.Fatalf("directory read: spool=%v err=%v", s, err)
@@ -522,7 +528,7 @@ func TestSpoolNamedFIFOEOF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	// Make writer closure an observed prerequisite, not a scheduling assumption.
 	select {
 	case err := <-done:
@@ -564,7 +570,7 @@ func TestSpoolNamedFIFOPumpEOF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	select {
 	case err := <-done:
 		if err != nil {

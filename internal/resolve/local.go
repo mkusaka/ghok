@@ -28,7 +28,7 @@ func readBounded(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
 	if err == nil && len(data) > maxBytes {
 		return nil, fmt.Errorf("git metadata exceeds 1 MiB")

@@ -24,18 +24,18 @@ func pollablePTY(t *testing.T, f *os.File) *os.File {
 	t.Helper()
 	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_DUPFD_CLOEXEC, 3)
 	if errno != 0 {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(errno)
 	}
 	if err := syscall.SetNonblock(int(fd), true); err != nil {
-		syscall.Close(int(fd))
-		f.Close()
+		_ = syscall.Close(int(fd))
+		_ = f.Close()
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	file := os.NewFile(fd, "test-pty")
 	if err := file.SetReadDeadline(time.Time{}); err != nil {
-		file.Close()
+		_ = file.Close()
 		t.Fatal(err)
 	}
 	return file
@@ -52,7 +52,7 @@ func startPTY(t *testing.T, cfg wrapperConfig) (*commandWait, *os.File, *bufio.R
 	w := beginCommandWait(cmd, func() {
 		// Darwin exiting processes can wait for unread tty output: release
 		// the master before reaping, including when an assertion failed.
-		f.Close()
+		_ = f.Close()
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	})
 	t.Cleanup(func() { cleanupCommand(t, w) })
@@ -64,7 +64,7 @@ func waitPTYCommand(t *testing.T, w *commandWait, f *os.File, r *bufio.Reader) s
 	drained := make(chan struct{})
 	go func() { _, _ = io.Copy(io.Discard, r); close(drained) }()
 	status := waitCommand(t, w)
-	f.Close()
+	_ = f.Close()
 	select {
 	case <-drained:
 	case <-time.After(5 * time.Second):
@@ -93,12 +93,12 @@ func TestSpoolTTYIsNotConsumed(t *testing.T) {
 	}
 	master = pollablePTY(t, master)
 	slave = pollablePTY(t, slave)
-	t.Cleanup(func() { master.Close(); slave.Close() })
+	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
 	spool, err := SpoolStdin(slave, 0, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer spool.Close()
+	defer func() { _ = spool.Close() }()
 	if spool.Data().Status != model.StdinTTY || spool.File() != slave || spool.RequiresSupervision() {
 		t.Fatalf("terminal spool status %s pump %v", spool.Data().Status, spool.RequiresSupervision())
 	}
@@ -235,12 +235,12 @@ func TestChildStopContinue(t *testing.T) {
 				if err = cmd.Start(); err != nil {
 					t.Fatal(err)
 				}
-				inR.Close()
-				outW.Close()
+				_ = inR.Close()
+				_ = outW.Close()
 				var waiter *commandWait
 				t.Cleanup(func() {
-					inW.Close()
-					outR.Close()
+					_ = inW.Close()
+					_ = outR.Close()
 					if waiter == nil {
 						waiter = beginCommandWait(cmd, nil)
 					}
@@ -260,7 +260,7 @@ func TestChildStopContinue(t *testing.T) {
 				if err = cmd.Process.Signal(syscall.SIGCONT); err != nil {
 					t.Fatal(err)
 				}
-				inW.Close()
+				_ = inW.Close()
 				if status := waitCommand(t, waiter); !status.Exited() || status.ExitStatus() != 0 {
 					t.Fatal(status)
 				}
@@ -280,7 +280,7 @@ func TestHandledTerminalStopDoesNotStopWrapper(t *testing.T) {
 	if got := lineWithin(t, r); got != "HANDLED" {
 		t.Fatalf("child stop handler: %q", got)
 	}
-	input.Close()
+	_ = input.Close()
 	if status := waitCommand(t, w); !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatalf("wrapper stopped despite a running child: %v", status)
 	}
@@ -302,7 +302,7 @@ func TestShellForegroundBackgroundJobs(t *testing.T) {
 	f = pollablePTY(t, f)
 	jobGroup := 0
 	w := beginCommandWait(cmd, func() {
-		f.Close()
+		_ = f.Close()
 		if jobGroup != 0 {
 			_ = syscall.Kill(-jobGroup, syscall.SIGKILL)
 		}
@@ -312,10 +312,7 @@ func TestShellForegroundBackgroundJobs(t *testing.T) {
 	r := bufio.NewReader(f)
 	// Mark prompts with explicit commands, so no timeout/sleep-based prompt polling.
 	_, _ = f.WriteString("stty -echo; printf 'SHELL_READY\\n'\n")
-	for {
-		if lineWithin(t, r) == "SHELL_READY" {
-			break
-		}
+	for lineWithin(t, r) != "SHELL_READY" {
 	}
 	_, _ = fmt.Fprintf(f, "'%s'\n", wrapper.Path)
 	for {
@@ -333,17 +330,11 @@ func TestShellForegroundBackgroundJobs(t *testing.T) {
 		}
 	}
 	_, _ = f.Write([]byte{26})
-	for {
-		if strings.Contains(lineWithin(t, r), "Stopped") {
-			break
-		}
+	for !strings.Contains(lineWithin(t, r), "Stopped") {
 	}
 	_, _ = fmt.Fprintln(f, "bg; printf 'BG_RESUMED\\n'")
 	// The child reads its terminal while backgrounded and gets SIGTTIN.
-	for {
-		if lineWithin(t, r) == "BG_RESUMED" {
-			break
-		}
+	for lineWithin(t, r) != "BG_RESUMED" {
 	}
 	_, _ = fmt.Fprintln(f, "wait %1; jobs -l; printf 'BG_CHECK_DONE\\n'")
 	stopped := false

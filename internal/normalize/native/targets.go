@@ -82,7 +82,7 @@ func extractTarget(op *model.Operation, c commandSpec, p parsedArgs, inv model.I
 		scoped = false
 		op.Target.Owner = p.value("org")
 	}
-	if scoped && repo != "" && !(c.positional == "repo" && arg != "") && !((c.positional == "pr" || c.positional == "issue") && strings.Contains(arg, "://")) {
+	if scoped && repo != "" && (c.positional != "repo" || arg == "") && ((c.positional != "pr" && c.positional != "issue") || !strings.Contains(arg, "://")) {
 		if t, ok := parseRepository(repo, host); ok {
 			op.Target = t
 		} else {

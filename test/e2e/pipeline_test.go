@@ -719,7 +719,7 @@ func TestHelperPhasesPreserveIgnoredStartupSignals(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer release.Close()
+				defer func() { _ = release.Close() }()
 				s.configure(func(c *config.Config) {
 					yes := true
 					c.Logging.Enabled = &yes

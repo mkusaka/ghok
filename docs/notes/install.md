@@ -18,7 +18,7 @@ After Enable, the management CLI must call `ProbeShim(shim, env)`. This executes
 
 An owned shim must be a symlink with either a matching recorded target (even if that old binary is gone), a resolved regular target named ghok, or a target SameFile as Self. Requiring recorded-target equality prevents stale state from authorizing deletion of a replacement foreign symlink. Renamed binaries remain manageable through matching state. Enable also excludes recorded old shims during upgrade discovery. A ghok filename is not verified binary identity: this is bookkeeping, not a security boundary.
 
-New links use os.Symlink, which fails on collision; owned upgrades use temporary symlink + rename. Corrupt/unreadable state fails explicitly. Serialize enable/disable: concurrent external path/state mutation is unsupported, and POSIX path operations cannot transact against unrelated writers. Real gh, shell rc files, process PATH, gh configuration, and git configuration are never modified.
+New links use os.Symlink, which fails on collision; owned upgrades use temporary symlink + rename. Corrupt/unreadable state fails explicitly. Serialize shim install/uninstall: concurrent external path/state mutation is unsupported, and POSIX path operations cannot transact against unrelated writers. Real gh, shell rc files, process PATH, gh configuration, and git configuration are never modified.
 
 ## gh v2.102.0 findings
 

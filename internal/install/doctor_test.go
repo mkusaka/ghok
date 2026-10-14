@@ -279,8 +279,8 @@ func TestTerminalDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 	if !stdinTTY(slave) {
 		t.Fatal("PTY not recognized")
 	}
@@ -288,7 +288,7 @@ func TestTerminalDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if stdinTTY(file) {
 		t.Fatal("regular file recognized as terminal")
 	}

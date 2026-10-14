@@ -37,7 +37,9 @@ func TestRunAndExecFailureCleanup(t *testing.T) {
 		if _, err = w.Write([]byte{0, 255, 10}); err != nil {
 			t.Fatal(err)
 		}
-		w.Close()
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
 		spool, err := SpoolStdin(r, 100, time.Second)
 		if err != nil {
 			t.Fatal(err)
@@ -53,7 +55,7 @@ func TestRunAndExecFailureCleanup(t *testing.T) {
 				t.Fatal(result.StartErr)
 			}
 		}
-		r.Close()
+		_ = r.Close()
 		entries, err := os.ReadDir(tmp)
 		if err != nil {
 			t.Fatal(err)
@@ -98,8 +100,8 @@ func TestExecRefusesLivePumpAndRestoresStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 	_, _ = w.Write([]byte{0, 1, 2})
 	spool, err := SpoolStdin(r, 1, time.Second)
 	if err != nil {
@@ -120,9 +122,11 @@ func TestExecRefusesLivePumpAndRestoresStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r2.Close()
+	defer func() { _ = r2.Close() }()
 	_, _ = w2.Write([]byte{4, 0, 5})
-	w2.Close()
+	if err := w2.Close(); err != nil {
+		t.Fatal(err)
+	}
 	spool, err = SpoolStdin(r2, 10, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +165,9 @@ func TestPipeSpoolTimeoutRunReplay(t *testing.T) {
 		t.Fatalf("prefix %v", got)
 	}
 	_, _ = w.Write([]byte("rest\n"))
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if lineWithin(t, r) != "rest" {
 		t.Fatal("rest lost")
 	}

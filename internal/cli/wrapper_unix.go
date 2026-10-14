@@ -30,7 +30,7 @@ import (
 // terminates through Result.Exit to preserve the child's exact wait status.
 func Wrapper(args []string) int {
 	if os.Getenv("GHOK_PROBE") == "1" {
-		fmt.Fprintln(os.Stdout, "ghok-probe")
+		_, _ = fmt.Fprintln(os.Stdout, "ghok-probe")
 		return 0
 	}
 	started := time.Now()
@@ -107,7 +107,7 @@ func Wrapper(args []string) int {
 		if spool == nil {
 			return fatal(spoolErr, 1)
 		} // Replay could not preserve consumed bytes.
-		defer spool.Close()
+		defer func() { _ = spool.Close() }()
 		opts.Stdin, inv.Stdin = spool, spool.Data()
 	}
 	result := normalize.Normalize(inv)
@@ -153,7 +153,7 @@ func Wrapper(args []string) int {
 		logRecord()
 		closeLog()
 		if opts.Stdin != nil {
-			opts.Stdin.Close()
+			_ = opts.Stdin.Close()
 		}
 		process.Result{ExitCode: -1, Signal: caught}.Exit()
 	}
