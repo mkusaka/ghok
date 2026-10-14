@@ -20,11 +20,11 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		return nil, nil, err
 	}
 	global = absolute
-	c, err := Load(global)
-	if err != nil {
-		return nil, nil, err
-	}
 	var notes []string
+	c, err := load(global, &notes)
+	if err != nil {
+		return nil, notes, err
+	}
 	warnWritable(global, &notes)
 	for _, h := range c.Hooks {
 		warnWritable(hookPermissionPath(c.HookCommandPath(h), cwd, env), &notes)
@@ -48,9 +48,11 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		}
 	}
 	if !trusted {
-		notes = append(notes, fmt.Sprintf("found untrusted project config at %s; ignored", resolved))
+		notes = append(notes, fmt.Sprintf("Project config: %s (ignored-untrusted: canonical path %s is not listed in global trust.projects)", project, resolved))
 		return c, notes, nil
 	}
+	sourceIndex := len(notes)
+	notes = append(notes, fmt.Sprintf("Project config: %s (trusted; loading)", project))
 	warnWritable(project, &notes)
 	data, err := os.ReadFile(project)
 	if err != nil {
@@ -76,6 +78,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		return nil, notes, fmt.Errorf("project config %s: %w", project, err)
 	}
 	for _, h := range p.Hooks {
+		h.Source = project
 		warnWritable(hookPermissionPath(p.HookCommandPath(h), cwd, env), &notes)
 		if len(h.Command) > 0 {
 			command := append([]string(nil), h.Command...)
@@ -115,6 +118,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	if err := c.Validate(); err != nil {
 		return nil, notes, fmt.Errorf("effective config: %w", err)
 	}
+	notes[sourceIndex] = fmt.Sprintf("Project config: %s (loaded; merged with global config)", project)
 	return c, notes, nil
 }
 

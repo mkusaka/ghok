@@ -48,9 +48,10 @@ func TestManagementVersionAndHelp(t *testing.T) {
 func TestManagementUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"unknown-command"}, {"version", "unexpected"}, {"version", "--invalid"},
-		{"normalize"}, {"normalize", "pr", "merge", "1"}, {"normalize", "--allow-api", "--", "pr", "merge", "1"},
-		{"explain", "--allow-api", "--", "pr", "merge", "1"}, {"hooks", "unknown"},
+		{"normalize"}, {"normalize", "pr", "merge", "1"}, {"normalize", "--allow-api", "--no-resolve", "--", "pr", "merge", "1"},
+		{"explain", "--allow-api", "--no-resolve", "--", "pr", "merge", "1"}, {"hooks", "unknown"},
 		{"hooks", "test", "--phase", "bad", "--", "version"}, {"hooks", "test", "--"},
+		{"hooks", "test", "--allow-api", "--no-resolve", "--", "version"},
 		{"config", "unknown"}, {"doctor", "--unknown"}, {"shim", "install", "--bin-dir", ""},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
@@ -103,7 +104,7 @@ func TestManagementNormalize(t *testing.T) {
 	t.Run("local-resolution-no-child", func(t *testing.T) {
 		s := newSandbox(t)
 		s.env["GH_REPO"] = "acme/project"
-		result := s.management(nil, "normalize", "--resolve", "--", "pr", "merge", "7")
+		result := s.management(nil, "normalize", "--", "pr", "merge", "7")
 		result.code(t, 0)
 		var normalized model.Result
 		decodeJSON(t, result.stdout, &normalized)
@@ -116,7 +117,7 @@ func TestManagementNormalize(t *testing.T) {
 		s := newSandbox(t)
 		s.env["GH_HOST"] = "github.com"
 		s.env["FAKEGH_API_RESPONSE"] = `{"data":{"node":{"__typename":"PullRequest","number":7,"repository":{"nameWithOwner":"acme/project"}}}}`
-		result := s.management(nil, "normalize", "--resolve", "--allow-api", "--", "api", "graphql", "-f", `query=mutation { mergePullRequest(input:{pullRequestId:"PR_node"}) { clientMutationId } }`)
+		result := s.management(nil, "normalize", "--allow-api", "--", "api", "graphql", "-f", `query=mutation { mergePullRequest(input:{pullRequestId:"PR_node"}) { clientMutationId } }`)
 		result.code(t, 0)
 		var normalized model.Result
 		decodeJSON(t, result.stdout, &normalized)
@@ -130,6 +131,102 @@ func TestManagementNormalize(t *testing.T) {
 	})
 }
 
+func TestManagementMergeDetails(t *testing.T) {
+	s := newSandbox(t)
+	for _, tc := range []struct {
+		flag, action string
+		detail       []string
+	}{
+		{"", "pr.merge.request", []string{"server", "direct merge, queue, or auto-merge"}},
+		{"--admin", "pr.merge.direct", []string{"bypasses requirements", "merge queue", "server may still reject"}},
+		{"--auto", "pr.merge.auto.enable", []string{"enable auto-merge", "not a completed merge"}},
+		{"--disable-auto", "pr.merge.auto.disable", []string{"disable auto-merge", "not a direct merge"}},
+	} {
+		args := []string{"normalize", "--", "pr", "merge", "12", "-R", "acme/project"}
+		if tc.flag != "" {
+			args = append(args, tc.flag)
+		}
+		result := s.management(nil, args...)
+		result.code(t, 0)
+		var normalized model.Result
+		decodeJSON(t, result.stdout, &normalized)
+		op := normalized.Operations[0]
+		if op.Action != tc.action {
+			t.Fatalf("merge action=%s, want %s", op.Action, tc.action)
+		}
+		for _, meaning := range tc.detail {
+			if !strings.Contains(op.Detail, meaning) {
+				t.Fatalf("merge detail=%q, missing %q", op.Detail, meaning)
+			}
+		}
+		if tc.flag != "" && strings.Contains(op.Detail, "state decide") {
+			t.Fatalf("specific merge action has generic server-choice detail: %q", op.Detail)
+		}
+	}
+	s.absentRecord()
+}
+
+func TestManagementLocalResolution(t *testing.T) {
+	for _, source := range []string{"git", "env"} {
+		t.Run(source, func(t *testing.T) {
+			s := newSandbox(t)
+			if source == "git" {
+				if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(s.cwd, ".git", "config"), []byte("[remote \"origin\"]\nurl = https://ghe.example/acme/project.git\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s.env["GH_REPO"], s.env["GH_HOST"] = "acme/project", "ghe.example"
+			}
+			s.configure(func(c *config.Config) { c.Hooks = []config.Hook{s.hook("local", "pre")} })
+			for _, flags := range [][]string{nil, {"--resolve"}, {"--resolve=false"}, {"--no-resolve"}} {
+				args := append([]string{"normalize"}, flags...)
+				result := s.management(nil, append(args, "--", "pr", "merge", "12")...)
+				result.code(t, 0)
+				var normalized model.Result
+				decodeJSON(t, result.stdout, &normalized)
+				op := normalized.Operations[0]
+				if source == "git" && len(flags) != 0 && flags[0] == "--no-resolve" {
+					if op.Target.Repository != "" || op.Target.Owner != "" || op.Target.Host != "" {
+						t.Fatalf("disabled resolution target=%+v", op.Target)
+					}
+				} else if op.Target.Repository != "acme/project" || op.Target.Owner != "acme" || op.Target.Host != "ghe.example" {
+					t.Fatalf("resolved target=%+v", op.Target)
+				}
+			}
+			for _, command := range []string{"explain", "hooks"} {
+				args := []string{command}
+				if command == "hooks" {
+					args = append(args, "test")
+				}
+				result := s.management(nil, append(args, "--", "pr", "merge", "12")...)
+				result.code(t, 0)
+				if command == "explain" {
+					if !bytes.Contains(result.stdout, []byte(`"repository":"acme/project"`)) || bytes.Contains(result.stdout, []byte("Unresolved target.repository:")) {
+						t.Fatalf("explain target=%s", result.stdout)
+					}
+				} else if input := s.hookInput("local"); input.Operations[0].Target.Repository != "acme/project" || input.Context == nil {
+					t.Fatalf("hook target=%+v context=%+v", input.Operations, input.Context)
+				}
+				if source == "git" {
+					result = s.management(nil, append(args, "--no-resolve", "--", "pr", "merge", "12")...)
+					result.code(t, 0)
+					if command == "explain" {
+						if !bytes.Contains(result.stdout, []byte("Unresolved target.repository:")) {
+							t.Fatalf("disabled explain resolution=%s", result.stdout)
+						}
+					} else if input := s.hookInput("local"); input.Operations[0].Target.Repository != "" || input.Context != nil {
+						t.Fatalf("disabled hook resolution=%+v", input)
+					}
+				}
+			}
+			s.absentRecord()
+		})
+	}
+}
+
 func TestManagementExplain(t *testing.T) {
 	s := newSandbox(t)
 	s.configure(func(c *config.Config) {
@@ -139,16 +236,25 @@ func TestManagementExplain(t *testing.T) {
 		pre.Match.Repositories = config.StringList{"acme/*"}
 		c.Hooks = []config.Hook{pre, post}
 	})
-	result := s.management(nil, "explain", "--", "pr", "merge", "7")
+	result := s.management(nil, "explain", "--no-resolve", "--", "pr", "merge", "7")
 	result.code(t, 0)
-	// Assert semantic identifiers and decisions, not full prose or formatting.
-	for _, key := range []string{"L1", "pr.merge.", "target.repository", "deny-merge", "decision=deny", "pre-candidate", "post-candidate", "maybe"} {
+	// Decisions lead; operation diagnostics and policy reasons are not repeated.
+	if !bytes.HasPrefix(result.stdout, []byte("Decision: deny (mode=enforce)\n")) {
+		t.Fatalf("explain conclusion=%s", result.stdout)
+	}
+	for _, key := range []string{"L1", "pr.merge.", "target.repository", "deny-merge", "pre-candidate", "post-candidate", "maybe"} {
 		if !bytes.Contains(result.stdout, []byte(key)) {
 			t.Fatalf("explain omitted %q", key)
 		}
 	}
-	if !bytes.Contains(result.stdout, []byte("Deny reason: rule deny-merge: test rule reason (pr.merge.request)")) {
-		t.Fatal("explain omitted the deny-causing policy reason")
+	for _, reason := range []string{"test rule reason", "Unresolved target.repository:", "Unresolved target.owner:", "Unresolved target.host:"} {
+		if bytes.Count(result.stdout, []byte(reason)) != 1 {
+			t.Fatalf("explain repeats or omits %q: %s", reason, result.stdout)
+		}
+	}
+	operations, policy := bytes.Index(result.stdout, []byte("\nOperations:")), bytes.Index(result.stdout, []byte("\nPolicy:"))
+	if operations < 0 || policy <= operations || bytes.Index(result.stdout, []byte("Hooks that WOULD run (post)")) >= operations {
+		t.Fatalf("explain section ordering=%s", result.stdout)
 	}
 	s.absentRecord()
 	for _, id := range []string{"pre-candidate", "post-candidate"} {
@@ -166,12 +272,37 @@ func TestManagementExplain(t *testing.T) {
 		args = append(args, "--", "api", "user", "-H", "Authorization: token "+token)
 		result := s.management(nil, args...)
 		result.code(t, 0)
-		if !bytes.Contains(result.stdout, []byte("Matched rules: none")) || !bytes.Contains(result.stdout, []byte("Deny reasons: none")) {
-			t.Fatal("explain did not distinguish empty matched-rule and deny-reason lists")
+		if !bytes.Contains(result.stdout, []byte("Matched rules: none")) || bytes.Contains(result.stdout, []byte("Deny reason:")) {
+			t.Fatal("explain reports incorrect rule matches or deny reasons")
 		}
 		if bytes.Contains(result.stdout, []byte(token)) != secrets {
 			t.Fatalf("explain secret visibility=%v", secrets)
 		}
+	}
+}
+
+func TestManagementExplainDecisions(t *testing.T) {
+	for _, tc := range []struct {
+		mode, rule, decision string
+	}{{"observe", "", "allow"}, {"observe", "deny", "audit"}, {"enforce", "audit", "audit"}, {"enforce", "deny", "deny"}} {
+		t.Run(tc.mode+"-"+tc.rule, func(t *testing.T) {
+			s := newSandbox(t)
+			s.configure(func(c *config.Config) {
+				c.Policy.Mode = tc.mode
+				if tc.rule != "" {
+					c.Policy.Rules = []config.Rule{{ID: "rule", Decision: tc.rule, Reason: "consumer reason"}}
+				}
+			})
+			result := s.management(nil, "explain", "--", "pr", "merge", "12", "-R", "acme/project")
+			result.code(t, 0)
+			if !bytes.HasPrefix(result.stdout, []byte("Decision: "+tc.decision+" (mode="+tc.mode+")\n")) {
+				t.Fatalf("explain decision=%s", result.stdout)
+			}
+			if tc.rule != "" && bytes.Count(result.stdout, []byte("consumer reason")) != 1 {
+				t.Fatalf("explain reason duplication=%s", result.stdout)
+			}
+			s.absentRecord()
+		})
 	}
 }
 
@@ -252,6 +383,47 @@ func TestManagementHooksListAndTest(t *testing.T) {
 	})
 }
 
+func TestManagementHookSources(t *testing.T) {
+	s := newSandbox(t)
+	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(s.cwd, ".ghok.yaml")
+	command, err := json.Marshal([]string{fakeBinary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: post, command: "+string(command)+"}]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	project, err = filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.configure(func(c *config.Config) {
+		c.Trust.Projects = []string{project}
+		c.Hooks = []config.Hook{s.hook("user", "pre")}
+	})
+	result := s.management(nil, "hooks", "list", "--json")
+	result.code(t, 0)
+	var list []struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+	}
+	decodeJSON(t, result.stdout, &list)
+	if len(list) != 2 || list[0].ID != "user" || list[0].Source != s.cfg || list[1].ID != "project" || list[1].Source != project {
+		t.Fatalf("hook provenance=%+v", list)
+	}
+	result = s.management(nil, "hooks", "list")
+	result.code(t, 0)
+	for _, source := range []string{s.cfg, project} {
+		if !bytes.Contains(result.stdout, []byte("source: "+source)) {
+			t.Fatalf("human hook provenance=%s", result.stdout)
+		}
+	}
+	s.absentRecord()
+}
+
 func TestManagementConfigAndDoctor(t *testing.T) {
 	s := newSandbox(t)
 	result := s.management(nil, "config", "path")
@@ -318,6 +490,95 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("doctor did not report invalid configuration")
+	}
+}
+
+func TestManagementConfigSources(t *testing.T) {
+	for _, state := range []string{"global", "missing", "untrusted", "trusted", "invalid-project", "invalid-global"} {
+		t.Run(state, func(t *testing.T) {
+			s := newSandbox(t)
+			global, err := filepath.Abs(s.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var project string
+			if strings.Contains(state, "trusted") || state == "invalid-project" {
+				if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				project = filepath.Join(s.cwd, ".ghok.yaml")
+				if err := os.WriteFile(project, []byte("version: 1\npolicy: {mode: enforce}\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				project, err = filepath.EvalSymlinks(project)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if state != "untrusted" {
+					s.configure(func(c *config.Config) { c.Trust.Projects = []string{project} })
+				}
+				if state == "untrusted" || state == "invalid-project" {
+					if err := os.WriteFile(project, []byte("invalid: [\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			switch state {
+			case "missing":
+				if err := os.Remove(s.cfg); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid-global":
+				if err := os.WriteFile(s.cfg, []byte("invalid: [\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantCode := 0
+			if strings.HasPrefix(state, "invalid-") {
+				wantCode = 1
+			}
+			result := s.management(nil, "config", "validate")
+			result.code(t, wantCode)
+			wantGlobal := "Global config: " + global + " (exists)"
+			if state == "missing" {
+				wantGlobal = "Global config: " + global + " (not found -> defaults)"
+			}
+			if !bytes.Contains(result.stdout, []byte(wantGlobal)) || bytes.Contains(result.stdout, []byte("missing files use defaults")) || bytes.Contains(result.stdout, []byte("Configuration valid")) != (wantCode == 0) {
+				t.Fatalf("config sources=%s stderr=%s", result.stdout, result.stderr)
+			}
+			projectStatus := ""
+			switch state {
+			case "trusted":
+				projectStatus = "Project config: " + project + " (loaded; merged"
+			case "untrusted":
+				projectStatus = "Project config: " + project + " (ignored-untrusted:"
+			case "invalid-project":
+				projectStatus = "Project config: " + project + " (trusted; loading)"
+			}
+			if projectStatus != "" && !bytes.Contains(result.stdout, []byte(projectStatus)) {
+				t.Fatalf("project source=%s", result.stdout)
+			}
+			if state == "untrusted" && !bytes.Contains(result.stdout, []byte("trust.projects")) {
+				t.Fatalf("missing trust reason=%s", result.stdout)
+			}
+			setBytes(s.env, "FAKEGH_STDOUT_B64", []byte("gh version 2.102.0 (fake)\n"))
+			result = s.management(nil, "doctor", "--json")
+			result.code(t, wantCode)
+			var checks []install.Check
+			decodeJSON(t, result.stdout, &checks)
+			found := false
+			for _, check := range checks {
+				if check.Name == "config" {
+					found = true
+					if !strings.Contains(check.Detail, wantGlobal) || projectStatus != "" && !strings.Contains(check.Detail, projectStatus) {
+						t.Fatalf("doctor config=%+v", check)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("doctor missing config check")
+			}
+		})
 	}
 }
 
@@ -462,7 +723,7 @@ func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 	}
 	result = s.management(nil, "config", "validate", "--file", selected)
 	result.code(t, 0)
-	if !bytes.Contains(result.stdout, []byte(selected)) || !bytes.Contains(result.stdout, []byte("Note:")) {
+	if !bytes.Contains(result.stdout, []byte(selected)) || !bytes.Contains(result.stdout, []byte("group/world-writable")) {
 		t.Fatalf("validation omitted selected file/permissions note: %s", result.stdout)
 	}
 	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {

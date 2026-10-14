@@ -264,6 +264,21 @@ multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
 
+`match.token: app|user|unknown|none` matches the kind of credential gh will use
+(from the `GH_TOKEN`/`GITHUB_TOKEN` prefix; the token is never logged). Wrappers
+such as gain run `gh` through PATH with a GitHub App token (`ghs_`), so they pass
+through ghok and can be restricted, e.g. no PR/issue writes authored by the App:
+
+```yaml
+policy:
+  mode: enforce
+  rules:
+    - id: no-app-pr-writes
+      match: {token: app, operation: ["pr.*", "issue.*"], effect: write}
+      decision: deny
+      reason: PR/issue writes must be authored by you, not the GitHub App
+```
+
 ## Operation normalization
 
 ghok classifies every invocation into structured operations at one of three
@@ -310,22 +325,35 @@ ghok config path
 ghok config validate
 ghok config validate --file /path/to/config.yaml
 ghok hooks list --json
-ghok hooks test -- pr merge 123 --admin -R org/repo
+ghok hooks test -- pr merge 123 --admin
 ghok hooks test --phase post --exit-code 1 --json -- pr merge 123 -R org/repo
-ghok normalize -- pr merge 123 --squash -R org/repo
-ghok explain -- pr merge 123 --admin -R org/repo
-ghok explain --resolve -- pr merge 123
-ghok normalize --resolve --allow-api -- pr merge 123
+ghok normalize -- pr merge 123 --squash
+ghok explain -- pr merge 123 --admin
+ghok explain --no-resolve -- pr merge 123
+ghok normalize --allow-api -- pr merge 123
 ```
 
 Normalize/explain never execute the requested gh command; explain never runs
-hooks and exits zero even when it displays a deny. `--resolve` reads local
-metadata; `--allow-api` requires `--resolve` and permits read-only API queries.
+hooks and exits zero even when it displays a deny. Normalize, explain and
+`hooks test` resolve local git metadata plus `GH_REPO`/`GH_HOST` by default,
+without network access. `--no-resolve` disables that lookup; explicitly supplied
+targets and normalizer environment inputs remain available. `--allow-api` permits
+read-only API queries without requiring `--resolve`; it cannot be combined with
+`--no-resolve`. The deprecated `--resolve` flag is accepted as a no-op.
 `hooks test` **executes trusted hooks**, using a synthetic result for the post
 phase (exit 0, or `--exit-code N` to exercise `match.result`/`match.exitCode`),
 but never runs the original command. Management exit codes:
 0 success, 1 failure/denial, 2 usage error. `explain --show-secrets` deliberately
 disables display redaction; do not paste that output into logs or tickets.
+
+Explain starts with the policy decision, deny reasons and pre/post hook
+selection, then shows operations and unresolved fields once, followed by rule
+matches, additional policy reasons and config notes. Hook outcomes remain unknown;
+an enforce denial prevents gh and post hooks even if their matches are listed.
+Normalize keeps its JSON contract. `config validate` and doctor's `config` check
+report the global source (exists or not found/defaults) and any project source
+(loaded/merged or ignored-untrusted with its reason). `hooks list` includes each
+hook's source config path in text and JSON; source is not a YAML setting.
 
 ## Performance
 

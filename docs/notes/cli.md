@@ -26,7 +26,7 @@ One helper-phase watcher covers SIGINT/SIGTERM/SIGHUP across resolver API calls 
 
 Stdin capture is only attempted for alias-expanded `gh api --input -` / `-F key=@-` when an enforce-mode deny rule, unknown-mutation/protected-repository denial, or enabled pre-hook could need the body. Candidate command prefixes and L2/L3 levels are checked before capture; body-dependent operation/effect/repository/host criteria cannot exclude a candidate yet. Observe logging, audit-only enforce policies, disabled/unrelated pre-hooks, and post-hooks alone leave stdin untouched and record `stdin not captured`; gh starts before producer EOF. Normalize/explain keep their non-TTY capture behavior. The spool never reads a TTY and preserves consumed bytes, including oversized/timeout prefixes. Files remain bounded by `runtime.fileMaxBytes`. Analysis copies are never replay data.
 
-Local git/host resolution runs only for unresolved repository/host matches or potentially writing operations whose protected-repository membership is unresolved. API resolution is permitted only in enforce mode for missing fields relevant to a potentially matching pre-hook/deny rule or protected-repository decision. Each operation is resolved separately so an unrelated operation does not trigger an API query. Resolver timeouts and ambiguity remain explicit diagnostics/unresolved fields. Observe mode never implicitly calls the API. Management API resolution requires explicit `--resolve --allow-api`.
+The wrapper runs local git/host resolution only for unresolved repository/host matches or potentially writing operations whose protected-repository membership is unresolved. API resolution is permitted only in enforce mode for missing fields relevant to a potentially matching pre-hook/deny rule or protected-repository decision. Each operation is resolved separately so an unrelated operation does not trigger an API query. Resolver timeouts and ambiguity remain explicit diagnostics/unresolved fields. Observe mode never implicitly calls the API. Normalize, explain and hooks test instead resolve local git metadata and GH_REPO/GH_HOST by default, without a network call. Management API resolution requires explicit `--allow-api`, not `--resolve`. `--no-resolve` disables lookup and cannot be combined with `--allow-api`; explicit targets and normalizer environment inputs still apply. The deprecated `--resolve` flag is a no-op, including `--resolve=false`.
 
 Hook input and logger records cross `redact.New(env)` boundaries. gh still receives original secrets and bytes. Logging errors never change execution and appear only with `GHOK_DEBUG=1`. Hooks are trusted executable code; ghok is not a security boundary, and direct gh/API access bypasses it.
 
@@ -37,6 +37,50 @@ Management commands use Cobra v1.10.2 and pflag v1.0.10, matching gh v2.102.0. T
 Normalize, explain, and hooks test require a nonempty gh argv after `--`, with `ArgsLenAtDash() == 0` rejecting gh operands before the separator. All arguments after the separator—including gh help, management-looking flags, empty arguments, and further separators—remain unchanged by management parsing. Management flags now use pflag's interspersed parsing and long-flag/shorthand syntax rather than stdlib flag's single-dash long aliases. No new management shorthand except `-h` is registered. Help and usage use cobra's standard templates (Short/Long/Example per command, `--flag type` with defaults); parent commands (`shim`, `hooks`, `config`) list their subcommands, exit 2 when run bare, and omit a misleading runnable usage line. Flag errors are pflag's own messages (`unknown flag: --x`). The normalize `--json` flag remains accepted with either boolean value; normalization has only JSON output.
 
 Explain exits 0 even for a displayed deny; it does not run hooks or gh. Hooks test runs selected hooks with synthetic execution metadata for post phase, never executes the requested gh command. Shim install/uninstall manage only owned shims/state and never edit shell rc files. Normalization JSON and explanations redact secrets unless explain explicitly requests `--show-secrets`.
+
+Explain's first line is `Decision: allow|audit|deny (mode=...)`, followed by
+deny-causing reasons and ordered pre/post hook match selection. The decision is
+policy-only, not a prediction of hook responses. An enforce denial prevents gh
+and post hooks; observe denials are audit/would-deny. `Operations:` carries
+classification/source, action/family/effect/execution, targets, parameters,
+detail/evidence and unresolved fields. Local context is not dumped separately:
+its resolved values are in the targets, and missing field reasons are not
+repeated as policy summaries. `Policy:` shows only matching rules and additional
+reasons; config notes and the short non-boundary/exit-zero footer come last.
+`--show-secrets` only changes explain's display boundary, not hook redaction.
+
+Config loading retains source status in its existing notes return, including
+the global read's exists/not-found status before a parse error, ignored-untrusted
+project paths with their canonical trust reason, and successfully merged project
+paths. Trusted project parse/merge failures report the attempted source before
+the error. `config validate [--file PATH]` prints these sources then
+`Configuration valid` or errors. Doctor's `config` detail uses the same source
+notes; permission/weakening warnings remain separate checks. Trust comparisons,
+project discovery, restrictions, merging and exit codes are unchanged.
+
+`hooks list` emits load-time `Hook.Source` in text and JSON, identifying the
+global config path or project `.ghok.yaml`; project hook executable rebasing is
+unchanged. `Source` has `yaml:"-"`, so it is not accepted as a configuration
+setting and is excluded from the generated schemas.
+
+### Regeneration and curation
+
+No management generator or new upstream snapshot is involved. Regenerate the
+existing config schemas with `go generate ./internal/config`; source metadata
+must not change either `schema/*.schema.json`. Native metadata remains pinned to
+gh v2.102.0; its generator/semantic curation is documented in [native.md](native.md).
+The four merge Detail variants are curated alongside action selection in
+`internal/normalize/native/native.go`: request describes server-selected
+direct/queue/auto behavior, admin describes requirement/queue bypass with possible
+server rejection, and auto enable/disable describe their own requests. Existing
+action names and flag precedence remain stable.
+
+To curate hook/rule matches, edit global `config.yaml` or the trusted project
+`.ghok.yaml`, then run `ghok config validate`, `ghok hooks list` and
+`ghok explain -- <gh args>`. Project entries cannot weaken global policy; do not
+change trust merely to suppress an ignored-untrusted note. Inspect unresolved
+targets with `--no-resolve`, or explicitly opt into read-only API lookups with
+`--allow-api`.
 
 Sources read: gh v2.102.0 [`pkg/cmd/root/root.go`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/root/root.go) for Cobra's root command, silent errors/usage, and help customization; Cobra v1.10.2 `command.go` (`Find`, `execute`, `ArgsLenAtDash`, `InitDefaultHelpCmd`) for command discovery, separator handling, and custom help; pflag v1.0.10 `errors.go` for typed error translation. This changes management parsing only, not wrapper argument execution. No new platform-specific behavior is introduced.
 

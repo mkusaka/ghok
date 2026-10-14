@@ -248,7 +248,7 @@ func shouldSpool(c *config.Config, argv []string) bool {
 	if apiargs.IsGraphQL(req) {
 		level = model.LevelL3
 	}
-	s := policy.Subject{Result: model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured"), Argv: argv}
+	s := policy.Subject{Result: model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured"), Argv: argv, Token: policy.TokenKind(environment())}
 	couldMatch := func(m config.Match) bool {
 		m.Operations, m.Effects = nil, nil
 		yes, _ := policy.Matches(m, s)

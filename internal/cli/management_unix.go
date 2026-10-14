@@ -24,7 +24,8 @@ pre/post hooks and enforces policies on gh commands, gh api REST calls and
 GraphQL mutations. When invoked as "gh" (through the shim) the same binary is
 the wrapper and passes every argument to the real gh untouched.
 
-Resolution is local unless --allow-api is explicitly supplied with --resolve.
+Resolution uses local git metadata and GH_REPO/GH_HOST by default; --no-resolve
+disables it. Read-only API resolution requires explicit --allow-api.
 Explain never executes hooks or the original gh command and exits 0 even on deny.
 Exit status: 0 success, 1 failure/denial, 2 usage error.`
 
@@ -93,17 +94,19 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	})
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	var testJSON bool
+	var testOptions managementInspectOptions
 	var exitCode int
 	phase := config.PhasePre
 	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(_ *cobra.Command, args []string) int {
-		return managementHooksTest(args, phase, exitCode, testJSON)
+		return managementHooksTest(args, phase, exitCode, testJSON, testOptions)
 	})
-	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe real gh. Post hooks receive a synthetic result (exit 0 unless --exit-code)."
-	test.Example = "  ghok hooks test -- pr merge 123 --admin -R org/repo\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
+	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe original gh command. Local context is resolved by default; --allow-api permits\nread-only API resolution. Post hooks receive a synthetic result (exit 0 unless --exit-code)."
+	test.Example = "  ghok hooks test -- pr merge 123 --admin\n  ghok hooks test --no-resolve -- pr merge 123\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
 	test.Flags().IntVar(&exitCode, "exit-code", 0, "post phase: synthetic gh exit code (selects match.result/exitCode hooks)")
+	managementResolutionFlags(test, &testOptions)
 	hookCommands.AddCommand(list, test)
 
 	for _, name := range []string{"normalize", "explain"} {
@@ -115,10 +118,10 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		cmd := managementCommand(name+" [flags] -- <gh args>", short, code, func(cmd *cobra.Command, args []string) int {
 			return managementInspect(cmd.Name(), args, options)
 		})
-		cmd.Example = "  ghok " + name + " -- pr merge 123 --squash -R org/repo\n  ghok " + name + " -- api -X PUT repos/org/repo/pulls/123/merge"
+		cmd.Long = short + ".\nLocal context is resolved by default without network access. Use --no-resolve\nto skip resolution, or --allow-api to permit read-only API resolution."
+		cmd.Example = "  ghok " + name + " -- pr merge 123 --squash\n  ghok " + name + " --no-resolve -- pr merge 123\n  ghok " + name + " --allow-api -- pr merge 123\n  ghok " + name + " -- api -X PUT repos/org/repo/pulls/123/merge"
 		cmd.Args = managementInvocationArgs
-		cmd.Flags().BoolVar(&options.resolveTargets, "resolve", false, "resolve targets from local git metadata")
-		cmd.Flags().BoolVar(&options.allowAPI, "allow-api", false, "allow read-only API resolution (requires --resolve)")
+		managementResolutionFlags(cmd, &options)
 		if name == "normalize" {
 			cmd.Flags().Bool("json", true, "print the normalization result as JSON (the only output format)")
 		} else {
@@ -166,6 +169,12 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		},
 	})
 	return root
+}
+
+func managementResolutionFlags(cmd *cobra.Command, options *managementInspectOptions) {
+	cmd.Flags().BoolVar(&options.noResolve, "no-resolve", false, "disable local target resolution")
+	cmd.Flags().Bool("resolve", false, "deprecated: no-op; local target resolution is the default")
+	cmd.Flags().BoolVar(&options.allowAPI, "allow-api", false, "allow read-only API resolution (incompatible with --no-resolve)")
 }
 
 func managementCommand(use, short string, code *int, run func(*cobra.Command, []string) int) *cobra.Command {
@@ -325,12 +334,12 @@ func managementConfig(command, file string) int {
 	}
 	_, notes, err := config.LoadEffective(path, cwd, env)
 	for _, note := range notes {
-		_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
+		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
 	}
 	if err != nil {
 		return managementFailure(err)
 	}
-	_, _ = fmt.Fprintln(os.Stdout, r.String("Configuration valid: "+path+" (missing files use defaults)"))
+	_, _ = fmt.Fprintln(os.Stdout, "Configuration valid")
 	return 0
 }
 
@@ -346,13 +355,25 @@ func managementDoctor(asJSON bool, version string) int {
 		override = c.Runtime.RealGh
 	}
 	checks := install.Checks(install.DoctorOptions{Self: self, Version: version, PathEnv: env["PATH"], Override: override, BinDir: filepath.Join(env["HOME"], ".local", "bin"), StateDir: filepath.Join(config.Dir(env), "state"), Env: os.Environ(), Stdin: os.Stdin})
-	cfgCheck := install.Check{Name: "config", Status: install.StatusOK, Detail: config.DefaultPath(env) + " (missing files use defaults)"}
+	cfgCheck := install.Check{Name: "config", Status: install.StatusOK}
+	for _, note := range notes {
+		if strings.HasPrefix(note, "Global config:") || strings.HasPrefix(note, "Project config:") {
+			if cfgCheck.Detail != "" {
+				cfgCheck.Detail += "; "
+			}
+			cfgCheck.Detail += note
+		}
+	}
 	if loadErr != nil {
-		cfgCheck.Status, cfgCheck.Detail = install.StatusFail, loadErr.Error()
+		cfgCheck.Status = install.StatusFail
+		cfgCheck.Detail += "; " + loadErr.Error()
 		cfgCheck.Fix = "Run ghok config validate and fix the reported configuration errors."
 	}
 	checks = append(checks, cfgCheck)
 	for _, note := range notes {
+		if strings.HasPrefix(note, "Global config:") || strings.HasPrefix(note, "Project config:") {
+			continue
+		}
 		status := install.StatusWarn
 		if strings.Contains(note, "group/world-writable") {
 			status = install.StatusFail

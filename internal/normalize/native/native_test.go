@@ -80,9 +80,6 @@ func TestNormalizeMergeIntent(t *testing.T) {
 		if op.Parameters["method"] != tt.method || op.Parameters["deleteBranch"] != tt.delete || op.Parameters["admin"] != tt.admin {
 			t.Fatalf("parameters=%v", op.Parameters)
 		}
-		if !strings.Contains(op.Detail, "decided by the server") {
-			t.Fatalf("missing intent caveat: %s", op.Detail)
-		}
 	}
 	r := Normalize(model.Invocation{}, []string{"pr", "merge", "-R", "o/r", "-tSubject", "--match-head-commit=abc", "-A", "a@example.com", "--body", "not retained", "123"})
 	p := r.Operations[0].Parameters

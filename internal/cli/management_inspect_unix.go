@@ -89,20 +89,20 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 }
 
 func (a *managementAnalysis) subject(phase string) policy.Subject {
-	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase}
+	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase, Token: policy.TokenKind(a.env)}
 }
 
 type managementInspectOptions struct {
-	resolveTargets bool
-	allowAPI       bool
-	showSecrets    bool
+	noResolve   bool
+	allowAPI    bool
+	showSecrets bool
 }
 
 func managementInspect(command string, args []string, options managementInspectOptions) int {
-	if options.allowAPI && !options.resolveTargets {
-		return managementUsageError("--allow-api requires --resolve")
+	if options.allowAPI && options.noResolve {
+		return managementUsageError("--allow-api cannot be combined with --no-resolve")
 	}
-	a, err := managementAnalyze(args, options.resolveTargets, options.allowAPI)
+	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI)
 	if err != nil {
 		return managementFailure(err)
 	}
@@ -138,6 +138,7 @@ func managementHooksList(asJSON bool) int {
 	for _, h := range display {
 		enabled := h.Enabled == nil || *h.Enabled
 		_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
+		_, _ = fmt.Fprintln(os.Stdout, r.String("  source: "+h.Source))
 		_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
 		managementPrintMatch(os.Stdout, "  ", h.Match, r)
 		if len(h.DependsOn) != 0 {
@@ -150,11 +151,14 @@ func managementHooksList(asJSON bool) int {
 	return 0
 }
 
-func managementHooksTest(args []string, phase string, exitCode int, asJSON bool) int {
+func managementHooksTest(args []string, phase string, exitCode int, asJSON bool, options managementInspectOptions) int {
 	if phase != config.PhasePre && phase != config.PhasePost {
 		return managementUsageError("--phase must be pre or post")
 	}
-	a, err := managementAnalyze(args, true, false)
+	if options.allowAPI && options.noResolve {
+		return managementUsageError("--allow-api cannot be combined with --no-resolve")
+	}
+	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI)
 	if err != nil {
 		return managementFailure(err)
 	}

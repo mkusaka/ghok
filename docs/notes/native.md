@@ -84,8 +84,9 @@ normalizer results directly to untrusted hooks/logs without the output-boundary 
 | Otherwise | `pr.merge.request` |
 
 All have family `pr.merge`, effect `write`, and exact intent confidence absent parse
-uncertainty. The detail explains server/runtime choice of direct merge, auto-merge or
-merge queue. Parameters include `method` (`merge`/`squash`/`rebase`/empty), `admin`,
+uncertainty. The detail is action-specific: `request` (the server chooses direct
+merge, merge queue or auto-merge), `direct` via `--admin` (bypasses requirements and
+the queue; the server may still reject), `auto.enable`, `auto.disable`. Parameters include `method` (`merge`/`squash`/`rebase`/empty), `admin`,
 `deleteBranch`, subject, body/bodyFile presence, `matchHeadCommit`, `authorEmail`.
 `pr.review` specializes actions to `.approve`, `.request-changes`, `.comment`; the
 interactive event stays unresolved. `repo set-default --view`, `issue develop --list`,

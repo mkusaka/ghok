@@ -18,12 +18,17 @@ ghok normalize -- pr merge 123 --squash
 ghok explain -- api -X PUT repos/org/repo/pulls/123/merge -f merge_method=squash
 ```
 
-Both commands redact output by default. `--resolve` adds local target resolution;
-`--resolve --allow-api` also permits read-only API resolution. Without those
-options, normalization does not resolve git/API context. It can still read
-explicitly supplied API files or non-TTY stdin for analysis. The implementation's
-CLI/API baseline is **gh 2.102.0**, not an assertion of coverage for every future
-command, REST route, or GitHub Enterprise Server version.
+Both commands redact output by default and resolve local git metadata plus
+`GH_REPO`/`GH_HOST` without network access, as does `hooks test`. `--no-resolve`
+disables local lookup, not explicit targets or the normalizer's environment
+inputs. `--allow-api` permits read-only API resolution without `--resolve` and
+cannot be combined with `--no-resolve`. The deprecated `--resolve` remains a
+no-op for compatibility. Commands can still read explicitly supplied API files
+or non-TTY stdin for analysis. Explain leads with the policy decision and hook
+selection, then operations with each unresolved field/reason once; normalize
+retains its JSON schema. The implementation's CLI/API baseline is **gh 2.102.0**,
+not an assertion of coverage for every future command, REST route, or GitHub
+Enterprise Server version.
 
 ## Result and operation contract
 
@@ -148,7 +153,7 @@ All examples below have family `pr.merge` and effect `write`, but differ in inte
 | Invocation/input | Action | Canonical method/target distinction |
 | --- | --- | --- |
 | `gh pr merge 123 --squash` | `pr.merge.request` | `method: squash`; number known, repository may still need context. Server/runtime can choose direct merge, auto-merge, or merge queue. |
-| `gh pr merge 123 --admin --squash` | `pr.merge.direct` | Explicit direct/admin intent, not proof protection is bypassed or a merge succeeds. |
+| `gh pr merge 123 --admin --squash` | `pr.merge.direct` | Admin/direct intent bypasses requirements and the merge queue; the server may still reject it. Detail describes this intent, not server-selected direct/queue/auto behavior or confirmed success. |
 | `gh pr merge 123 --auto` | `pr.merge.auto.enable` | Requests auto-merge; no merge method is invented when no method flag is given. |
 | `gh pr merge 123 --disable-auto` | `pr.merge.auto.disable` | Disables auto-merge intent; not a direct merge. |
 | `gh api -X PUT repos/o/r/pulls/123/merge -f merge_method=squash` | `pr.merge.direct` | REST body `merge_method` becomes `method`; repository/number come from the route. |

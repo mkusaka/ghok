@@ -113,17 +113,34 @@ func defaultHook(h *Hook, n *yaml.Node) {
 
 // Load treats an absent file as an empty configuration, not as an error.
 func Load(path string) (*Config, error) {
+	return load(path, nil)
+}
+
+// load records source status from the same read used for parsing.
+func load(path string, notes *[]string) (*Config, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(absolute)
+	if notes != nil {
+		status := "exists"
+		if errors.Is(err, os.ErrNotExist) {
+			status = "not found -> defaults"
+		} else if err != nil {
+			status = "read failed"
+		}
+		*notes = append(*notes, fmt.Sprintf("Global config: %s (%s)", absolute, status))
+	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("config %s: %w", absolute, err)
 	}
 	c, err := Parse(data, filepath.Dir(absolute))
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", absolute, err)
+	}
+	for i := range c.Hooks {
+		c.Hooks[i].Source = absolute
 	}
 	return c, nil
 }

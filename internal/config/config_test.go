@@ -243,7 +243,7 @@ func TestProjectTrust(t *testing.T) {
 	writeFixture(t, global, "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n")
 	writeFixture(t, project, "invalid: [")
 	c, notes, err := LoadEffective(global, cwd, env)
-	if err != nil || len(c.Hooks) != 1 || len(notes) != 1 || notes[0] != "found untrusted project config at "+project+"; ignored" {
+	if err != nil || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "ignored-untrusted") {
 		t.Fatalf("untrusted: %+v, %v, %v", c, notes, err)
 	}
 	base := "version: 1\ntrust:\n  projects: [" + project + "]\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
@@ -253,7 +253,7 @@ func TestProjectTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || len(notes) != 3 || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || c.HookCommandPath(c.Hooks[1]) != filepath.Join(repo, "hooks", "hook") || c.HookCommandPath(c.Hooks[0]) != filepath.Join(filepath.Dir(global), "global-hook") {
+	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || c.HookCommandPath(c.Hooks[1]) != filepath.Join(repo, "hooks", "hook") || c.HookCommandPath(c.Hooks[0]) != filepath.Join(filepath.Dir(global), "global-hook") {
 		t.Fatalf("overlay: %+v, notes %v", c, notes)
 	}
 	writeFixture(t, global, strings.ReplaceAll(base, "policy: {mode: enforce, unknownMutation: deny}", "policy: {mode: observe, unknownMutation: allow, protectedUnknown: allow}"))
@@ -300,7 +300,7 @@ func TestProjectTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, notes, err = LoadEffective(global, cwd, env)
-	if err != nil || len(notes) != 2 {
+	if err != nil || !strings.Contains(strings.Join(notes, "\n"), project+" is group/world-writable") || !strings.Contains(strings.Join(notes, "\n"), filepath.Join(repo, "hook")+" is group/world-writable") {
 		t.Fatalf("permissions: %v, %v", notes, err)
 	}
 }

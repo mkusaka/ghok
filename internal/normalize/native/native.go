@@ -344,10 +344,15 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 		switch {
 		case p.enabled("auto"):
 			op.Action = "pr.merge.auto.enable"
+			appendDetail(op, "enable auto-merge intent: requests automatic merging when requirements are met; not a completed merge")
 		case p.enabled("disable-auto"):
 			op.Action = "pr.merge.auto.disable"
+			appendDetail(op, "disable auto-merge intent: requests disabling automatic merging; not a direct merge")
 		case p.enabled("admin"):
 			op.Action = "pr.merge.direct"
+			appendDetail(op, "admin direct merge intent: bypasses requirements and the merge queue; the server may still reject the request")
+		default:
+			appendDetail(op, "merge request intent: the server and runtime merge-queue/protection state decide direct merge, queue, or auto-merge")
 		}
 		method := ""
 		for _, m := range []string{"merge", "squash", "rebase"} {
@@ -358,7 +363,6 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 		op.Parameters["method"] = method
 		op.Parameters["deleteBranch"] = p.enabled("delete-branch")
 		op.Parameters["admin"] = p.enabled("admin")
-		appendDetail(op, "intent only: the concrete side effect is decided by the server and runtime merge-queue/protection state")
 	}
 	if path == "pr review" {
 		for _, v := range []string{"approve", "request-changes", "comment"} {
