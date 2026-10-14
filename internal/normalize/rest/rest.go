@@ -47,6 +47,9 @@ func Normalize(inv model.Invocation, req model.APIRequest) (res model.Result) {
 	if rt != nil {
 		op.Family, op.Action, op.Effect = rt.family, rt.action, rt.effect
 		op.Origin.Route = rt.path
+		if rt.operationID == "repos/get-content" && captures["path"] == "" {
+			op.Action = "file.list"
+		}
 		extractTarget(&op, captures)
 	} else {
 		op.Family, op.Action = model.FamilyUnknown, "api."+strings.ToLower(method)+".unknown"
@@ -172,8 +175,11 @@ func extractTarget(op *model.Operation, c map[string]string) {
 	if c["org"] != "" && op.Target.Owner == "" {
 		op.Target.Owner = c["org"]
 	}
-	if c["sha"] != "" {
-		op.Target.SHA = c["sha"]
+	for _, key := range []string{"sha", "commit_sha", "file_sha", "tag_sha", "tree_sha"} {
+		if c[key] != "" {
+			op.Target.SHA = c[key]
+			break
+		}
 	}
 	for _, key := range []string{"pull_number", "issue_number"} {
 		if v := c[key]; v != "" {

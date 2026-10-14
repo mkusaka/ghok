@@ -122,7 +122,7 @@ are not mutation-free.
 | `shell-alias` | Configured alias begins with `!`; no expansion/execution is attempted for analysis. |
 | `alias-loop` | Alias full-argv cycle or more than 64 expansion steps. |
 | `unknown-endpoint` | Unmapped REST write/unknown route, opaque absolute REST URL, or non-literal relative GraphQL endpoint routed as REST on a known GHES host. |
-| `unknown-mutation` | GraphQL root mutation lacks semantic mapping, whether present or absent in the embedded schema snapshot. It remains a write. |
+| `unknown-mutation` | GraphQL root mutation is absent from the embedded schema snapshot. It remains an unknown-family write; schema-known mutations without curated overrides are classified writes. |
 | `parse-error` | Argument/alias lexer/JSON/GraphQL parse failure or recovered internal normalizer panic. API unknown flags also take this path. |
 | `input-unavailable` | GraphQL query/body/operation name cannot be read, including TTY or timed-out stdin. REST unavailable bodies ordinarily preserve the route and add unresolved parameters instead. |
 | `input-too-large` | GraphQL document/input/selection/depth bound exceeded, or recognizable input reader size-limit failure. |
@@ -130,7 +130,7 @@ are not mutation-free.
 | `malformed-request` | Structurally invalid input, unsupported subscription/batching, invalid path, invalid request field/header construction, or recognized rejected REST pagination combination. |
 
 Unknown actions are not always just `unknown`: unmapped REST requests use
-`api.<lowercase-method>.unknown`; unmapped GraphQL fields use
+`api.<lowercase-method>.unknown`; snapshot-absent GraphQL fields use
 `graphql.mutation.<schemaField>`. Unregistered GET/HEAD uses `api.read` /
 `api.read.unknown`, heuristic read, with no `unknownReason`.
 
@@ -168,15 +168,23 @@ equivalent. `mergeBranch` is `branch.merge`, never `pr.merge`.
 ## L1: native commands, aliases, and extensions
 
 [Native normalizer](../internal/normalize/native/native.go),
-[target extractors](../internal/normalize/native/targets.go), and
-[registry](../internal/normalize/native/registry.go) describe 243 registered paths
-and 57 built-in alias spellings. The table includes groups, hidden help topics,
-and completion entry points; registered identity is not a guarantee that effects
-are known or targets are deeply extracted.
+[target extractors](../internal/normalize/native/targets.go),
+[generated metadata](../internal/normalize/native/registry_gen.go), and
+[curated semantics](../internal/normalize/native/semantics.go) cover 248 canonical
+non-root commands plus root and 113 built-in alias paths. The real gh Cobra tree
+includes groups, hidden commands/help topics, official extension install stubs,
+and completion entry points. Identity alone does not prove known effects or targets.
+Generated commands without curation are unknown family/action/effect with reason
+`unknown-command` and detail `gh command not yet classified by ghok`; a curation
+completeness test fails after regeneration until every command has been reviewed.
+Existing actions stay stable; newly classified hidden commands use `native.*`.
 
-Native flags use **pflag v1.0.10**, the same version as gh 2.102.0. FlagSets are
-built from the versioned registry: strings, repeatable string arrays, booleans,
-and optional-value options using `NoOptDefVal`. Supported forms include
+Native flags use **pflag v1.0.10**, matching gh 2.102.0. FlagSets use generated
+local/inherited metadata: bool, string, stringArray, stringSlice, int, uint16,
+uint64, float64 and duration, with exact optional-value `NoOptDefVal` and
+hidden/deprecation metadata. Invalid numeric/duration/CSV values retain command
+intent but become heuristic, non-mutation-free parse errors, even with `--help`.
+Supported forms include
 interspersed flags, options before subcommands, `--flag=value`, `--flag value`,
 `-Rvalue`, `-R=value`, `-R value`, bundled short booleans, explicit boolean values,
 repeated flags, and `--`. Registered `-h` meanings take precedence over help
@@ -199,9 +207,10 @@ Repository/selector handling:
 - Org/user secret/variable and org ruleset scopes do not inherit the cwd repository.
   Other selectors without a target-model field stay in parameters: tag/assets,
   name/newName, workflow, run, ruleset, destination repository, or arguments.
-- Flag parameter keys are lower camel case. Booleans are booleans; repeatable
-  options remain arrays of literal argv strings, including unexpanded CSV.
-  Other options remain strings. Native bodies/body files/env files record presence,
+- Flag parameter keys are lower camel case. Booleans are booleans; StringSlice
+  options split CSV into arrays, while StringArray options retain literal commas
+  (workflow fields). Other options remain pflag-normalized strings.
+  Native bodies/body files/env files record presence,
   not content/path. Workflow fields are string inputs, raw before typed; file/JSON
   stdin values are unresolved, not loaded. Sensitive auth/secret/variable commands
   carry presence indicators such as `sensitive`, `tokenFromStdin`, or `valueFromStdin`.
@@ -215,19 +224,31 @@ Only the first configured alias name is retained in `source.alias`. Configured
 aliases nested under root flags are not expanded. The supplied alias map does not
 model gh's registration order or installed-extension precedence over aliases.
 
-`extension exec` retains forwarded arguments without parsing them; its effect is
-unknown. Direct unknown commands may be extensions or newer gh commands; no
-extension executable is analyzed. Copilot and codespace code/Jupyter/SSH integration
-also have unknown effects even with exact command identity. Clone/checkout,
-auth/config/install operations are conservative writes; downloads are GitHub reads
-although they can write local files. This taxonomy is not local-filesystem isolation.
+`extension exec` and other DisableFlagParsing commands retain forwarded options as
+arguments. Direct unknown commands may be extensions or newer gh commands; no extension
+executable is analyzed. Copilot, codespace code/Jupyter/SSH integration and official
+extension install stubs (`aw`, `stack`, `webhook`) have unknown effects even with exact
+identity. Clone/checkout and auth/config/install operations are conservative writes;
+downloads and codespace selection are GitHub reads although they can write local files.
+This taxonomy is not local-filesystem isolation.
+
+Regenerate with `go generate ./internal/normalize/native`. The development-only
+`gen` module pins cli/cli **v2.102.0**, commit
+`fc4b137cdef0a6bd28fd461b7cf9c84a5812a8cd`; the generated header records its module
+sum. Generator dependencies and its Go 1.27.0 requirement do not enter ghok's root
+module. Builds/tests stay offline and use the checked-in snapshot. For a new release,
+bump `gen/go.mod`, tidy that module, regenerate, and fix
+`TestRegistryClassifiesEveryCommand` in `semantics.go`; curate flag-driven overrides
+in `extractParameters`, not flag metadata. Exact steps and review requirements are in
+[native maintenance notes](notes/native.md#regenerating-registry_gengo-and-curating-overrides).
 
 ### L1 family/action table
 
 The following rows give the default emitted action after native specialization.
 `pr merge` has raw registry action `pr.merge`, but always specializes to
 `pr.merge.request` or the flag-driven alternatives below. The empty root invocation
-is an implicit `help` / `help` / read outside the 243 explicit registry paths.
+is a curated `help` / `help` / read. `co` and `__completeNoDesc` below share their
+canonical commands' semantics rather than having duplicate curation.
 
 | Command after `gh` | Family | Default action | Effect |
 | --- | --- | --- | --- |
@@ -474,6 +495,13 @@ is an implicit `help` / `help` / read outside the 243 explicit registry paths.
 | `workflow list` | `workflow.list` | `workflow.list` | read |
 | `workflow run` | `workflow.run` | `workflow.run` | write |
 | `workflow view` | `workflow.view` | `workflow.view` | read |
+| `attestation inspect` | `native.attestation.inspect` | `native.attestation.inspect` | read |
+| `auth git-credential` | `native.auth.git-credential` | `native.auth.git-credential` | read |
+| `codespace select` | `native.codespace.select` | `native.codespace.select` | read |
+| `repo credits` | `native.repo.credits` | `native.repo.credits` | read |
+| `aw` | `native.aw` | `native.aw` | unknown |
+| `stack` | `native.stack` | `native.stack` | unknown |
+| `webhook` | `native.webhook` | `native.webhook` | unknown |
 
 ### L1 flag-driven action overrides
 
@@ -498,11 +526,15 @@ retains `pr.review` with unresolved review event.
 ### Built-in aliases
 
 Each listed spelling maps to the canonical command in the right column. Root
-aliases also work when followed by canonical descendants (`cs ssh` becomes
-`codespace ssh`); the table lists all 57 explicit alias keys.
+aliases also work with all canonical and aliased descendants (`cs ssh` becomes
+`codespace ssh`). The generator emits all 113 alias paths, including descendant
+combinations; this table lists alias roots and changed leaf spellings, rather than
+repeating every descendant.
 
 | Alias spellings | Canonical command |
 | --- | --- |
+| `__completeNoDesc` | `__complete` |
+| `a11y` | `accessibility` |
 | `agent`, `agent-tasks`, `agents` | `agent-task` |
 | `alias ls` | `alias list` |
 | `at` | `attestation` |
@@ -552,7 +584,8 @@ aliases also work when followed by canonical descendants (`cs ssh` becomes
 
 No native file/body/stdin content, interactive choice, local git/API resolution,
 complete Cobra positional-count validation, enum validation, or actual outcome is
-inferred. Registry value flags remain strings, not gh's full numeric/enum types.
+inferred. Numeric/duration values use generated pflag types, but gh's custom string
+enum validators are not reconstructed from Value.Type().
 Known leaves with unknown flags keep intent but have heuristic confidence.
 Unknown flag evidence comes from strict pflag errors; a fresh parse uses pflag's
 unknown-flag allowlist, which consumes a following non-option for a bare unknown.
@@ -576,6 +609,28 @@ effect. Native root-option command discovery is not equivalent to API dispatch.
 [endpoint parser](../internal/normalize/rest/endpoint.go), and
 [parameter builder](../internal/normalize/rest/params.go) reproduce supported
 baseline request construction before [typed route matching](../internal/normalize/rest/routes.go).
+
+Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/ad351b19702b757bfd03a8ee85bcafe717878331/descriptions/api.github.com/api.github.com.json),
+commit `ad351b19702b757bfd03a8ee85bcafe717878331` (2026-10-13):
+**1,242 operations**, **206 operationId overrides**, and **1,036 default namespaced
+operations**. Generated metadata includes path-parameter types, tags, and
+deprecation; matching a typed route gives exact confidence, not API validation.
+
+Regenerate with `go generate ./internal/normalize/rest`. Offline:
+`cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref ad351b19702b757bfd03a8ee85bcafe717878331 -date 2026-10-13`.
+Upgrade the SHA/date in `routes.go`'s directive, regenerate, and curate
+`overrides.go` by exact operationId. Never edit `routes_gen.go`. Preserve existing
+policy/hook names; `TestOverrideContract` detects absent keys, new action
+collisions, and stable family/action changes. Its explicit legacy sharing groups
+allow equivalent operations across scopes. Review any contract digest/allowlist
+change. See [REST notes](notes/rest.md#generation-and-override-curation).
+
+Without an override, action is `rest.` + operationId with `/` replaced by `.`,
+family is `rest.` + its first segment, GET/HEAD is read, POST/PUT/PATCH/DELETE is
+write, and other methods are unknown. Deprecated operations retain their method
+effect. For example, codespace creation now emits exact
+`rest.codespaces.create-for-authenticated-user` rather than an unknown write.
+`repos/merge-upstream` uses `branch.merge` / `branch.merge-upstream`, not PR merge.
 
 ### Request and endpoint semantics
 
@@ -609,9 +664,10 @@ baseline request construction before [typed route matching](../internal/normaliz
   encoded-slash boundaries, so an encoded branch/path can contain `/` without
   manufacturing an owner/repository split. Source display path can contain decoded
   slashes; use `origin.route` for the actual matched template.
-- Empty/trailing/double-slash paths, traversal/dot segments, invalid escapes,
-  controls, backslashes, and fragments are rejected as malformed unknowns. No
-  redirects or path-cleaning semantics are guessed.
+- `/` is the documented API root (`rest.meta.root`); empty endpoints, non-root
+  trailing/double-slash paths, traversal/dot segments, invalid escapes, controls,
+  backslashes, and fragments are malformed unknowns. No redirects or path-cleaning
+  semantics are guessed.
 - `{owner}`/`{repo}` and legacy `:owner`/`:repo` substitute from
   `[HOST/]OWNER/REPO` in `GH_REPO`; missing context stays unresolved.
   `{branch}`/`:branch` defer git context. Unknown brace names remain literal. Typed
@@ -666,12 +722,21 @@ gh validates pagination before method inference, so it remains a will-run write.
 
 ### L2 family/action table
 
-All 206 registered method/path pairs follow. GET rows have read effect; every
-listed non-GET row has write effect. Body refinements above can replace the base
-family/action. Matching requires the entire decoded segment sequence and exact
-method; literals outrank captures. PR/issue numbers and `*_id` captures require
-positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
-`{*ref}`/`{*path}` are terminal slash-bearing captures, not general substring matches.
+The canonical table below retains all 206 legacy route spellings plus upstream
+branch merge, covering 206 operationId overrides (contents root and file view
+share `repos/get-content`). Other snapshot routes use the defaults above.
+Body refinements can replace these base family/actions. Integer **schema types**
+require positive decimals without overflow; a name ending in `_id` does not make
+a string numeric (for example `gist_id`). Workflow IDs also accept `.yml`/`.yaml`
+filenames. Methods and the full decoded segment sequence must match; literals
+outrank captures, including string captures. Only terminal contents paths and git
+refs consume additional segments. The index uses method, first literal segment,
+and segment count, with a separate terminal-capture bucket.
+
+`origin.route` and non-target parameter keys now use the OpenAPI spellings:
+`environment_name`, `gist_id`, `gpg_key_id`, `ssh_signing_key_id`, `check_run_id`.
+Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
+(`sha`, `commit_sha`, `file_sha`, `tag_sha`, `tree_sha`) populate targets.
 
 | Method | Route | Family | Base action |
 | --- | --- | --- | --- |
@@ -739,10 +804,10 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | PUT | `/repos/{owner}/{repo}/collaborators/{username}` | `repo.collaborators` | `repo.collaborators.add` |
 | DELETE | `/repos/{owner}/{repo}/collaborators/{username}` | `repo.collaborators` | `repo.collaborators.remove` |
 | POST | `/repos/{owner}/{repo}/git/refs` | `ref.create` | `ref.create` |
-| GET | `/repos/{owner}/{repo}/git/ref/{*ref}` | `ref.read` | `ref.view` |
-| GET | `/repos/{owner}/{repo}/git/matching-refs/{*ref}` | `ref.read` | `ref.list` |
-| PATCH | `/repos/{owner}/{repo}/git/refs/{*ref}` | `ref.update` | `ref.update` |
-| DELETE | `/repos/{owner}/{repo}/git/refs/{*ref}` | `ref.delete` | `ref.delete` |
+| GET | `/repos/{owner}/{repo}/git/ref/{ref}` | `ref.read` | `ref.view` |
+| GET | `/repos/{owner}/{repo}/git/matching-refs/{ref}` | `ref.read` | `ref.list` |
+| PATCH | `/repos/{owner}/{repo}/git/refs/{ref}` | `ref.update` | `ref.update` |
+| DELETE | `/repos/{owner}/{repo}/git/refs/{ref}` | `ref.delete` | `ref.delete` |
 | GET | `/repos/{owner}/{repo}/branches` | `branch.read` | `branch.list` |
 | GET | `/repos/{owner}/{repo}/branches/{branch}` | `branch.read` | `branch.view` |
 | GET | `/repos/{owner}/{repo}/branches/{branch}/protection` | `branch.protection` | `branch.protection.view` |
@@ -764,9 +829,9 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | PUT | `/orgs/{org}/rulesets/{ruleset_id}` | `org.rulesets` | `org.rulesets.update` |
 | DELETE | `/orgs/{org}/rulesets/{ruleset_id}` | `org.rulesets` | `org.rulesets.delete` |
 | GET | `/repos/{owner}/{repo}/contents` | `file.read` | `file.list` |
-| GET | `/repos/{owner}/{repo}/contents/{*path}` | `file.read` | `file.view` |
-| PUT | `/repos/{owner}/{repo}/contents/{*path}` | `file.put` | `file.put` |
-| DELETE | `/repos/{owner}/{repo}/contents/{*path}` | `file.delete` | `file.delete` |
+| GET | `/repos/{owner}/{repo}/contents/{path}` | `file.read` | `file.view` |
+| PUT | `/repos/{owner}/{repo}/contents/{path}` | `file.put` | `file.put` |
+| DELETE | `/repos/{owner}/{repo}/contents/{path}` | `file.delete` | `file.delete` |
 | GET | `/repos/{owner}/{repo}/releases` | `release.read` | `release.list` |
 | POST | `/repos/{owner}/{repo}/releases` | `release.create` | `release.create` |
 | GET | `/repos/{owner}/{repo}/releases/latest` | `release.read` | `release.latest` |
@@ -802,8 +867,8 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | PUT | `/orgs/{org}/actions/secrets/{secret_name}/repositories` | `secret.repositories` | `secret.repositories.replace` |
 | PUT | `/orgs/{org}/actions/secrets/{secret_name}/repositories/{repository_id}` | `secret.repositories` | `secret.repositories.add` |
 | DELETE | `/orgs/{org}/actions/secrets/{secret_name}/repositories/{repository_id}` | `secret.repositories` | `secret.repositories.remove` |
-| PUT | `/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}` | `secret.put` | `secret.put` |
-| DELETE | `/repos/{owner}/{repo}/environments/{environment}/secrets/{secret_name}` | `secret.delete` | `secret.delete` |
+| PUT | `/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}` | `secret.put` | `secret.put` |
+| DELETE | `/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}` | `secret.delete` | `secret.delete` |
 | GET | `/repos/{owner}/{repo}/actions/variables` | `variable.read` | `variable.list` |
 | POST | `/repos/{owner}/{repo}/actions/variables` | `variable.create` | `variable.create` |
 | PATCH | `/repos/{owner}/{repo}/actions/variables/{name}` | `variable.update` | `variable.update` |
@@ -814,9 +879,9 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | PUT | `/orgs/{org}/actions/variables/{name}/repositories` | `variable.repositories` | `variable.repositories.replace` |
 | PUT | `/orgs/{org}/actions/variables/{name}/repositories/{repository_id}` | `variable.repositories` | `variable.repositories.add` |
 | DELETE | `/orgs/{org}/actions/variables/{name}/repositories/{repository_id}` | `variable.repositories` | `variable.repositories.remove` |
-| POST | `/repos/{owner}/{repo}/environments/{environment}/variables` | `variable.create` | `variable.create` |
-| PATCH | `/repos/{owner}/{repo}/environments/{environment}/variables/{name}` | `variable.update` | `variable.update` |
-| DELETE | `/repos/{owner}/{repo}/environments/{environment}/variables/{name}` | `variable.delete` | `variable.delete` |
+| POST | `/repos/{owner}/{repo}/environments/{environment_name}/variables` | `variable.create` | `variable.create` |
+| PATCH | `/repos/{owner}/{repo}/environments/{environment_name}/variables/{name}` | `variable.update` | `variable.update` |
+| DELETE | `/repos/{owner}/{repo}/environments/{environment_name}/variables/{name}` | `variable.delete` | `variable.delete` |
 | GET | `/repos/{owner}/{repo}/hooks` | `hook.read` | `hook.list` |
 | POST | `/repos/{owner}/{repo}/hooks` | `hook.create` | `hook.create` |
 | PATCH | `/repos/{owner}/{repo}/hooks/{hook_id}` | `hook.update` | `hook.update` |
@@ -833,20 +898,20 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | POST | `/user/keys` | `key.create` | `user.keys.create` |
 | DELETE | `/user/keys/{key_id}` | `key.delete` | `user.keys.delete` |
 | POST | `/user/gpg_keys` | `key.create` | `user.gpg_keys.create` |
-| DELETE | `/user/gpg_keys/{key_id}` | `key.delete` | `user.gpg_keys.delete` |
+| DELETE | `/user/gpg_keys/{gpg_key_id}` | `key.delete` | `user.gpg_keys.delete` |
 | POST | `/user/ssh_signing_keys` | `key.create` | `user.ssh_signing_keys.create` |
-| DELETE | `/user/ssh_signing_keys/{key_id}` | `key.delete` | `user.ssh_signing_keys.delete` |
+| DELETE | `/user/ssh_signing_keys/{ssh_signing_key_id}` | `key.delete` | `user.ssh_signing_keys.delete` |
 | GET | `/gists` | `gist.read` | `gist.list` |
 | POST | `/gists` | `gist.create` | `gist.create` |
-| GET | `/gists/{gist}` | `gist.read` | `gist.view` |
-| PATCH | `/gists/{gist}` | `gist.update` | `gist.update` |
-| DELETE | `/gists/{gist}` | `gist.delete` | `gist.delete` |
-| PUT | `/gists/{gist}/star` | `gist.star` | `gist.star` |
-| DELETE | `/gists/{gist}/star` | `gist.star` | `gist.unstar` |
-| POST | `/gists/{gist}/forks` | `gist.fork` | `gist.fork` |
-| POST | `/gists/{gist}/comments` | `gist.comment` | `gist.comment.create` |
-| PATCH | `/gists/{gist}/comments/{comment_id}` | `gist.comment` | `gist.comment.update` |
-| DELETE | `/gists/{gist}/comments/{comment_id}` | `gist.comment` | `gist.comment.delete` |
+| GET | `/gists/{gist_id}` | `gist.read` | `gist.view` |
+| PATCH | `/gists/{gist_id}` | `gist.update` | `gist.update` |
+| DELETE | `/gists/{gist_id}` | `gist.delete` | `gist.delete` |
+| PUT | `/gists/{gist_id}/star` | `gist.star` | `gist.star` |
+| DELETE | `/gists/{gist_id}/star` | `gist.star` | `gist.unstar` |
+| POST | `/gists/{gist_id}/forks` | `gist.fork` | `gist.fork` |
+| POST | `/gists/{gist_id}/comments` | `gist.comment` | `gist.comment.create` |
+| PATCH | `/gists/{gist_id}/comments/{comment_id}` | `gist.comment` | `gist.comment.update` |
+| DELETE | `/gists/{gist_id}/comments/{comment_id}` | `gist.comment` | `gist.comment.delete` |
 | GET | `/orgs/{org}/members` | `org.read` | `org.members.list` |
 | DELETE | `/orgs/{org}/members/{username}` | `org.members` | `org.members.remove` |
 | PUT | `/orgs/{org}/memberships/{username}` | `org.members` | `org.membership.put` |
@@ -863,17 +928,18 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 | PUT | `/orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}` | `team.repositories` | `team.repository.put` |
 | DELETE | `/orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}` | `team.repositories` | `team.repository.delete` |
 | POST | `/repos/{owner}/{repo}/merges` | `branch.merge` | `branch.merge` |
+| POST | `/repos/{owner}/{repo}/merge-upstream` | `branch.merge` | `branch.merge-upstream` |
 | POST | `/repos/{owner}/{repo}/check-runs` | `check.create` | `check.create` |
-| PATCH | `/repos/{owner}/{repo}/check-runs/{check_id}` | `check.update` | `check.update` |
+| PATCH | `/repos/{owner}/{repo}/check-runs/{check_run_id}` | `check.update` | `check.update` |
 | POST | `/repos/{owner}/{repo}/statuses/{sha}` | `status.create` | `status.create` |
 | GET | `/repos/{owner}/{repo}/deployments` | `deployment.read` | `deployment.list` |
 | POST | `/repos/{owner}/{repo}/deployments` | `deployment.create` | `deployment.create` |
 | DELETE | `/repos/{owner}/{repo}/deployments/{deployment_id}` | `deployment.delete` | `deployment.delete` |
 | POST | `/repos/{owner}/{repo}/deployments/{deployment_id}/statuses` | `deployment.status` | `deployment.status.create` |
 | GET | `/repos/{owner}/{repo}/environments` | `environment.read` | `environment.list` |
-| GET | `/repos/{owner}/{repo}/environments/{environment}` | `environment.read` | `environment.view` |
-| PUT | `/repos/{owner}/{repo}/environments/{environment}` | `environment.put` | `environment.put` |
-| DELETE | `/repos/{owner}/{repo}/environments/{environment}` | `environment.delete` | `environment.delete` |
+| GET | `/repos/{owner}/{repo}/environments/{environment_name}` | `environment.read` | `environment.view` |
+| PUT | `/repos/{owner}/{repo}/environments/{environment_name}` | `environment.put` | `environment.put` |
+| DELETE | `/repos/{owner}/{repo}/environments/{environment_name}` | `environment.delete` | `environment.delete` |
 | GET | `/user` | `user.read` | `user.view` |
 | PATCH | `/user` | `user.update` | `user.update` |
 | GET | `/notifications` | `notification.read` | `notification.list` |
@@ -884,11 +950,13 @@ positive decimal integers (workflow IDs also accept `.yml`/`.yaml` filenames).
 
 ### L2 limitations
 
-This is an explicit registry, not complete OpenAPI coverage. Unregistered codespace
-routes, GHES-version availability, auth/validation outcomes, redirects, configured
-API remapping, and server side effects are not inferred. Host values describe
-canonical instance identity, not proof of transport destination. An unavailable
-body can prevent a refinement without hiding the underlying known write.
+The api.github.com snapshot is the default and only description. GHES-only routes
+absent from it remain unknown writes or heuristic GET/HEAD reads; no GHES variants
+are generated. Shared public routes can match on GHES without proving availability
+for its version. Full OpenAPI body validation, auth/outcomes, redirects, configured
+API remapping, and confirmed side effects are not inferred. Host values describe
+canonical identity, not transport destination. Unavailable bodies can prevent a
+refinement without hiding the underlying known write.
 `{branch}` is retained as deferred intent even where upstream rejects it with
 GH_REPO set. The combined parameter view loses the query value on a body collision.
 JSON numbers use Go JSON decoding (`float64` internally); typed fields use `int`.
@@ -899,9 +967,11 @@ JSON numbers use Go JSON decoding (`float64` internally); typed fields use `int`
 [AST analysis](../internal/normalize/graphql/analysis.go), and
 [normalizer](../internal/normalize/graphql/graphql.go) use gqlparser/v2 parsing,
 not regex extraction. The [semantic registry](../internal/normalize/graphql/registry.go)
-has 39 mapped mutations; the [schema snapshot](../internal/normalize/graphql/schema_mutations.go)
-contains all 278 public mutation names captured on 2026-10-14. The snapshot does
-**not** provide full schema validation or semantic mappings for all those fields.
+has 39 curated mutations; the [schema snapshot](../internal/normalize/graphql/schema_mutations.go)
+contains all 278 public mutations captured on 2026-10-15, including input types,
+field type signatures, candidate target IDs, descriptions and deprecation.
+The snapshot provides default write classification, not full schema validation.
+Regeneration and override curation are described in [GraphQL notes](notes/graphql.md#mutation-schema-snapshot).
 
 ### Transport, selection, and execution
 
@@ -1007,14 +1077,29 @@ SHA when present. `updateRefs` keeps batch values in parameters rather than
 emitting a separate operation per ref. Missing required extracted values are
 recorded unresolved; GitHub schema/type/authorization validation is not performed.
 
-### Schema-known but unmapped mutation fields
+### Schema-backed default mutation fields
 
-The remaining 239 snapshot entries all map to **family `unknown`**, action
-**`graphql.mutation.<field>`**, effect **write**, and reason **`unknown-mutation`**.
-Here `<field>` is replaced exactly by each listed schema name; aliases do not
-change it. Detail distinguishes these known names ("known GitHub mutation without
-semantic mapping") from names absent from the snapshot. They still have exact
-AST identity on a successfully parsed document, not a recognized semantic family.
+The remaining 239 snapshot entries use **family `graphql.mutation`**, action
+**`graphql.<field>`**, effect **write**, exact confidence, and no `unknownReason`.
+Here `<field>` is each listed schema name; aliases never change it. Resolved input
+is retained in parameters. Detail includes the schema description's first line
+and deprecation when present.
+
+Candidate targets are scalar `ID`/`ID!` fields named `*Id` (plus bare `id`).
+Generation prefers the unique longest object noun matching the mutation name;
+otherwise a sole candidate is selected. `addReaction` therefore uses `subjectId`,
+and `transferIssue` prefers `issueId` over `repositoryId`. When several candidates
+remain ambiguous, `target.nodeId` stays empty and an unresolved entry lists them,
+even if only one value is supplied. Missing selected IDs remain unresolved.
+Every mutation keeps `target.repository` unresolved with source `api`.
+
+**Policy migration:** previously these schema-known fields were family `unknown`,
+action `graphql.mutation.<field>`, with `unknown-mutation`, so
+`policy.unknownMutation: deny` blocked them. They are now classified writes and
+that setting alone no longer blocks them. Match `operation: "graphql.*"` to apply
+a policy rule to GraphQL defaults (also matching query/unknown actions); combine
+with `effect: write` to restrict the rule to writes. Curated actions such as
+`pr.merge.direct` retain their existing names and need their existing matches.
 
 | Schema fields (each uses the mapping above) |
 | --- |
@@ -1054,9 +1139,10 @@ AST identity on a successfully parsed document, not a recognized semantic family
 | `updateSponsorshipPreferences`, `updateSubscription`, `updateTeamReviewAssignment`, `updateTeamsRepository`, `updateTopics`, `updateUserList`, `updateUserListsForItem` |
 | `verifyVerifiableDomain` |
 
-A field absent from the snapshot uses the same unknown/write mapping with detail
-`not in schema snapshot (2026-10-14)`. For example, `deleteRepository` is absent
-from this public snapshot and is not a supported semantic mapping.
+A field absent from the snapshot still uses family `unknown`, action
+`graphql.mutation.<field>`, effect write and reason `unknown-mutation`, with detail
+`not in schema snapshot (2026-10-15)`. For example, `deleteRepository` remains
+absent and subject to unknown-mutation handling.
 
 ### L3 limitations
 
@@ -1133,8 +1219,8 @@ normalization.
 | Area | Supported | Partial / deliberately not inferred | Unsupported / unknown |
 | --- | --- | --- | --- |
 | Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; plain alias chains. | Context lookup, interactive values, body contents, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
-| REST | All 206 listed typed method/route pairs; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | Complete OpenAPI coverage, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
-| GraphQL | AST selection/variables/aliases/fragments/directives; 39 detailed mappings and explicit unknown writes for all other fields. | Unavailable variables/node lookup, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; schema-known unmapped fields are not semantic support. |
+| REST | All 1,242 pinned public OpenAPI operations; 206 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
+| GraphQL | AST selection/variables/aliases/fragments/directives; 278 schema-backed writes including 39 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
 
 Normalization is extensible by editing the existing static registries; it does
 not load runtime normalizer plugins. Context resolution is a separate layer and

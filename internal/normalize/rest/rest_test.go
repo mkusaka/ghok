@@ -421,7 +421,7 @@ func TestTargetExtraction(t *testing.T) {
 }
 
 func TestMalformedAndHeaders(t *testing.T) {
-	for _, path := range []string{"", "/", "repos/o/r/", "//repos/o/r", "repos//r", "repos/o/../r", "repos/o/%2e%2e/r", "repos/o/r/contents/a%2F..%2Fb", "repos/o/r%", "repos/o/r?x=%", "https://", "ftp://api.github.com/repos/o/r", "https://user:" + "pass@api.github.com/repos/o/r", "repos/o/r#fragment", "repos/o/r\n", "repos\\o\\r"} {
+	for _, path := range []string{"", "repos/o/r/", "//repos/o/r", "repos//r", "repos/o/../r", "repos/o/%2e%2e/r", "repos/o/r/contents/a%2F..%2Fb", "repos/o/r%", "repos/o/r?x=%", "https://", "ftp://api.github.com/repos/o/r", "https://user:" + "pass@api.github.com/repos/o/r", "repos/o/r#fragment", "repos/o/r\n", "repos\\o\\r"} {
 		res := Normalize(knownInv(), model.APIRequest{Method: "GET", Endpoint: path})
 		if res.Classification.MutationFree || res.Operations[0].UnknownReason != model.UnknownMalformed {
 			t.Fatalf("%q: %+v", path, res)

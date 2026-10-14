@@ -129,7 +129,11 @@ func parseEndpoint(inv model.Invocation, req model.APIRequest) (endpoint, error)
 	if err != nil {
 		return ep, fmt.Errorf("invalid REST query encoding")
 	}
-	if !strings.HasPrefix(path, "/") || path == "/" || strings.HasSuffix(path, "/") {
+	if path == "/" || (path == "" && strings.Contains(raw, "://")) {
+		ep.path = "/"
+		return ep, nil
+	}
+	if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
 		return ep, fmt.Errorf("empty or trailing-slash REST path is not normalized")
 	}
 	rawSegments := strings.Split(path[1:], "/")
