@@ -20,11 +20,11 @@ prints `Matched rules: none` when no rules match.
 
 Without matching post-hooks or live stdin replay, `process.Exec` replaces the wrapper. Logs are written **before** Exec, so duration covers analysis/pre-hooks and no child exit status is available. Matching post-hooks or a spool needing a live pump use `process.Run`; post-hooks receive the exact child exit code/signal and never change it. Output capture is requested only by selected post-hooks. Non-capturing hooks receive execution metadata without captured bodies, even when another hook enabled capture.
 
-SIGINT/SIGTERM during pre-hooks cancel and wait for hook process-group cleanup, do not start gh, then reproduce signaled termination through `process.Result.Exit`. The pre-hook signal watcher is stopped/joined before the execution layer owns signals. Inherited ignored SIGINT remains ignored. Child execution/job-control/capture limitations are exactly those documented in [process.md](process.md), including foreground wrapper-directed INT/QUIT ambiguity and opt-in capture's non-TTY streams.
+One helper-phase watcher covers SIGINT/SIGTERM/SIGHUP across resolver API calls and pre-hooks, excluding signals ignored before any Notify call. Cancellation kills/reaps helper groups; before gh starts, `process.Result.Exit` re-raises the received signal. The watcher stops and joins before Exec/Run takes signal ownership, then restarts immediately after Run returns for post-hooks. Post interruption cancels/reaps hooks and records `post-hooks interrupted by SIG...` in diagnostics, but `execution.Exit` still returns gh's completed exit code/signal. The default observe/no-hook path allocates no helper watcher. SIGKILL cannot be handled; hooks may outlive ghok. Child execution/job-control/capture limitations remain those in [process.md](process.md), including foreground wrapper-directed INT/QUIT ambiguity and Go's inherited-disposition limits.
 
 ## Analysis and resolution
 
-Stdin analysis is only attempted for alias-expanded `gh api --input -` / `-F key=@-` when analysis is needed. The existing spool never reads a TTY and preserves consumed bytes, including oversized/timeout prefixes. Files are read relative to cwd with `runtime.fileMaxBytes` bounds. Analysis copies are never replay data.
+Stdin capture is only attempted for alias-expanded `gh api --input -` / `-F key=@-` when an enforce-mode deny rule, unknown-mutation/protected-repository denial, or enabled pre-hook could need the body. Candidate command prefixes and L2/L3 levels are checked before capture; body-dependent operation/effect/repository/host criteria cannot exclude a candidate yet. Observe logging, audit-only enforce policies, disabled/unrelated pre-hooks, and post-hooks alone leave stdin untouched and record `stdin not captured`; gh starts before producer EOF. Normalize/explain keep their non-TTY capture behavior. The spool never reads a TTY and preserves consumed bytes, including oversized/timeout prefixes. Files remain bounded by `runtime.fileMaxBytes`. Analysis copies are never replay data.
 
 Local git/host resolution runs only for unresolved repository/host matches or potentially writing operations whose protected-repository membership is unresolved. API resolution is permitted only in enforce mode for missing fields relevant to a potentially matching pre-hook/deny rule or protected-repository decision. Each operation is resolved separately so an unrelated operation does not trigger an API query. Resolver timeouts and ambiguity remain explicit diagnostics/unresolved fields. Observe mode never implicitly calls the API. Management API resolution requires explicit `--resolve --allow-api`.
 
@@ -34,37 +34,54 @@ Hook input and logger records cross `redact.New(env)` boundaries. gh still recei
 
 Management commands use stdlib flag parsing. Success is 0, failure is 1, usage errors are 2. Explain exits 0 even for a displayed deny; it does not run hooks or gh. Hooks test runs selected hooks with synthetic execution metadata for post phase, never executes the requested gh command. Enable/disable manage only owned shims/state and never edit shell rc files. Normalization JSON and explanations redact secrets unless explain explicitly requests `--show-secrets`.
 
+Plain doctor checks sorted `state/shims.json` records, including custom enable locations, with one precedence/ownership pair per shim. No records falls back to the default location; unreadable/corrupt state fails diagnostics. No doctor flag or exported signature was added.
+
 Unix process code targets macOS/Linux. Terminal detection reuses install's native ioctl via a tiny exported accessor. This integration changes no gh CLI parsing semantics; upstream behavior/source paths are the verified v2.102.0 findings in [native.md](native.md), [rest.md](rest.md), [graphql.md](graphql.md), [install.md](install.md), and [config-logging-redaction.md](config-logging-redaction.md).
 
 ## Verification
 
-Root `gofmt -l .`, `go build ./...`, `go vet ./...`, `go test ./...`,
-`go test -race ./...`, and `make build` passed on macOS arm64. An initial
-hook-list test incorrectly decoded display JSON into YAML configuration types;
-it now checks the public list fields. Concurrent cold test execution also
-exceeded the existing installation diagnostic's three-second version-probe
-deadline; E2E fixture compilation uses one compiler worker, and the final root
-race run passed without changing that production timeout.
+Final-fix run: root `gofmt -l .` printed nothing; `go build ./...`,
+`go vet ./...`, `go test ./...`, `go test -race ./...`, and `make build`
+passed on macOS arm64. Both full test commands reported 14 passing test
+packages and nine packages without tests.
 
-Hermetic E2E covers original argv/env/cwd, binary/empty/large stdio, fast and
-supervised execution, actual signal wait statuses, 126/127 start failures,
-pre-denial/allow/error/timeout, post diagnostics/status/captures, stdin limits
-and live replay, GraphQL stdin/files, observe/protected policy, lazy resolution,
-aliases/nesting/recursion, config passthrough, credential-safe logs/hook input,
-management commands, and PTY interactive stdin/resize/exactly-once terminal Ctrl+C.
+Hermetic E2E covers pre/post SIGINT/SIGTERM/SIGHUP interruption, resolver
+cancellation, direct-helper disappearance (`kill(pid, 0) == ESRCH` within a
+bounded wait), child-status preservation, inherited ignored INT/HUP, custom
+doctor locations, and gh startup before stdin EOF for unneeded capture.
+Body-dependent enforcing rules still capture and deny matching GraphQL input.
+The built CLI also passed a standalone default-config streaming smoke:
+fake gh started with the producer pipe open, received byte-exact input, emitted
+no wrapper output, and logs retained uncaptured-input uncertainty. Management
+normalize independently read the complete non-TTY input and proved its query
+mutation-free.
 
-All cross-compiled test suites also passed with no skips in fresh,
-network-disabled cached Linux containers: native arm64 (Debian) and
-emulated amd64 (Ubuntu). Tests used actual CGO-free ghok/fakegh
-binaries; a temporary compiler adapter copied already cross-built fixtures
-for E2E TestMain because those containers contain no Go toolchain. Repository
-mounts were read-only. Linux race instrumentation was not run. Linux
-amd64/arm64 and macOS amd64 release builds cross-compiled successfully;
-macOS amd64 runtime execution was not performed.
+Cross-compiled with `CGO_ENABLED=0 GOOS=linux GOARCH=arm64|amd64 go test -p=1 -c`
+for all 14 tested packages; ordinary fuzz seeds are included, not timed fuzzing.
+Prebuilt ghok/fakegh use the same Go 1.26.5 as the suite; E2E TestMain accepts
+paired `GHOK_E2E_GHOK_BINARY` / `GHOK_E2E_FAKEGH_BINARY` paths, validates their
+executability, and skips fixture compilation. Build ghok with
+`-ldflags='-X main.version=e2e-version -X main.commit=e2e-commit'`.
 
-Manual sandbox smoke exercised enable → `gh pr merge 1` denied by a pre-hook
-(exit 1, no fake-gh record) → disable. Go/Python example hooks both denied
-admin=true and abstained for admin=false; the Go audit example appended one
-JSONL record with exitCode=42 at its default installed path. All temporary
-smoke/cross-test fixtures were removed. Measured benchmarks are in
+Docker runs used existing images, `--pull=never --network=none --read-only`,
+read-only binary mounts, UID/GID 502:20, and writable/executable `/tmp` tmpfs.
+Every test binary ran with `-test.v -test.timeout=20m`; no skips:
+
+| Linux runtime | Image | Result |
+| --- | --- | --- |
+| Native arm64 | `node:22-bookworm-slim` (Debian) | 13/14 packages passed, including full E2E. |
+| Translated amd64 | `mcr.microsoft.com/powershell:7.4-ubuntu-22.04` | 14/14 packages passed, including full E2E. |
+
+The arm64 `internal/process` package failed its unchanged
+`TestShellForegroundBackgroundJobs`: `FG_DONE:149`, child acknowledged
+`CHILD_DONE`, shell still listed the wrapper stopped by tty input. The failed
+process suite was not rerun or suppressed; the three packages after it in the
+initial loop were run separately and passed. No process implementation/test was
+changed for this unrelated verification finding.
+
+Linux race instrumentation was **not run**: no local golang image or established
+Linux Go/C-compiler/sysroot combination was available. macOS amd64 runtime was
+not exercised in this run. All temporary smoke/cross-test artifacts were
+removed. Benchmark methods and both reported startup deltas remain in
 [benchmarks.md](benchmarks.md).
+

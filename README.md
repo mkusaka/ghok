@@ -103,7 +103,9 @@ checks the installed shim with a probe, and prints PATH instructions rather
 than editing shell startup files. Shells may cache command paths; refresh your
 shell's command cache (`hash -r` in bash, `rehash` in zsh) after PATH changes.
 For a different directory use the same `--bin-dir DIR` on enable and disable.
-Installation state is stored in the ghok config directory.
+Installation state is stored in the ghok config directory. Plain `ghok doctor`
+automatically checks every shim recorded there, including custom locations;
+without records it checks `~/.local/bin/gh`.
 
 Upgrade the `ghok` executable at its stable installation path, then run
 `ghok enable` and `ghok doctor` again. If the executable moved, enable replaces
@@ -210,9 +212,13 @@ Unknown commands/routes/mutations, shell aliases, extensions, malformed or
 inaccessible input remain explicit uncertainty, never a proof of safety.
 Unknown flags on a known native command can retain its family/effect with
 heuristic confidence; do not treat a retained read effect alone as safe.
-Plain aliases are expanded for inspection. API stdin analysis is bounded and
-byte-exactly replayed; interactive stdin is never pre-read. Registry tables,
-input rules, and limitations: [normalization](docs/normalization.md).
+Plain aliases are expanded for inspection. API stdin is captured only for a
+potentially enforcing policy or potentially matching enabled pre-hook, then
+byte-exactly replayed; interactive stdin is never pre-read. Default observe
+logging and post-hooks alone leave stdin untouched, recording `stdin not captured`
+rather than delaying gh until EOF. `ghok normalize`/`explain` may still read
+non-TTY stdin. Registry tables, input rules, and limitations:
+[normalization](docs/normalization.md).
 
 ## Management commands
 
@@ -249,7 +255,7 @@ Local context is lazy; observe never implicitly queries GitHub. Enforce only
 queries for missing fields relevant to enforcing matches, with per-invocation
 caching and timeouts.
 
-Recorded warm-cache medians on Apple M4 Max, Go 1.26.5, macOS arm64:
+Earlier warm-cache Go benchmarks on Apple M4 Max, Go 1.26.5, macOS arm64:
 
 | Measurement | Median |
 | --- | ---: |
@@ -258,10 +264,12 @@ Recorded warm-cache medians on Apple M4 Max, Go 1.26.5, macOS arm64:
 | L1 / L2 / L3 merge normalization | 2.834 / 6.992 / 6.413 µs |
 | One trivial pre-hook | 8.021 ms |
 
-Startup difference of medians: 6.488 ms, **not a paired overhead guarantee**.
-The disabled-logging shortcut was not measured. These local samples are not
-portable latency promises; fixture startup allocation counts describe the
-benchmark parent, not the child. Methods and all samples:
+The Go benchmark difference of medians was **+6.488 ms**. A separate lead
+measurement using a Python subprocess loop, 60 direct and 60 default-config
+shim starts, reported **about +3.5 ms** median added latency. Different sampling
+methods and uncontrolled host load make these local observations, not a paired
+overhead guarantee or portable promise. The disabled-logging shortcut was not
+measured; startup allocations describe the parent, not the child. Methodology:
 [benchmarks](docs/notes/benchmarks.md).
 
 ## Troubleshooting and bypass
@@ -287,6 +295,11 @@ benchmark parent, not the child. Methods and all samples:
   executed commands keep their exit status/signal. Foreground wrapper-directed
   SIGINT/SIGQUIT, inherited ignored signals, output capture, and core-dump flags
   have [documented transparency limits](docs/compatibility.md).
+- INT/TERM/HUP during resolver calls or pre-hooks cancel/reap helper groups,
+  then terminate ghok with that signal without starting the user command.
+  During post-hooks they cancel/reap hooks but preserve gh's completed status,
+  recording the interruption in logs. Signals ignored at startup remain
+  unwatched. SIGKILL cannot be handled; hooks may outlive the wrapper.
 - Default logs: `<config-dir>/logs/ghok.jsonl`, rotating above 10 MiB with three
   backups. Logs exclude captured gh output; redaction is not a guarantee for
   arbitrary encodings or unrecognized secrets. See [security](docs/security.md).
@@ -312,10 +325,14 @@ go test -run '^$' -fuzz '^FuzzNormalizeGraphQL$' -fuzztime 30s ./internal/normal
 go test -run '^$' -fuzz '^FuzzRedactString$' -fuzztime 30s ./internal/redact
 ```
 
-E2E builds ghok/fakegh with the local Go toolchain, dependencies already cached,
-and module downloads/toolchain switching disabled. Tests use temporary
-HOME/XDG/PATH/configs, fake gh, pipes and PTYs; no real GitHub writes or auth are
-needed. POSIX shell fixtures require `/bin/sh`; bash job-control tests skip if
+By default E2E builds ghok/fakegh with the local Go toolchain, dependencies
+already cached, and module downloads/toolchain switching disabled. Offline
+test-binary runs can instead set both `GHOK_E2E_GHOK_BINARY` and
+`GHOK_E2E_FAKEGH_BINARY` to prebuilt executable paths; build ghok with
+`-ldflags='-X main.version=e2e-version -X main.commit=e2e-commit'` using the same
+Go version as the suite. Tests use temporary HOME/XDG/PATH/configs, fake gh, pipes
+and PTYs; no real GitHub writes or auth are needed. POSIX shell fixtures require
+`/bin/sh`; bash job-control tests skip if
 bash is unavailable. Runtime tests require supported Unix process/PTY
 facilities, not only cross-compilation. CI runs native tests, race checks, five
 10-second fuzz smokes, and all four cross-builds on each platform.

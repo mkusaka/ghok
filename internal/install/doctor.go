@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ type DoctorOptions struct {
 	Version  string
 	PathEnv  string
 	Override string
+	// BinDir is the fallback when state has no recorded shims.
 	BinDir   string
 	StateDir string
 	// Env is passed to diagnostics and inspected for GH_PATH / GHOK_DEPTH.
@@ -61,25 +63,39 @@ func Checks(o DoctorOptions) []Check {
 	} else {
 		checks = append(checks, Check{Name: "real-gh", Status: StatusOK, Detail: real})
 	}
-	shim, shimErr := shimPath(o.BinDir)
+	state, shimErr := loadState(o.StateDir)
+	shims := make([]string, 0, len(state))
+	for shim := range state {
+		shims = append(shims, shim)
+	}
+	sort.Strings(shims)
+	if shimErr == nil && len(shims) == 0 {
+		var shim string
+		shim, shimErr = shimPath(o.BinDir)
+		if shimErr == nil {
+			shims = append(shims, shim)
+		}
+	}
 	if shimErr != nil {
 		checks = append(checks, Check{Name: "path-precedence", Status: StatusFail, Detail: shimErr.Error()}, Check{Name: "shim-ownership", Status: StatusFail, Detail: shimErr.Error()})
 	} else {
-		_, detail, fix := pathPrecedence(shim, o.PathEnv)
-		status := StatusOK
-		if fix != "" {
-			status = StatusWarn
+		for _, shim := range shims {
+			_, detail, fix := pathPrecedence(shim, o.PathEnv)
+			status := StatusOK
+			if fix != "" {
+				status = StatusWarn
+			}
+			checks = append(checks, Check{Name: "path-precedence", Status: status, Detail: detail, Fix: fix})
+			owned, err := ownedShim(shim, o.Self, state)
+			ownership := Check{Name: "shim-ownership", Status: StatusOK, Detail: shim + " is an owned symlink"}
+			if err != nil {
+				ownership.Status, ownership.Detail = StatusFail, shim+": "+err.Error()
+			} else if !owned {
+				ownership.Status, ownership.Detail = StatusWarn, shim+" is absent or not managed by ghok"
+				ownership.Fix = "Run ghok enable with --bin-dir set to " + strconv.Quote(filepath.Dir(shim)) + "; resolve any foreign path collision first."
+			}
+			checks = append(checks, ownership)
 		}
-		checks = append(checks, Check{Name: "path-precedence", Status: status, Detail: detail, Fix: fix})
-		owned, err := IsOwnedShim(shim, o.Self, o.StateDir)
-		ownership := Check{Name: "shim-ownership", Status: StatusOK, Detail: shim + " is an owned symlink"}
-		if err != nil {
-			ownership.Status, ownership.Detail = StatusFail, err.Error()
-		} else if !owned {
-			ownership.Status, ownership.Detail = StatusWarn, shim+" is absent or not managed by ghok"
-			ownership.Fix = "Run ghok enable; resolve any foreign path collision first."
-		}
-		checks = append(checks, ownership)
 	}
 	recursion := Check{Name: "recursion-risk", Status: StatusOK, Detail: "Discovery excludes self and ghok-named executables; nesting is bounded by GHOK_DEPTH."}
 	var risks []string

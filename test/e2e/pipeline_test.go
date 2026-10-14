@@ -569,7 +569,7 @@ func waitFile(t *testing.T, path string) []byte {
 }
 
 func TestSignalDuringPreHookCancelsAndNeverStartsGh(t *testing.T) {
-	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 		t.Run(strconv.Itoa(int(sig)), func(t *testing.T) {
 			s := newSandbox(t)
 			ready := filepath.Join(s.root, "hook-ready")
@@ -592,6 +592,7 @@ func TestSignalDuringPreHookCancelsAndNeverStartsGh(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 			if err := cmd.Process.Signal(sig); err != nil {
 				t.Fatal(err)
 			}
@@ -599,9 +600,162 @@ func TestSignalDuringPreHookCancelsAndNeverStartsGh(t *testing.T) {
 			result.signaled(t, sig)
 			s.absentRecord()
 			s.hookInput("pre")
-			if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-				t.Fatalf("canceled hook remains alive: pid=%d err=%v", pid, err)
+			waitProcessGone(t, pid)
+		})
+	}
+}
+
+func waitProcessGone(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		} else if err != nil {
+			t.Fatalf("checking helper pid=%d: %v", pid, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("helper remains alive after cleanup: pid=%d", pid)
+}
+
+func TestSignalDuringPostHookKeepsChildStatusAndReapsHook(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		for _, exit := range []int{0, 42} {
+			t.Run(fmt.Sprintf("signal=%d/exit=%d", sig, exit), func(t *testing.T) {
+				s := newSandbox(t)
+				ready := filepath.Join(s.root, "hook-ready")
+				s.configure(func(c *config.Config) {
+					yes := true
+					c.Logging.Enabled = &yes
+					c.Hooks = []config.Hook{{
+						ID: "post", Phase: config.PhasePost, Timeout: config.Duration(time.Minute),
+						Command: []string{"/bin/sh", "-c", `printf '%s' "$$" > "$1"; exec /bin/sleep 30`, "hook", ready},
+					}}
+				})
+				s.env["FAKEGH_EXIT"] = strconv.Itoa(exit)
+				args := []string{"pr", "view", "1"}
+				cmd, cancel := s.command(filepath.Join(s.bin, "gh"), nil, args...)
+				defer cancel()
+				var stdout, stderr bytes.Buffer
+				cmd.Stdout, cmd.Stderr = &stdout, &stderr
+				if err := cmd.Start(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+				pid, err := strconv.Atoi(string(waitFile(t, ready)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+				if err := cmd.Process.Signal(sig); err != nil {
+					t.Fatal(err)
+				}
+				result := outcome{err: cmd.Wait(), stdout: stdout.Bytes(), stderr: stderr.Bytes()}
+				result.code(t, exit)
+				waitProcessGone(t, pid)
+				s.onlyRecord(args, nil)
+				logs := s.logs()
+				if len(logs) != 1 || logs[0].Exec == nil || logs[0].Exec.ExitCode != exit ||
+					len(logs[0].Hooks) != 1 || logs[0].Hooks[0].Outcome != protocol.OutcomeCanceled ||
+					!strings.Contains(strings.Join(logs[0].Diagnostics, "; "), "post-hooks interrupted by SIG") {
+					t.Fatalf("post interruption log=%+v", logs)
+				}
+			})
+		}
+	}
+}
+
+func TestSignalDuringResolverReapsHelperAndNeverStartsUserGh(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		t.Run(strconv.Itoa(int(sig)), func(t *testing.T) {
+			s := newSandbox(t)
+			s.configure(func(c *config.Config) {
+				c.Policy.Mode = config.ModeEnforce
+				c.Policy.ProtectedRepositories = []string{"acme/*"}
+				c.Runtime.ResolveTimeout = config.Duration(20 * time.Second)
+			})
+			s.env["GH_HOST"] = "github.com"
+			ready := filepath.Join(s.root, "resolver-ready")
+			s.env["FAKEGH_READY"], s.env["FAKEGH_SLEEP"] = ready, "1m"
+			args := []string{"api", "graphql", "-f", `query=mutation { mergePullRequest(input:{pullRequestId:"PR_test_node"}) { clientMutationId } }`}
+			cmd, cancel := s.command(filepath.Join(s.bin, "gh"), nil, args...)
+			defer cancel()
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+			pid, err := strconv.Atoi(string(waitFile(t, ready)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+			if err := cmd.Process.Signal(sig); err != nil {
+				t.Fatal(err)
+			}
+			result := outcome{err: cmd.Wait(), stdout: stdout.Bytes(), stderr: stderr.Bytes()}
+			result.signaled(t, sig)
+			waitProcessGone(t, pid)
+			records := s.records()
+			if len(records) != 1 || envMap(records[0].Env)["GHOK_NESTED"] != "1" {
+				t.Fatalf("user gh ran after interrupted resolution: %+v", records)
 			}
 		})
+	}
+}
+
+func TestHelperPhasesPreserveIgnoredStartupSignals(t *testing.T) {
+	for _, phase := range []string{config.PhasePre, config.PhasePost} {
+		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGHUP} {
+			t.Run(fmt.Sprintf("%s/signal=%d", phase, sig), func(t *testing.T) {
+				s := newSandbox(t)
+				ready, fifo := filepath.Join(s.root, "hook-ready"), filepath.Join(s.root, "release")
+				if err := syscall.Mkfifo(fifo, 0600); err != nil {
+					t.Fatal(err)
+				}
+				release, err := os.OpenFile(fifo, os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer release.Close()
+				s.configure(func(c *config.Config) {
+					yes := true
+					c.Logging.Enabled = &yes
+					c.Hooks = []config.Hook{{
+						ID: phase, Phase: phase,
+						Command: []string{"/bin/sh", "-c", `printf '%s' "$$" > "$1"; read -r line < "$2"; printf '{"decision":"abstain"}'`, "hook", ready, fifo},
+					}}
+				})
+				cmd, cancel := s.command("/bin/sh", nil, "-c", `trap '' INT HUP; exec "$@"`, "ignored", filepath.Join(s.bin, "gh"), "version")
+				defer cancel()
+				var stdout, stderr bytes.Buffer
+				cmd.Stdout, cmd.Stderr = &stdout, &stderr
+				if err := cmd.Start(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+				pid, err := strconv.Atoi(string(waitFile(t, ready)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+				if err := cmd.Process.Signal(sig); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := release.Write([]byte("continue\n")); err != nil {
+					t.Fatal(err)
+				}
+				result := outcome{err: cmd.Wait(), stdout: stdout.Bytes(), stderr: stderr.Bytes()}
+				result.code(t, 0)
+				waitProcessGone(t, pid)
+				s.onlyRecord([]string{"version"}, nil)
+				logs := s.logs()
+				if len(logs) != 1 || len(logs[0].Hooks) != 1 || logs[0].Hooks[0].Outcome != protocol.OutcomeOK {
+					t.Fatalf("ignored signal interrupted helper: %+v", logs)
+				}
+			})
+		}
 	}
 }

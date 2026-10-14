@@ -24,8 +24,10 @@ vet, formatting, tests, race tests, five 10-second fuzz smokes, make build, and
 all four CGO-free cross-compiles. Cross-build success alone is not runtime proof.
 
 Engineering records report macOS arm64 runtime/race/E2E/PTY tests and Linux
-arm64 plus translated amd64 non-race runtime suites; macOS amd64 was previously
-cross-compiled, not locally executed. The new native CI jobs are the ongoing
+arm64 plus translated amd64 non-race runtime suites; the latest arm64 run
+failed one unchanged process job-control test, while all new E2E cases passed
+(see [CLI verification](notes/cli.md#verification)). macOS amd64 was previously
+cross-compiled, not locally executed. The native CI jobs are the ongoing
 verification surface, not a claim that those hosted jobs have already run.
 No minimum Linux distribution or macOS version beyond these exercised/CI
 surfaces is certified. Apple release binaries are not Developer ID
@@ -55,7 +57,7 @@ signed/notarized. Windows and other operating systems are unsupported.
 | Terminal/group SIGINT/SIGQUIT | Child receives terminal signal once. Foreground supervisor catches its own notification without forwarding it again. | Tested exactly-once terminal delivery. |
 | SIGINT/SIGQUIT directed only at wrapper pid while foreground | Cannot distinguish terminal notification from directed kill reliably; not forwarded. | **Not exactly transparent**; signal child/group instead. |
 | SIGINT/SIGQUIT when supervisor is not terminal foreground | Forwarded to direct child pid. | Supported nonforeground/non-TTY forwarding. |
-| Wrapper-directed SIGTERM/SIGHUP | Forwarded to direct child pid. | No process-group broadcast; descendants must be handled by child. |
+| Wrapper-directed SIGTERM/SIGHUP while gh runs | Forwarded to direct child pid. | No process-group broadcast; descendants must be handled by child. |
 | SIGWINCH | Not forwarded; foreground terminal group receives it naturally. | Pid-only WINCH sent to wrapper is not relayed. |
 | SIGTSTP/SIGTTIN/SIGTTOU | Default stop actions retained; genuine child stop mirrored on wrapper. | Shell fg/bg job control supported; stale stop events checked before mirroring. |
 | SIGCONT | Continued wrapper forwards CONT to child. | Supported; cancellation cannot progress while wrapper is stopped. |
@@ -66,15 +68,21 @@ signed/notarized. Windows and other operating systems are unsupported.
 | Inherited ignored QUIT/TERM/PIPE and most others | Go runtime may replace them before ghok can inspect. Exec/ForkExec reset caught signals. | Exact pre-runtime ignored dispositions **not supported**. |
 | SIGPIPE / broken output pipe | Uncaptured child uses its fd semantics; capture closes that pipe reader on EPIPE so child sees SIGPIPE/EPIPE. | Child status preserved, subject to Go disposition limitation above. |
 | USR1/USR2 | No wrapper-directed forwarding. | Unsupported supervised relay. |
-| SIGINT/SIGTERM during pre-hooks | Cancel/wait for hook group cleanup; no gh start, then signal termination. | Supported; inherited ignored INT stays ignored. |
+| SIGINT/SIGTERM/SIGHUP during resolver calls or pre-hooks | Cancel/reap helper groups; no user gh start, then re-raise the received signal. | Startup-ignored signals are not watched, subject to the Go disposition limitation above. |
+| SIGINT/SIGTERM/SIGHUP during post-hooks | Cancel/reap hooks, log interruption, return gh's completed exit/signal. | Hook interruption never replaces gh status. |
 | Post-hooks | Failures/decisions diagnostic only. | Never replace gh exit status. |
-| Abnormal wrapper SIGKILL | Cannot run post-hooks or guaranteed cleanup. | No supervisor can intercept SIGKILL; no escaped-descendant guarantee. |
+| Abnormal wrapper SIGKILL | Cannot run post-hooks or cleanup; hooks may outlive ghok. | SIGKILL cannot be intercepted; no escaped-descendant guarantee. |
 
 Context cancellation in the process API sends child CONT/TERM, waits one second,
 then KILL if needed, always reaping the direct child. The CLI uses ordinary
 signal forwarding during real-gh execution, not a timeout on the user's gh
 command. Hook timeouts use TERM/KILL on their separate group after 500 ms;
 escaped descendants are outside that guarantee.
+
+One helper-phase watcher covers resolver API calls and pre-hooks, is stopped
+and joined before Exec/Run takes ownership, and restarts after Run returns for
+post-hooks. Helper runners kill their separate process groups on context
+cancellation and reap direct children before the wrapper exits.
 
 ## Opt-in output capture
 
@@ -95,7 +103,14 @@ No GH_FORCE_TTY variable is injected to mask this difference.
 ## API stdin analysis
 
 Only analyzable alias-expanded API `--input -` or typed `-F key=@-` consumers
-trigger capture when analysis is needed. Interactive stdin is never pre-read.
+trigger capture, and only if a potentially relevant enforce-mode deny rule,
+unknown-mutation/protected-repository denial, or enabled pre-hook can need it.
+Command prefix and normalization level can exclude a candidate; body-dependent
+action/effect/target matches are treated conservatively before capture.
+Observe logging, audit-only policies, and post-hooks alone never trigger capture:
+gh inherits stdin immediately, and analysis/logs report `stdin not captured`.
+Normalize/explain inspection may still read non-TTY stdin regardless of policy.
+Interactive stdin is never pre-read.
 The default spool/file analysis limits are 8 MiB and stdin timeout 30 seconds;
 GraphQL has its own 1 MiB request/query limit. Parser failure/unknown root-flag
 API dispatch may prevent stdin analysis; see [normalization](normalization.md).

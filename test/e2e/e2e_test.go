@@ -30,6 +30,35 @@ import (
 var ghokBinary, fakeBinary string
 
 func TestMain(m *testing.M) {
+	ghokPath, ghokSet := os.LookupEnv("GHOK_E2E_GHOK_BINARY")
+	fakePath, fakeSet := os.LookupEnv("GHOK_E2E_FAKEGH_BINARY")
+	if ghokSet || fakeSet {
+		if !ghokSet || !fakeSet || ghokPath == "" || fakePath == "" {
+			fmt.Fprintln(os.Stderr, "GHOK_E2E_GHOK_BINARY and GHOK_E2E_FAKEGH_BINARY must both name prebuilt executable files")
+			os.Exit(1)
+		}
+		for _, target := range []struct {
+			name, path string
+			binary     *string
+		}{{"GHOK_E2E_GHOK_BINARY", ghokPath, &ghokBinary}, {"GHOK_E2E_FAKEGH_BINARY", fakePath, &fakeBinary}} {
+			path, err := filepath.Abs(target.path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", target.name, err)
+				os.Exit(1)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %v\n", target.name, err)
+				os.Exit(1)
+			}
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+				fmt.Fprintf(os.Stderr, "%s: %s is not a regular executable file\n", target.name, path)
+				os.Exit(1)
+			}
+			*target.binary = path
+		}
+		os.Exit(m.Run())
+	}
 	_, source, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
 	dir, err := os.MkdirTemp("", "ghok-e2e-build-")

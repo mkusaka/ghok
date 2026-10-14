@@ -46,7 +46,9 @@ updates are source changes; there is no runtime normalizer-plugin loader.
 6. Otherwise open best-effort logging. `GHOK_NESTED=1` records passthrough and
    execs without analysis/policy/hooks; it is an intentional helper bypass.
 7. Load aliases only if needed. For an analyzable API stdin consumer, spool
-   non-TTY stdin within configured bounds; preserve every consumed byte.
+   non-TTY stdin only if a potentially enforcing denial or enabled pre-hook
+   can need it; preserve every consumed byte. Observe logging/post-hooks alone
+   leave stdin untouched and record unavailable analysis.
 8. Normalize alias-expanded arguments. Real execution still uses original argv.
    Dispatcher selects API normalization only when expanded argv starts `api`;
    root flags before `api` currently remain L1 (see normalization limitations).
@@ -56,6 +58,12 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    enforce mode; observe records would-deny.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
+
+Resolver API calls and pre-hooks share a cancelable SIGINT/SIGTERM/SIGHUP
+watcher, excluding startup-ignored signals. Stop/join it before Exec/Run;
+restart after Run for post-hooks. Pre-phase interruption re-raises the signal
+after helper cleanup; post-phase interruption is logged and preserves the
+completed child status. SIGKILL cannot clean up helper processes.
 
 ```text
 Invocation (original argv/env/cwd + injected bytes/reads/aliases)

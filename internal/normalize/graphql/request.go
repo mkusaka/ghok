@@ -44,7 +44,7 @@ func readInput(inv model.Invocation, path string) ([]byte, error) {
 	var b []byte
 	if path == "-" {
 		if inv.Stdin.Status != model.StdinCaptured {
-			return nil, fail(unavailableReason(string(inv.Stdin.Status)), "stdin unavailable: "+string(inv.Stdin.Status))
+			return nil, fail(unavailableReason(string(inv.Stdin.Status)), "stdin not captured ("+string(inv.Stdin.Status)+")")
 		}
 		b = inv.Stdin.Data
 	} else {

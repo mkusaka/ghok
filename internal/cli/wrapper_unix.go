@@ -34,6 +34,13 @@ func Wrapper(args []string) int {
 		return 0
 	}
 	started := time.Now()
+	// Snapshot before any Notify call changes the observable dispositions.
+	var helperSignals []os.Signal
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		if !signal.Ignored(sig) {
+			helperSignals = append(helperSignals, sig)
+		}
+	}
 	env := environment()
 	redactor := redact.New(env)
 	fatal := func(err error, code int) int {
@@ -95,7 +102,7 @@ func Wrapper(args []string) int {
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	inv := invocation(cfg, args, env, cwd, model.StdinData{Status: model.StdinNotCaptured})
-	if apiargs.NeedsStdinArgv(expandedArgv(inv)) {
+	if shouldSpool(cfg, expandedArgv(inv)) {
 		spool, spoolErr := process.SpoolStdin(os.Stdin, cfg.Runtime.StdinMaxBytes, cfg.Runtime.StdinTimeout.D())
 		if spool == nil {
 			return fatal(spoolErr, 1)
@@ -107,11 +114,13 @@ func Wrapper(args []string) int {
 	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: childEnv, RealGh: real, Redact: redactor.String}
 	subject := policy.Subject{Result: result, Argv: result.Source.Argv}
 	var resolved *model.ResolvedContext
-	if needsLocal(cfg, subject) {
+	localNeeded := needsLocal(cfg, subject)
+	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || cfg.Policy.Mode == config.ModeEnforce && localNeeded)
+	if localNeeded {
 		resolver := &resolve.Resolver{Env: env, Cwd: cwd, RealGh: real, Timeout: cfg.Runtime.ResolveTimeout.D()}
 		local := resolver.Local()
 		resolved = &local
-		record.Diagnostics = append(record.Diagnostics, resolver.Fill(context.Background(), &result, nil, false)...)
+		record.Diagnostics = append(record.Diagnostics, resolver.Fill(ctx, &result, nil, false)...)
 		subject.Result, subject.Context = result, resolved
 		if cfg.Policy.Mode == config.ModeEnforce {
 			// Request only fields relevant to an enforcing match, and only on that
@@ -122,10 +131,10 @@ func Wrapper(args []string) int {
 					continue
 				}
 				one := model.Result{SchemaVersion: result.SchemaVersion, Classification: result.Classification, Source: result.Source, Operations: []model.Operation{op}}
-				record.Diagnostics = append(record.Diagnostics, resolver.Fill(context.Background(), &one, need, true)...)
+				record.Diagnostics = append(record.Diagnostics, resolver.Fill(ctx, &one, need, true)...)
 				result.Operations[i] = one.Operations[0]
 			}
-			resolver.Fill(context.Background(), &result, nil, false)
+			resolver.Fill(ctx, &result, nil, false)
 			subject.Result = result
 		}
 	}
@@ -133,7 +142,10 @@ func Wrapper(args []string) int {
 	input := hookInput(args, cwd, real, result, resolved, evaluation, eventID)
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
 	record.Policy = input.Policy
-	pre, caught := runPre(runner, runner.Select(config.PhasePre, subject), redactor.Input(input))
+	pre := runner.Run(ctx, config.PhasePre, runner.Select(config.PhasePre, subject), redactor.Input(input))
+	post := runner.Select(config.PhasePost, subject)
+	// All helper children are reaped before relinquishing signal ownership.
+	caught := stopHelpers()
 	record.Hooks = pre.Results
 	if caught != 0 {
 		record.Decision = "canceled"
@@ -189,7 +201,6 @@ func Wrapper(args []string) int {
 	} else if evaluation.Decision == protocol.DecisionAudit {
 		record.Decision = "audit"
 	}
-	post := runner.Select(config.PhasePost, subject)
 	if len(post) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
 		logRecord()
 		err = process.Exec(opts)
@@ -200,6 +211,7 @@ func Wrapper(args []string) int {
 	}
 	opts.CaptureLimit = cfg.Runtime.CaptureLimit
 	execution := process.Run(context.Background(), opts)
+	ctx, stopHelpers = watchHelpers(helperSignals, len(post) > 0)
 	if execution.StartErr != nil {
 		fatal(execution.StartErr, process.StartErrorExitCode(execution.StartErr))
 	}
@@ -207,13 +219,58 @@ func Wrapper(args []string) int {
 		debug(execution.WaitErr)
 	}
 	input.Result = execInfo(execution)
-	aggregate := runner.Run(context.Background(), config.PhasePost, post, redactor.Input(input))
+	aggregate := runner.Run(ctx, config.PhasePost, post, redactor.Input(input))
+	if caught := stopHelpers(); caught != 0 {
+		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))
+	}
 	record.Hooks = append(record.Hooks, aggregate.Results...)
 	record.Exec = input.Result
 	logRecord()
 	closeLog()
 	execution.Exit()
 	return 0
+}
+
+// Body-dependent actions/effects/targets cannot exclude a match before capture.
+// Only the parsed API level and command prefix can prove it irrelevant.
+func shouldSpool(c *config.Config, argv []string) bool {
+	if len(argv) == 0 || argv[0] != "api" {
+		return false
+	}
+	req, err := apiargs.Parse(argv[1:])
+	if err != nil || !apiargs.NeedsStdin(req) {
+		return false
+	}
+	level := model.LevelL2
+	if apiargs.IsGraphQL(req) {
+		level = model.LevelL3
+	}
+	s := policy.Subject{Result: model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured"), Argv: argv}
+	couldMatch := func(m config.Match) bool {
+		m.Operations, m.Effects = nil, nil
+		yes, _ := policy.Matches(m, s)
+		if !yes {
+			yes, _ = policy.MatchMaybe(m, s)
+		}
+		return yes
+	}
+	if c.Policy.Mode == config.ModeEnforce {
+		if c.Policy.UnknownMutation == config.UnknownDeny ||
+			len(c.Policy.ProtectedRepositories) > 0 && c.Policy.ProtectedUnknown == config.UnknownDeny {
+			return true
+		}
+		for _, rule := range c.Policy.Rules {
+			if rule.Decision == string(protocol.DecisionDeny) && couldMatch(rule.Match) {
+				return true
+			}
+		}
+	}
+	for _, h := range c.Hooks {
+		if h.Phase == config.PhasePre && (h.Enabled == nil || *h.Enabled) && couldMatch(h.Match) {
+			return true
+		}
+	}
+	return false
 }
 
 func needsLocal(c *config.Config, s policy.Subject) bool {
@@ -298,20 +355,17 @@ func unresolvedTarget(op model.Operation, field string) bool {
 	return false
 }
 
-// runPre owns INT/TERM only while hooks run. Stop and join the signal watcher
-// before Exec/Run takes signal ownership; cancellation waits for hook groups.
-func runPre(r *hooks.Runner, selected []config.Hook, input protocol.Input) (hooks.Aggregate, syscall.Signal) {
-	if len(selected) == 0 {
-		return hooks.Aggregate{Decision: protocol.DecisionAbstain}, 0
+// watchHelpers owns signals only outside Exec/Run. The returned stop function
+// must be called after helper cleanup and joins the watcher before hand-off.
+func watchHelpers(watched []os.Signal, needed bool) (context.Context, func() syscall.Signal) {
+	if !needed || len(watched) == 0 {
+		return context.Background(), func() syscall.Signal { return 0 }
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	signals := make(chan os.Signal, 2)
-	watched := []os.Signal{syscall.SIGTERM}
-	if !signal.Ignored(syscall.SIGINT) {
-		watched = append(watched, syscall.SIGINT)
+	signals := make(chan os.Signal, 3)
+	if len(watched) > 0 {
+		signal.Notify(signals, watched...)
 	}
-	signal.Notify(signals, watched...)
 	done, joined := make(chan struct{}), make(chan struct{})
 	var caught syscall.Signal
 	go func() {
@@ -329,9 +383,11 @@ func runPre(r *hooks.Runner, selected []config.Hook, input protocol.Input) (hook
 			}
 		}
 	}()
-	aggregate := r.Run(ctx, config.PhasePre, selected, input)
-	signal.Stop(signals)
-	close(done)
-	<-joined
-	return aggregate, caught
+	return ctx, func() syscall.Signal {
+		signal.Stop(signals)
+		close(done)
+		<-joined
+		cancel()
+		return caught
+	}
 }

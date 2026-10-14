@@ -1063,6 +1063,15 @@ or a typed `-F key=@-`. It does not pre-read native interactive input such as
 `auth login --with-token`, `secret set`, or `workflow run --json`; API parse errors
 also skip this pre-read. Raw `-f query=@-` is a literal string, not a stdin request.
 
+Wrapper capture additionally requires a potentially relevant enforce-mode
+denial (rules, unknown-mutation handling, or protected repositories) or an
+enabled pre-hook. Command prefix/normalization level can exclude candidates;
+body-dependent action/effect/target matches remain conservative before capture.
+Observe logging, audit-only policies, and post-hooks alone do not pre-read stdin:
+normalization/logs retain `stdin not captured` uncertainty while gh starts
+without waiting for producer EOF. `ghok normalize`/`explain` still read requested
+non-TTY input independently of configured enforcement.
+
 | Stdin status | Analysis behavior |
 | --- | --- |
 | `not-captured` | No capture requested/attempted; a requested but absent value is unavailable. |
