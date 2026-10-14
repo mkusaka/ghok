@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/project.schema.json
+#
+# ghok project config. Created by `ghok config init` (scope: project).
+#
+# Commit this file to share hooks and rules with everyone using the repository.
+# Each person's ghok IGNORES it until they trust it by adding the absolute path
+# of this file to `trust.projects` in their own user config
+# (`ghok config path` prints where that is):
+#   trust:
+#     projects:
+#       - /absolute/path/to/repo/.ghok.yaml
+# Even when trusted it can only add hooks, rules and protected repositories, and
+# tighten (never loosen) the user policy. runtime/logging/trust are not allowed here.
+# Docs: https://github.com/mkusaka/ghok
+
+version: 1
+
+policy:
+  # Only a stricter value than the user config takes effect:
+  # mode: observe < enforce; unknownMutation / protectedUnknown: allow < audit < deny
+  # mode: enforce
+  # unknownMutation: deny
+
+  # owner/repo globs this project wants protected (added to the user list).
+  protectedRepositories: []
+  #  - my-org/my-repo
+
+  rules: []
+  #  - id: no-direct-merge
+  #    match:
+  #      operation: pr.merge.direct     # action glob; see `ghok explain -- <gh args>`
+  #    decision: deny                   # deny | audit
+  #    reason: use the merge queue
+
+# Hook IDs must not collide with hooks in the user config. Relative commands
+# resolve against this file's directory. Hooks are trusted code that runs as you.
+hooks: []
+#  - id: project-pre-merge
+#    phase: pre                      # pre | post
+#    match:
+#      operation: "pr.merge.*"
+#    command: ["./scripts/ghok/pre-merge"]
+#    timeout: 10s
+#    onError: deny                   # deny | allow | ignore

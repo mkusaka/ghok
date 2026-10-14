@@ -35,6 +35,8 @@ Commands:
                               Print redacted normalization JSON
   explain [--show-secrets] [--resolve] [--allow-api] -- <gh args>
                               Explain operations, policy and hook matching
+  config init [--scope project|user]
+                              Create a commented config file (default: project .ghok.yaml)
   config validate [--file PATH] Validate effective configuration
   config path                 Print the global configuration path
   config schema [--project]   Print the JSON Schema for config.yaml (or .ghok.yaml)
@@ -121,7 +123,7 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		root.AddCommand(cmd)
 	}
 
-	configCommands := managementCommand("config", "Usage: ghok config <validate|path|schema>\n", code, managementGroup)
+	configCommands := managementCommand("config", "Usage: ghok config <init|validate|path|schema>\n", code, managementGroup)
 	var file string
 	validate := managementCommand("validate", "Usage: ghok config validate\n", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfig("validate", file)
@@ -136,7 +138,12 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		return 0
 	})
 	schema.Flags().BoolVar(&project, "project", false, "print the schema for a project .ghok.yaml instead of config.yaml")
-	configCommands.AddCommand(validate, path, schema)
+	scope := config.ScopeProject
+	initCmd := managementCommand("init", "Usage: ghok config init [--scope project|user]\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementConfigInit(scope)
+	})
+	initCmd.Flags().StringVar(&scope, "scope", config.ScopeProject, "project: <repo root>/.ghok.yaml; user: the global config.yaml")
+	configCommands.AddCommand(initCmd, validate, path, schema)
 	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands)
 	root.SetHelpCommand(&cobra.Command{
 		Use:  "help [command]",
@@ -523,4 +530,21 @@ func managementLogCheck(path string) install.Check {
 		}
 		return check
 	}
+}
+
+func managementConfigInit(scope string) int {
+	env := environment()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return managementFailure(err)
+	}
+	path, err := config.Init(scope, cwd, env)
+	if err != nil {
+		return managementFailure(err)
+	}
+	_, _ = fmt.Fprintln(os.Stdout, "Created "+path)
+	if scope == config.ScopeProject {
+		_, _ = fmt.Fprintf(os.Stdout, "It is ignored until trusted. To trust it, add to %s:\n  trust:\n    projects:\n      - %s\n", config.DefaultPath(env), path)
+	}
+	return 0
 }

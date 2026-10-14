@@ -119,6 +119,35 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 }
 
 func findProject(cwd, home string) (string, error) {
+	root, err := projectRoot(cwd, home)
+	if root == "" || err != nil {
+		return "", err
+	}
+	p := filepath.Join(root, ".ghok.yaml")
+	if _, err := os.Stat(p); err == nil {
+		return p, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return "", nil
+}
+
+// ProjectPath is where the project config for cwd lives: .ghok.yaml at the
+// nearest enclosing directory containing .git (searching up to $HOME).
+func ProjectPath(cwd string, env map[string]string) (string, error) {
+	root, err := projectRoot(cwd, env["HOME"])
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		return "", fmt.Errorf("%s is not inside a git repository; project config lives at the repository root", cwd)
+	}
+	return filepath.Join(root, ".ghok.yaml"), nil
+}
+
+// projectRoot returns the nearest directory (symlinks resolved) at or above
+// cwd that contains .git, stopping at home or the filesystem root ("" if none).
+func projectRoot(cwd, home string) (string, error) {
 	d, err := filepath.Abs(cwd)
 	if err != nil {
 		return "", err
@@ -139,13 +168,7 @@ func findProject(cwd, home string) (string, error) {
 	for {
 		_, err := os.Stat(filepath.Join(d, ".git"))
 		if err == nil {
-			p := filepath.Join(d, ".ghok.yaml")
-			if _, e := os.Stat(p); e == nil {
-				return p, nil
-			} else if !errors.Is(e, os.ErrNotExist) {
-				return "", e
-			}
-			return "", nil
+			return d, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err

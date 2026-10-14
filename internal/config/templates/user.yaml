@@ -1,0 +1,92 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/config.schema.json
+#
+# ghok user config. Created by `ghok config init --scope user`.
+# Check it with `ghok config validate`; see what a command would do with
+# `ghok explain -- pr merge 123`. Docs: https://github.com/mkusaka/ghok
+#
+# ghok is not a security boundary: anything that calls the real gh, curl or
+# another API client directly bypasses it. Server-side branch protection and
+# rulesets remain the real control.
+
+# Config format version (must be 1).
+version: 1
+
+policy:
+  # observe: classify and log every gh invocation, never block (default).
+  # enforce: deny according to rules, unknown handling and pre-hooks.
+  mode: observe
+
+  # Write/unknown operations ghok could not classify (unknown gh subcommand,
+  # unmapped REST route or GraphQL mutation, unreadable --input ...):
+  # allow | audit (allow, but flag in the log; default) | deny
+  unknownMutation: audit
+
+  # owner/repo globs. In enforce mode, unclassified writes to these repos, and
+  # writes whose target repository cannot be resolved, use protectedUnknown.
+  protectedRepositories: []
+  #  - my-org/*
+
+  # allow | audit | deny (default: deny, i.e. fail closed)
+  protectedUnknown: deny
+
+  # Declarative rules evaluated without running hooks. decision: deny | audit.
+  # match criteria are ANDed; a list within one criterion is ORed.
+  rules: []
+  #  - id: no-admin-merge
+  #    match:
+  #      operation: pr.merge.direct     # action glob, e.g. "pr.merge.*"
+  #      repositories: ["my-org/*"]     # owner/repo globs
+  #      # command: "pr merge"          # gh command path prefix
+  #      # effect: write                # read | write | unknown
+  #      # level: L1                    # L1 gh command | L2 gh api REST | L3 gh api graphql
+  #      # hosts: ["github.com"]
+  #    decision: deny
+  #    reason: merge via the merge queue instead of bypassing it
+
+# Executables run before (pre) or after (post) the real gh. They receive a
+# JSON document on stdin and pre-hooks answer {"decision":"allow|deny|abstain"}
+# on stdout. Hooks are trusted code that runs as you. Protocol:
+# https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md
+hooks: []
+#  - id: check-pr-policy
+#    phase: pre                      # pre | post
+#    match:
+#      operation: "pr.merge.*"
+#    command: ["./hooks/check-pr-policy"]   # relative to this file's directory
+#    timeout: 10s                    # default 10s
+#    onError: deny                   # deny (pre default) | allow | ignore (post default)
+#    # priority: 0                   # lower runs first
+#    # dependsOn: [other-hook-id]    # same phase
+#    # optional: false               # skip if the command is missing
+#    # env: {KEY: value}
+#    # enabled: true
+#  - id: audit-merge
+#    phase: post
+#    match:
+#      operation: "pr.merge.*"
+#    command: ["./hooks/audit-merge"]
+#    timeout: 5s
+#    onError: ignore
+#    # captureOutput: false          # post only: pass gh stdout/stderr to the hook
+
+# Defaults shown; uncomment to change.
+runtime: {}
+#  hookConcurrency: 1                # hooks run in parallel up to this many
+#  stdinMaxBytes: 8388608            # stdin analysed for `gh api --input -` (8 MiB)
+#  stdinTimeout: 30s
+#  fileMaxBytes: 8388608             # --input FILE / -F k=@FILE read limit
+#  captureLimit: 1048576             # captured gh output per stream for post-hooks
+#  resolveTimeout: 5s                # read-only GitHub API lookups for targets
+#  realGh: /opt/homebrew/bin/gh      # pin the real gh instead of PATH discovery
+
+logging: {}
+#  enabled: true
+#  path: /absolute/path/ghok.jsonl  # default: <config dir>/logs/ghok.jsonl
+#  level: info                       # info: every invocation | decision: non-allow only
+
+# Project configs (.ghok.yaml at a repository root) are ignored unless their
+# absolute path is listed here. They can only add hooks/rules/protected repos
+# and tighten policy; they can never weaken this file.
+trust:
+  projects: []
+  #  - /path/to/repo/.ghok.yaml

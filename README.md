@@ -130,6 +130,18 @@ change real gh, gh/git configuration, or shell rc files.
 
 ## Configuration and hooks
 
+Create a commented starter file (with a yaml-language-server schema reference):
+
+```sh
+ghok config init                 # <repository root>/.ghok.yaml (default scope: project)
+ghok config init --scope user    # the global config.yaml
+```
+
+Neither overwrites an existing file. The project file lives at the repository
+root, so it can be committed and shared; each user's ghok ignores it until that
+user lists its absolute path in `trust.projects` of their global config (cloning
+a repository must never run its hooks automatically).
+
 The config format has a JSON Schema generated from ghok's Go config types:
 [`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and
 [`schema/project.schema.json`](schema/project.schema.json) for a project

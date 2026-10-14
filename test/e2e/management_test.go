@@ -549,3 +549,28 @@ func TestManagementCobraPassthrough(t *testing.T) {
 	}
 	s.absentRecord()
 }
+
+func TestManagementConfigInit(t *testing.T) {
+	s := newSandbox(t)
+	s.management(nil, "config", "init").code(t, 1) // not inside a git repository
+	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result := s.management(nil, "config", "init")
+	result.code(t, 0)
+	project := filepath.Join(s.cwd, ".ghok.yaml")
+	data, err := os.ReadFile(project)
+	if err != nil || !bytes.HasPrefix(data, []byte("# yaml-language-server: $schema=")) || !bytes.Contains(data, []byte("project.schema.json")) {
+		t.Fatalf("project config: err=%v\n%s", err, data)
+	}
+	s.management(nil, "config", "init").code(t, 1) // never overwrites
+	if err := os.Remove(s.cfg); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	s.management(nil, "config", "init", "--scope", "user").code(t, 0)
+	if data, err := os.ReadFile(s.cfg); err != nil || !bytes.Contains(data, []byte("config.schema.json")) {
+		t.Fatalf("user config: err=%v", err)
+	}
+	s.management(nil, "config", "validate").code(t, 0)
+	s.management(nil, "config", "init", "--scope", "team").code(t, 1)
+}
