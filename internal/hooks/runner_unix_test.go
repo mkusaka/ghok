@@ -345,8 +345,18 @@ wait`)
 			if got.Results[0].Outcome != want || got.Results[0].DurationMs < 0 {
 				t.Fatalf("%+v", got)
 			}
-			if err := syscall.Kill(-pid, 0); !errors.Is(err, syscall.ESRCH) {
-				t.Fatalf("process group %d remains: %v", pid, err)
+			// Killed members can linger briefly as zombies until init/launchd
+			// reaps them (macOS then reports EPERM), so wait a bounded time.
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				err := syscall.Kill(-pid, 0)
+				if errors.Is(err, syscall.ESRCH) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("process group %d remains: %v", pid, err)
+				}
+				time.Sleep(20 * time.Millisecond)
 			}
 		})
 	}

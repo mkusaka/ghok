@@ -72,7 +72,7 @@ runs:
         TAG: ${{ steps.resolve.outputs.tag }}
         RUNNER_OS_VALUE: ${{ runner.os }}
         RUNNER_ARCH_VALUE: ${{ runner.arch }}
-      run: |
+      run: | # zizmor: ignore[github-env] -- adding the tool to PATH is the purpose; values are fixed RUNNER_TEMP paths
         set -euo pipefail
         case "${RUNNER_OS_VALUE}" in
           Linux) os=linux ;;
@@ -101,7 +101,7 @@ runs:
       shell: bash
       env:
         GHOK: ${{ steps.install.outputs.path }}
-      run: |
+      run: | # zizmor: ignore[github-env] -- adding the tool to PATH is the purpose; values are fixed RUNNER_TEMP paths
         set -euo pipefail
         shim_dir="${RUNNER_TEMP}/ghok/shim"
         "${GHOK}" shim install --bin-dir "${shim_dir}"
