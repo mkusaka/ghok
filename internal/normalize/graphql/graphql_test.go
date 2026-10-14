@@ -344,21 +344,81 @@ func TestNormalizeGraphQLOperationSelection(t *testing.T) {
 }
 
 func TestNormalizeGraphQLUnknownMutations(t *testing.T) {
-	for _, tc := range []struct {
-		field  string
-		detail string
-	}{
-		{"createDiscussion", "known GitHub mutation without semantic mapping"},
-		{"notInAnyGitHubSchema", "not in schema snapshot"},
-	} {
-		t.Run(tc.field, func(t *testing.T) {
-			result := normalizeDocument(t, `mutation { `+tc.field+`(input: {}) { clientMutationId } }`)
+	for _, field := range []string{"notInAnyGitHubSchema", "deleteRepository"} {
+		t.Run(field, func(t *testing.T) {
+			result := normalizeDocument(t, `mutation { addReaction: `+field+`(input: {}) { clientMutationId } }`)
 			op := onlyOperation(t, result)
-			if op.Family != model.FamilyUnknown || op.Action != "graphql.mutation."+tc.field || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownMutation || !strings.Contains(op.Detail, tc.detail) {
-				t.Fatalf("unknown mutation identity/detail: %+v", op)
+			if op.Family != model.FamilyUnknown || op.Action != "graphql.mutation."+field || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownMutation {
+				t.Fatalf("unknown mutation identity: %+v", op)
+			}
+			if op.Origin.Field != field || op.Origin.Alias != "addReaction" {
+				t.Fatalf("alias changed unknown mutation identity: %+v", op.Origin)
 			}
 			if result.Classification.Confidence != model.ConfidenceExact || result.Classification.MutationFree {
 				t.Fatalf("AST-certain unknown mutation must remain a write: %+v", result.Classification)
+			}
+		})
+	}
+}
+
+func TestNormalizeGraphQLSchemaMutation(t *testing.T) {
+	document := `mutation React($input: AddReactionInput!) {
+		mergePullRequest: addReaction(input: $input) { clientMutationId }
+	}`
+	result := normalizeDocument(t, document, "-f", "input[subjectId]=ISSUE_node", "-f", "input[content]=THUMBS_UP")
+	op := onlyOperation(t, result)
+	if op.Family != "graphql.mutation" || op.Action != "graphql.addReaction" || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone {
+		t.Fatalf("schema-known mutation must be a classified write: %+v", op)
+	}
+	if op.Target.NodeID != "ISSUE_node" || op.Target.Repository != "" || !hasUnresolved(op, "target.repository", "api") {
+		t.Fatalf("schema target must defer repository resolution: %+v", op)
+	}
+	if !reflect.DeepEqual(op.Parameters, map[string]any{"subjectId": "ISSUE_node", "content": "THUMBS_UP"}) {
+		t.Fatalf("resolved schema input must be preserved: %+v", op.Parameters)
+	}
+	if op.Origin.Field != "addReaction" || op.Origin.Alias != "mergePullRequest" {
+		t.Fatalf("alias changed schema identity: %+v", op.Origin)
+	}
+	if result.Classification.Confidence != model.ConfidenceExact || result.Classification.MutationFree {
+		t.Fatalf("schema-known mutation classification: %+v", result.Classification)
+	}
+}
+
+func TestNormalizeGraphQLSchemaTargetSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, input, nodeID string
+		candidates                 []string
+	}{
+		{"noun preference", "transferIssue", `{issueId: "ISSUE_node", repositoryId: "REPO_node"}`, "ISSUE_node", nil},
+		{"ambiguous", "createDiscussion", `{repositoryId: "REPO_node", categoryId: "CATEGORY_node", title: "title", body: "body"}`, "", []string{"repositoryId", "categoryId"}},
+		{"one available candidate is still ambiguous", "createDiscussion", `{repositoryId: "REPO_node"}`, "", []string{"repositoryId", "categoryId"}},
+		{"missing primary never uses another ID", "transferIssue", `{repositoryId: "REPO_node"}`, "", []string{"issueId"}},
+		{"null primary", "addReaction", `{subjectId: null, content: THUMBS_UP}`, "", []string{"subjectId"}},
+		{"nonstring primary", "addReaction", `{subjectId: 123, content: THUMBS_UP}`, "", []string{"subjectId"}},
+		{"no ID candidates", "createUserList", `{name: "working"}`, "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := normalizeDocument(t, `mutation { `+tc.field+`(input: `+tc.input+`) { clientMutationId } }`)
+			op := onlyOperation(t, result)
+			if op.Action != "graphql."+tc.field || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone || op.Target.NodeID != tc.nodeID {
+				t.Fatalf("schema mutation target selection: %+v", op)
+			}
+			if len(tc.candidates) == 0 {
+				if hasUnresolved(op, "target.nodeId", "graphql") {
+					t.Fatalf("unexpected node-ID uncertainty: %+v", op.Unresolved)
+				}
+				return
+			}
+			var reason string
+			for _, u := range op.Unresolved {
+				if u.Field == "target.nodeId" && u.Source == "graphql" {
+					reason = u.Reason
+				}
+			}
+			for _, candidate := range tc.candidates {
+				if !strings.Contains(reason, "input."+candidate) {
+					t.Errorf("missing candidate %s in node-ID uncertainty: %+v", candidate, op.Unresolved)
+				}
 			}
 		})
 	}
@@ -706,7 +766,10 @@ func TestNormalizeGraphQLMappedMutationSemantics(t *testing.T) {
 		{"addPullRequestReview", `{pullRequestId: "PR_1", event: REQUEST_CHANGES}`, "pr.review", "pr.review.request-changes", "PR_1"},
 		{"addPullRequestReview", `{pullRequestId: "PR_1", event: COMMENT}`, "pr.review", "pr.review.comment", "PR_1"},
 		{"addPullRequestReview", `{pullRequestId: "PR_1"}`, "pr.review", "pr.review.pending", "PR_1"},
+		{"submitPullRequestReview", `{pullRequestId: "PR_1", pullRequestReviewId: "REVIEW_1", event: APPROVE}`, "pr.review", "pr.review.approve", "PR_1"},
+		{"submitPullRequestReview", `{pullRequestReviewId: "REVIEW_1", event: COMMENT}`, "pr.review", "pr.review.comment", "REVIEW_1"},
 		{"createPullRequest", `{repositoryId: "REPO_1", baseRefName: "main", headRefName: "feature"}`, "pr.create", "pr.create", "REPO_1"},
+		{"createRepository", `{ownerId: "OWNER_1", teamId: "TEAM_1", name: "new", visibility: PRIVATE}`, "repo.create", "repo.create", ""},
 		{"closePullRequest", `{pullRequestId: "PR_1"}`, "pr.close", "pr.close", "PR_1"},
 		{"deleteRef", `{refId: "REF_1"}`, "ref.delete", "ref.delete", "REF_1"},
 		{"createIssue", `{repositoryId: "REPO_1", title: "issue"}`, "issue.create", "issue.create", "REPO_1"},
@@ -742,6 +805,8 @@ func FuzzNormalizeGraphQL(f *testing.F) {
 	for _, seed := range []struct{ document, name string }{
 		{`{ viewer { login } }`, ""},
 		{mergeDocument, "Merge"},
+		{`mutation { addReaction(input: {subjectId: "ISSUE_node", content: THUMBS_UP}) { clientMutationId } }`, ""},
+		{`mutation { transferIssue(input: {issueId: "ISSUE_node", repositoryId: "REPO_node"}) { clientMutationId } }`, ""},
 		{`mutation { futureMutation(input: {}) @skip(if: true) { id } }`, ""},
 		{`query Read { viewer { login } } mutation Write { futureMutation(input: {}) { id } }`, "Read"},
 		{`mutation { ...A } fragment A on Mutation { ...A }`, ""},

@@ -6,10 +6,10 @@ import (
 	"github.com/mkusaka/ghok/internal/model"
 )
 
-//go:generate go run ./generate -date 2026-10-14 -output schema_mutations.go
+//go:generate go run ./generate -date 2026-10-15 -sha256 3ed095654b22b1a8e7a88af36af2b28cb6d9613da332e9c57303e30476958d42 -output schema_mutations.go
 
-// The ID identifies the object being acted on, not necessarily a repository.
-// Repository and host resolution are added by the document analyzer.
+// Curated identities override the generated defaults. nodeID is only needed
+// when the curated target differs from the schema's primary ID selection.
 type mutationMapping struct {
 	family string
 	action string
@@ -17,67 +17,95 @@ type mutationMapping struct {
 }
 
 var mutationRegistry = map[string]mutationMapping{
-	"mergePullRequest":              {"pr.merge", "pr.merge.direct", "pullRequestId"},
-	"enablePullRequestAutoMerge":    {"pr.merge", "pr.merge.auto.enable", "pullRequestId"},
-	"disablePullRequestAutoMerge":   {"pr.merge", "pr.merge.auto.disable", "pullRequestId"},
-	"enqueuePullRequest":            {"pr.merge", "pr.merge.queue.enqueue", "pullRequestId"},
-	"dequeuePullRequest":            {"pr.merge", "pr.merge.queue.dequeue", "id"},
-	"addPullRequestReview":          {"pr.review", "pr.review", "pullRequestId"},
+	"mergePullRequest":              {"pr.merge", "pr.merge.direct", ""},
+	"enablePullRequestAutoMerge":    {"pr.merge", "pr.merge.auto.enable", ""},
+	"disablePullRequestAutoMerge":   {"pr.merge", "pr.merge.auto.disable", ""},
+	"enqueuePullRequest":            {"pr.merge", "pr.merge.queue.enqueue", ""},
+	"dequeuePullRequest":            {"pr.merge", "pr.merge.queue.dequeue", ""},
+	"addPullRequestReview":          {"pr.review", "pr.review", ""},
 	"submitPullRequestReview":       {"pr.review", "pr.review", "pullRequestId"},
 	"createPullRequest":             {"pr.create", "pr.create", "repositoryId"},
-	"updatePullRequest":             {"pr.edit", "pr.edit", "pullRequestId"},
-	"closePullRequest":              {"pr.close", "pr.close", "pullRequestId"},
-	"reopenPullRequest":             {"pr.reopen", "pr.reopen", "pullRequestId"},
-	"deleteRef":                     {"ref.delete", "ref.delete", "refId"},
-	"createRef":                     {"ref.create", "ref.create", "repositoryId"},
-	"updateRef":                     {"ref.update", "ref.update", "refId"},
-	"updateRefs":                    {"ref.update", "ref.update.batch", "repositoryId"},
-	"mergeBranch":                   {"branch.merge", "branch.merge", "repositoryId"},
+	"updatePullRequest":             {"pr.edit", "pr.edit", ""},
+	"closePullRequest":              {"pr.close", "pr.close", ""},
+	"reopenPullRequest":             {"pr.reopen", "pr.reopen", ""},
+	"deleteRef":                     {"ref.delete", "ref.delete", ""},
+	"createRef":                     {"ref.create", "ref.create", ""},
+	"updateRef":                     {"ref.update", "ref.update", ""},
+	"updateRefs":                    {"ref.update", "ref.update.batch", ""},
+	"mergeBranch":                   {"branch.merge", "branch.merge", ""},
 	"createIssue":                   {"issue.create", "issue.create", "repositoryId"},
-	"closeIssue":                    {"issue.close", "issue.close", "issueId"},
-	"reopenIssue":                   {"issue.reopen", "issue.reopen", "issueId"},
-	"deleteIssue":                   {"issue.delete", "issue.delete", "issueId"},
-	"addComment":                    {"comment.create", "comment.create", "subjectId"},
-	"updateIssueComment":            {"comment.edit", "comment.edit", "id"},
-	"deleteIssueComment":            {"comment.delete", "comment.delete", "id"},
-	"archiveRepository":             {"repo.archive", "repo.archive", "repositoryId"},
-	"unarchiveRepository":           {"repo.unarchive", "repo.unarchive", "repositoryId"},
-	"updateRepository":              {"repo.edit", "repo.edit", "repositoryId"},
+	"closeIssue":                    {"issue.close", "issue.close", ""},
+	"reopenIssue":                   {"issue.reopen", "issue.reopen", ""},
+	"deleteIssue":                   {"issue.delete", "issue.delete", ""},
+	"addComment":                    {"comment.create", "comment.create", ""},
+	"updateIssueComment":            {"comment.edit", "comment.edit", ""},
+	"deleteIssueComment":            {"comment.delete", "comment.delete", ""},
+	"archiveRepository":             {"repo.archive", "repo.archive", ""},
+	"unarchiveRepository":           {"repo.unarchive", "repo.unarchive", ""},
+	"updateRepository":              {"repo.edit", "repo.edit", ""},
 	"createRepository":              {"repo.create", "repo.create", ""},
-	"createBranchProtectionRule":    {"branch.protection", "branch.protection.create", "repositoryId"},
-	"updateBranchProtectionRule":    {"branch.protection", "branch.protection.edit", "branchProtectionRuleId"},
-	"deleteBranchProtectionRule":    {"branch.protection", "branch.protection.delete", "branchProtectionRuleId"},
-	"revertPullRequest":             {"pr.revert", "pr.revert", "pullRequestId"},
-	"convertPullRequestToDraft":     {"pr.draft", "pr.draft", "pullRequestId"},
-	"markPullRequestReadyForReview": {"pr.ready", "pr.ready", "pullRequestId"},
-	"requestReviews":                {"pr.review", "pr.review.request", "pullRequestId"},
-	"dismissPullRequestReview":      {"pr.review", "pr.review.dismiss", "pullRequestReviewId"},
-	"deletePullRequestReview":       {"pr.review", "pr.review.delete", "pullRequestReviewId"},
-	"updatePullRequestBranch":       {"pr.update-branch", "pr.update-branch", "pullRequestId"},
-	"addStar":                       {"star", "star.add", "starrableId"},
-	"removeStar":                    {"star", "star.remove", "starrableId"},
+	"createBranchProtectionRule":    {"branch.protection", "branch.protection.create", ""},
+	"updateBranchProtectionRule":    {"branch.protection", "branch.protection.edit", ""},
+	"deleteBranchProtectionRule":    {"branch.protection", "branch.protection.delete", ""},
+	"revertPullRequest":             {"pr.revert", "pr.revert", ""},
+	"convertPullRequestToDraft":     {"pr.draft", "pr.draft", ""},
+	"markPullRequestReadyForReview": {"pr.ready", "pr.ready", ""},
+	"requestReviews":                {"pr.review", "pr.review.request", ""},
+	"dismissPullRequestReview":      {"pr.review", "pr.review.dismiss", ""},
+	"deletePullRequestReview":       {"pr.review", "pr.review.delete", ""},
+	"updatePullRequestBranch":       {"pr.update-branch", "pr.update-branch", ""},
+	"addStar":                       {"star", "star.add", ""},
+	"removeStar":                    {"star", "star.remove", ""},
 }
 
 func mutationOperation(field string, input map[string]any) model.Operation {
 	// Preserve all values, including nested input and secrets; redaction belongs
 	// to the output layer. Only merge operations need a copy for canonical keys.
 	op := model.Operation{Effect: model.EffectWrite, Parameters: input}
-	mapping, known := mutationRegistry[field]
-	if !known {
+	schema, inSchema := schemaMutations[field]
+	if !inSchema {
 		op.Family = model.FamilyUnknown
 		op.Action = "graphql.mutation." + field
 		op.UnknownReason = model.UnknownMutation
-		if _, inSchema := schemaMutations[field]; inSchema {
-			op.Detail = "known GitHub mutation without semantic mapping"
-		} else {
-			op.Detail = "not in schema snapshot (" + schemaSnapshotDate + ")"
-		}
+		op.Detail = "not in schema snapshot (" + schemaSnapshotDate + ")"
 		return op
 	}
-	op.Family, op.Action = mapping.family, mapping.action
-	idField := mapping.nodeID
-	if field == "submitPullRequestReview" && inputString(input, "pullRequestId") == "" {
-		idField = "pullRequestReviewId"
+	idField := schema.PrimaryID
+	mapping, curated := mutationRegistry[field]
+	if curated {
+		op.Family, op.Action = mapping.family, mapping.action
+		if mapping.nodeID != "" {
+			idField = mapping.nodeID
+		}
+		switch field {
+		case "createRepository":
+			// Owner/team IDs are not the repository being created.
+			idField = ""
+		case "submitPullRequestReview":
+			if inputString(input, idField) == "" {
+				idField = "pullRequestReviewId"
+			}
+		}
+	} else {
+		op.Family, op.Action = "graphql.mutation", "graphql."+field
+		op.Detail = schema.Description
+		if schema.Deprecated {
+			op.Detail = joinText(op.Detail, "deprecated: "+schema.DeprecationReason)
+		}
+		if idField == "" && len(schema.IDFields) > 1 {
+			var candidates strings.Builder
+			candidates.WriteString("ambiguous target ID fields: ")
+			for i, candidate := range schema.IDFields {
+				if i > 0 {
+					candidates.WriteString(", ")
+				}
+				candidates.WriteString("input.")
+				candidates.WriteString(candidate.Name)
+			}
+			op.Unresolved = append(op.Unresolved, model.Unresolved{
+				Field: "target.nodeId", Reason: candidates.String(), Source: "graphql",
+			})
+		}
 	}
 	if idField != "" {
 		op.Target.NodeID = inputString(input, idField)
@@ -87,8 +115,9 @@ func mutationOperation(field string, input map[string]any) model.Operation {
 			})
 		}
 	}
-	// These names are verified against the public schema, including the
-	// distinct id field on dequeuePullRequest and refId on updateRef.
+	if !curated {
+		return op
+	}
 	op.Target.SHA = inputString(input, "expectedHeadOid")
 	switch field {
 	case "mergePullRequest", "enablePullRequestAutoMerge":

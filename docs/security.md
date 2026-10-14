@@ -42,6 +42,20 @@ before use, and do not describe this as fail-closed installation. Runtime
 pre-hook errors default to deny only when valid config establishes enforce mode;
 observe records would-deny and still runs gh.
 
+### GraphQL schema-known writes and unknown handling
+
+GraphQL uses a pinned schema base plus curated semantic overrides. Schema-known
+mutations without an override are now family `graphql.mutation`, action
+`graphql.<name>`, effect write, with no `unknown-mutation` reason. Previously they
+were family `unknown` and `policy.unknownMutation: deny` blocked them; **that
+setting alone no longer blocks schema-known mutations**. To deny/audit these
+writes, use a rule matching `operation: "graphql.*"` and `effect: write`.
+Curated names such as `pr.merge.direct` remain unchanged and require their
+existing matches. Snapshot-absent mutations remain unknown writes, including
+when aliased to known names. Exact classification does not imply authorization,
+safe inputs, schema validity, or resolved repository identity; protected-target
+handling still applies independently. See [normalization](normalization.md#schema-backed-default-mutation-fields).
+
 ## Hooks are trusted code
 
 Hooks execute as your user, with inherited cwd and environment plus configured

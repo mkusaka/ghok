@@ -25,11 +25,37 @@ Queries emit one read operation, including introspection. Subscriptions are unkn
 
 ## Mutation schema snapshot
 
-`schema_mutations.go` embeds all 278 mutation field names from the [public GitHub schema](https://docs.github.com/public/fpt/schema.docs.graphql), fetched on 2026-10-14. Regenerate with `go generate ./internal/normalize/graphql`; the generator is not used at runtime. Offline generation: `go run ./internal/normalize/graphql/generate -schema /path/to/schema.graphql -date YYYY-MM-DD -output internal/normalize/graphql/schema_mutations.go`.
+`schema_mutations.go` embeds all **278** mutations from the [public GitHub schema](https://docs.github.com/public/fpt/schema.docs.graphql), fetched on **2026-10-15**, pinned by raw-content SHA256 **`3ed095654b22b1a8e7a88af36af2b28cb6d9613da332e9c57303e30476958d42`**. It contains 1,161 input fields and 350 scalar ID candidates. Each mutation records its input type, all field type signatures (named/list/non-null), candidate ID names and name-inferred object kinds, primary ID, description first line and deprecation. Empty kind means unknown; `subjectId` does not identify one concrete kind. Bare `id` joins scalar `ID`/`ID!` fields ending in `Id`; list IDs are parameters, not singular targets.
 
-The detailed registry covers PR merge/auto-merge/queue, reviews, create/edit/close/reopen/draft/ready/revert/update-branch, refs, branch merging, issues/comments, repository create/edit/archive, branch protection and stars. All original input values remain in Parameters; merge methods also get lowercase `method`, and commit headline/body presence is recorded separately. `mergeBranch` is `branch.merge`, never `pr.merge`. Absent merge method uses the schema's MERGE default; an unavailable provided method never uses that default.
+Regenerate the current pin from the repository root:
 
-Schema details: `DequeuePullRequestInput.id` identifies the PR; `SubmitPullRequestReviewInput` supports `pullRequestId` or `pullRequestReviewId`; ref updates use `refId`. `deleteRepository` does not exist in this public snapshot and remains an unknown write. Schema-known unmapped fields and snapshot-absent fields both remain explicit unknown writes with exact AST identity and distinct details.
+```sh
+go generate ./internal/normalize/graphql
+```
+
+The directive verifies the downloaded content against the pinned SHA before parsing or replacing the snapshot. Offline reproduction with a saved copy of that exact schema:
+
+```sh
+go run ./internal/normalize/graphql/generate \
+  -schema /path/to/schema.graphql \
+  -date 2026-10-15 \
+  -sha256 3ed095654b22b1a8e7a88af36af2b28cb6d9613da332e9c57303e30476958d42 \
+  -output internal/normalize/graphql/schema_mutations.go
+```
+
+To intentionally advance upstream, run `go run ./internal/normalize/graphql/generate -date YYYY-MM-DD -output internal/normalize/graphql/schema_mutations.go` without `-sha256` (or with `-schema /path/to/new-schema.graphql` for a saved snapshot). Use the actual fetch date. Review the emitted hash and metadata, then update the date/hash in `registry.go`'s `go:generate` directive and these docs. A changed upstream file makes the old pinned command fail rather than silently update classifications. Generation is development-only; normal builds/tests use embedded data and never fetch the schema. The generator reuses the existing gqlparser dependency and adds no dependencies.
+
+Generation chooses the unique longest target noun matching the mutation field name, otherwise the sole candidate. It never chooses by available input values. Multiple ambiguous candidates leave `target.nodeId` empty with their names in `unresolved`; a selected but missing/nonstring/null ID is also unresolved. Repository lookup always stays deferred with source `api`.
+
+The **239** schema-known mutations without curated overrides now use family `graphql.mutation`, action `graphql.<name>`, write effect, exact AST/schema identity and no unknown reason. For example `addReaction` extracts `subjectId`; `transferIssue` prefers `issueId` over `repositoryId`. Previously these fields were unknown-family writes with `unknown-mutation`, blocked by `policy.unknownMutation: deny`. That setting alone no longer blocks schema-known writes; use `operation: "graphql.*"` rules, optionally constrained to write effect. Curated action names are outside that namespace and retain their existing policy matches.
+
+The **39** curated entries in `registry.go` cover PR merge/auto-merge/queue, reviews, create/edit/close/reopen/draft/ready/revert/update-branch, refs, branch merging, issues/comments, repository create/edit/archive, branch protection and stars. Existing family/action names and canonicalisation remain stable. All original input values remain in Parameters; merge methods also get lowercase `method`, and commit headline/body presence is recorded separately. `mergeBranch` is `branch.merge`, never `pr.merge`. Absent merge method uses the schema's MERGE default; an unavailable provided method never uses that default.
+
+Curate overrides only in `mutationRegistry` and the existing canonicalisation functions; never hand-edit generated metadata. An empty `nodeID` selector uses the generated primary ID. Explicit selectors remain only for `createIssue` and `createPullRequest` (`repositoryId`, because generated candidates are ambiguous) and `submitPullRequestReview` (`pullRequestId` first, with the existing `pullRequestReviewId` fallback). `createRepository` deliberately has no target node: its owner/team IDs do not identify the new repository. `DequeuePullRequestInput.id` and ref updates' `refId` now come from generated metadata.
+
+When adding a curated entry, preserve every existing identity, add the expected target to `TestCuratedMutationSchemaTargets`, and cover any new canonicalisation in `graphql_test.go`. The consistency test asserts every curated mutation and ID field exists in the generated input type, checks scalar-ID type, and exercises target selection with competing IDs so regeneration cannot silently redirect a curated action. Run `go test -race ./internal/normalize/graphql/...` after regeneration.
+
+Snapshot-absent fields still use family `unknown`, action `graphql.mutation.<name>`, write effect and `unknown-mutation`, even when aliased to a known field. `deleteRepository` is absent from this public snapshot. Descriptions/deprecation are explanatory metadata, not full schema/type/authorization validation.
 
 ## Platform behavior
 
