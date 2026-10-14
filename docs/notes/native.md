@@ -195,12 +195,6 @@ go generate ./internal/normalize/native
 go test ./internal/normalize/native/... -run TestRegistryClassifiesEveryCommand -count=1
 ```
 
-The generator's `go.sum` is intentionally not committed: the commit-time secret
-scanner misreads module checksums of auth/credential packages as API keys. The
-`go generate` directive runs with `GOFLAGS=-mod=mod`, so Go rebuilds `go.sum`
-locally (git-ignored), verifying every module against sum.golang.org; versions
-stay pinned by `gen/go.mod`.
-
 The generator is a **separate Go module** under `internal/normalize/native/gen`.
 It requires `github.com/cli/cli/v2 v2.102.0`, Cobra v1.10.2 and pflag v1.0.10. Its
 `github.com/cli/cli/v2/ghok-native-gen` module prefix permits importing gh's internal

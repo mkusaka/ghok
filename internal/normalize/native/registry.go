@@ -6,9 +6,7 @@ import (
 	"github.com/mkusaka/ghok/internal/model"
 )
 
-// gen/go.sum is not committed (secret scanners misread module checksums of
-// auth/credential packages); -mod=mod rebuilds it, verified by sum.golang.org.
-//go:generate sh -c "cd gen && GOFLAGS=-mod=mod go run ."
+//go:generate sh -c "cd gen && go run ."
 
 type flagSpec struct {
 	long                string
