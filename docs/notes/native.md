@@ -10,18 +10,33 @@ recorded in `Unresolved` with source `git`/`api` and resolution `deferred`; unav
 interactive/file/ambiguous values produce `partial`. External execution is `unknown`
 and never mutation-free.
 
-The static registry contains 243 paths (groups, built-ins, hidden help topics and Cobra
-completion entry points) and 57 built-in alias spellings. Each entry declares flags,
-positional interpretation, family/action/effect and its target extractor. All visible
-v2.102.0 commands have flag tables, including inherited flags. Each invocation builds
-a `pflag v1.0.10` FlagSet from those specs: value flags use String, repeatable value
-flags use StringArray, boolean flags use Bool, and optional values use NoOptDefVal
-(`browse --commit` defaults to `last`). Only flags actually changed enter Parameters.
-Interspersed args, `--`, bundled shorthands, attached values, and equals values are
-parsed by pflag rather than a handwritten scanner. Booleans are canonicalized to
-`true`/`false`; repeatable arrays retain literal CSV text without flattening commas.
-The registry intentionally retains values as strings rather than validating gh's
-full enum/numeric/duration types.
+The development-time generator builds gh's real Cobra root with its factory in an
+isolated temporary HOME/GH_CONFIG_DIR/XDG environment. It walks visible and hidden
+commands, initializes Cobra's lazy help/completion commands without running handlers,
+and expands every alias/descendant spelling, including the default `co` forwarding
+alias. `registry_gen.go` contains 249 canonical commands (including root), 113 alias
+paths, and 1,414 canonical flag records (2,080 including alias copies). Metadata records
+all local/inherited flags, pflag types, shorthands, NoOptDefVal, hidden/deprecated flags,
+command visibility/deprecation, DisableFlagParsing, annotations, and Args function
+names. Args names are hints, not executable validation: upstream telemetry wrappers
+hide many underlying validators and closure argument-count bounds are not exposed.
+
+`semantics.go` separately curates all 249 canonical intents: family/action/effect,
+repository scope, positional interpretation and extractor. Existing names are stable;
+seven newly discovered hidden commands use the `native.*` namespace. Aliases share
+canonical semantics. Generated commands lacking curation become unknown family/action/
+effect, `unknown-command`, detail `gh command not yet classified by ghok`, including
+when help/version is supplied. `TestRegistryClassifiesEveryCommand` fails with a sorted
+list of missing entries, so regeneration cannot silently introduce safe commands.
+
+Each invocation builds a `pflag v1.0.10` FlagSet from generated metadata. Types are
+bool, string, stringArray, stringSlice, int, uint16, uint64, float64 and duration.
+Numeric/duration values are validated and canonicalized by pflag; an unsupported
+generated type is a parse error, never a panic or a safe read. Optional values use
+their exact upstream NoOptDefVal (`browse --commit` defaults to `last`). Only changed
+flags enter Parameters. Interspersed args, `--`, bundled shorthands, attached/equals
+values and repeatability are parsed by pflag. Booleans are canonicalized; StringSlice
+flags split CSV (including quoted CSV), while StringArray flags preserve literal commas.
 
 Command discovery retains options before a subcommand for the final leaf parser.
 It follows Cobra Find's strip/remove strategy over the static registry: known
@@ -49,13 +64,13 @@ positional but do not expose `-R` still defer missing repository context.
 
 Deep extraction covers PR/issue/repo/release/secret/variable/workflow/run/label/ruleset,
 auth, extension, alias and config commands in the table. Flag parameters use lower camel
-case; booleans are booleans, repeatable values are arrays, other values retain their argv
+case; booleans are booleans, repeatable values are arrays, other values are pflag-normalized
 strings. Selectors unavailable in `Target` live in `Parameters`: `tag`/`assets`/`asset`,
 `name`, `newName`, `workflow`, `run`, `ruleset`, `destinationRepository`, or `arguments`.
 Workflow `inputs` combine raw and typed fields with typed fields taking precedence;
 `@file`/JSON stdin values stay unresolved. `body`, `bodyFile`, `envFile` record presence
-only, not their content/path. `auth token`, token-reading login, token-showing status,
-and secret/variable set carry `sensitive`; login records `tokenFromStdin`.
+only, not content/path. `auth token`, `auth git-credential`, token-reading
+login, token-showing status, and secret/variable set carry `sensitive`; login records `tokenFromStdin`.
 Source argv remains unredacted for the shared dispatcher/output redactor: do not emit
 normalizer results directly to untrusted hooks/logs without the output-boundary redactor.
 
@@ -89,10 +104,12 @@ check is deliberately conservative even if an identical token also appears as a
 literal value or after `--`. Malformed flags/values return non-fatal errors with
 heuristic confidence rather than panicking or proving help safe.
 Unknown command paths can be extensions/newer gh, so remain unknown. `extension exec`,
-Copilot and codespace execution/IDE integration
-remain unknown even when their command identity is exact. Downloads are GitHub reads,
-though they can write local files; checkout/clone/config/auth/install operations are
-conservatively writes. This is not a local-filesystem security boundary.
+Copilot, codespace execution/IDE integration, and official extension install stubs
+(`aw`, `stack`, `webhook`) remain unknown even when their identity is exact. Metadata's
+DisableFlagParsing preserves forwarded options as arguments. Downloads and hidden
+attestation inspection/codespace selection/repository credits are GitHub reads, though
+they can write local files; checkout/clone/config/auth/install operations are conservatively
+writes. This is not a local-filesystem security boundary.
 
 Help/version options are mutation-free only without parse errors/unknown flags and
 when parsed as options, never when consumed as values or after `--`. The registered
@@ -162,29 +179,68 @@ No git/API resolution, interactive choices, body/file contents, stdin values, en
 validation, complete Cobra argument-count validation or confirmation of effects.
 Malformed known commands retain intent rather than claiming a confirmed side effect.
 Subcommand discovery follows Cobra's consumption of unknown options: if unknown arity
-hides the command itself, the command is unknown, not guessed safe. Raw repeated CSV
-values are preserved, not expanded. `--json` without fields is gh's field-discovery
+hides the command itself, the command is unknown, not guessed safe. StringSlice CSV is
+expanded; StringArray input stays literal. `--json` without fields is gh's field-discovery
 error; normalization reports a missing value instead of reproducing its field listing.
 `secret get` is not a v2.102.0 built-in; it remains UnknownCommand. Unknown commands,
 extensions and shell aliases are never safe. `api` is included only for registry
 completeness; the dispatcher routes it to L2/L3 after plain alias expansion.
 
-## Regenerating registry.go
+## Regenerating registry_gen.go and curating overrides
 
-Use exactly gh v2.102.0. In a temporary HOME/GH_CONFIG_DIR/XDG_CONFIG_HOME (empty config,
-no installed extensions), run `gh help reference` and `gh help`. Parse each `##`/`###`/
-`#### gh` heading up to its first usage placeholder into a command path; parse its
-Aliases section into commandAliases. For each path, capture `gh <path> --help` and use
-only FLAGS/INHERITED FLAGS sections, not examples or prose. The pflag column between
-flag and two-space description separator supplies the value type; backtick placeholders
-starting `--` in boolean descriptions (setup-git --force, cache succeed-on-no-caches)
-are not types. Capture repeatability from source StringSlice/StringArray registrations
-when a help placeholder conceals it. Add hidden root commands/help topics from root.go
-and gh help, `co` as `pr checkout`, and Cobra completion entry points. Preserve the
-reviewed semantic effect/positional annotations and attach extractTarget to each entry.
-Probe flag arity with `gh <path> --help --<flag>` (no RunE); exported JSON field discovery
-is a special diagnostic, and project item-edit --value takes a value despite no type
-rendered in help. Run gofmt and native tests/fuzz. No generator is required at runtime.
+Run from the repository root:
+
+```sh
+go generate ./internal/normalize/native
+go test ./internal/normalize/native/... -run TestRegistryClassifiesEveryCommand -count=1
+```
+
+The generator's `go.sum` is intentionally not committed: the commit-time secret
+scanner misreads module checksums of auth/credential packages as API keys. The
+`go generate` directive runs with `GOFLAGS=-mod=mod`, so Go rebuilds `go.sum`
+locally (git-ignored), verifying every module against sum.golang.org; versions
+stay pinned by `gen/go.mod`.
+
+The generator is a **separate Go module** under `internal/normalize/native/gen`.
+It requires `github.com/cli/cli/v2 v2.102.0`, Cobra v1.10.2 and pflag v1.0.10. Its
+`github.com/cli/cli/v2/ghok-native-gen` module prefix permits importing gh's internal
+config/telemetry packages; none enters ghok's runtime module graph. gh v2.102.0 requires
+Go 1.27.0 for generation (Go's toolchain auto-download may be used); ghok's root Go
+version does not change. First-time module/toolchain downloads may need the network.
+Normal builds/tests/lint use the checked-in snapshot, exclude the nested module, and
+never regenerate or fetch gh.
+
+Pinned upstream tag **v2.102.0**, commit
+`fc4b137cdef0a6bd28fd461b7cf9c84a5812a8cd`, module sum
+`h1:SmsvpLB02sqhBK90/mOGAtvhwehAvBu2SjO5dBgY9xw=`.
+The generated header records the exact release and module sum, read from Go build info;
+replaced or unchecksummed modules are refused.
+
+For a new gh release:
+
+1. Bump cli/cli in `gen/go.mod`; match its Go, Cobra and pflag requirements. Run
+   `cd internal/normalize/native/gen && go mod tidy`, then return to the repo root.
+2. Run `go generate ./internal/normalize/native`. Review `registry_gen.go`'s provenance,
+   added/removed commands/aliases, flag types, optional values and forwarding behavior.
+3. Fix the failing curation test in `semantics.go`, using **canonical** paths. Review
+   upstream handlers before assigning effects; do not default unknown behavior to read.
+   Keep existing action names unchanged; use `native.*` for newly classified commands.
+   Set repository scope, positional kind and extractor deliberately; remove entries for
+   removed commands. Flag metadata/aliases are never hand-edited.
+4. Curate flag-dependent semantic overrides in `extractParameters` (`native.go`) and
+   selector extraction in `targets.go`, reusing existing patterns. No flag-metadata
+   overrides are currently needed; new supported pflag types belong in `newFlagSet`,
+   not in the generated table. Update both native classification tables here and in
+   `docs/normalization.md`.
+5. Run native tests/race/fuzz/lint and the e2e suite. Tests remain offline/hermetic.
+
+Behavior changes from the help-derived table: `a11y` now maps to the stable
+`accessibility` read; hidden commands have reviewed `native.*` intents; invalid numeric/
+duration values (even alongside `--help`) are heuristic, non-mutation-free parse errors.
+`pr create --label=bug,docs` now yields `["bug", "docs"]` rather than `["bug,docs"]`;
+workflow `--raw-field=message=one,two` remains one literal input. Existing merge/review
+action names and target precedence are unchanged.
+
 
 ## Full registry classification
 
@@ -437,6 +493,13 @@ The table gives base intent; specific flag-driven overrides follow it.
 | `workflow list` | `workflow.list` | `workflow.list` | read |
 | `workflow run` | `workflow.run` | `workflow.run` | write |
 | `workflow view` | `workflow.view` | `workflow.view` | read |
+| `attestation inspect` | `native.attestation.inspect` | `native.attestation.inspect` | read |
+| `auth git-credential` | `native.auth.git-credential` | `native.auth.git-credential` | read |
+| `codespace select` | `native.codespace.select` | `native.codespace.select` | read |
+| `repo credits` | `native.repo.credits` | `native.repo.credits` | read |
+| `aw` | `native.aw` | `native.aw` | unknown |
+| `stack` | `native.stack` | `native.stack` | unknown |
+| `webhook` | `native.webhook` | `native.webhook` | unknown |
 
 | Override | Family | Action | Effect |
 | --- | --- | --- | --- |

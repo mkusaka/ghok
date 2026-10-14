@@ -3,6 +3,7 @@ package native
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -38,10 +39,10 @@ func lookupFlag(c commandSpec, name string, short byte) (flagSpec, bool) {
 		}
 	}
 	if name == "help" || short == 'h' {
-		return flagSpec{long: "help", short: 'h'}, true
+		return flagSpec{long: "help", short: 'h', valueType: "bool", noOptDefVal: "true"}, true
 	}
 	if name == "version" {
-		return flagSpec{long: "version"}, true
+		return flagSpec{long: "version", valueType: "bool", noOptDefVal: "true"}, true
 	}
 	return flagSpec{}, false
 }
@@ -49,7 +50,7 @@ func lookupFlag(c commandSpec, name string, short byte) (flagSpec, bool) {
 // findCommand mirrors Cobra Find's flag stripping while retaining flags before
 // the command, so the leaf parser sees the same interspersed argument vector.
 func findCommand(argv []string) (commandSpec, []string, bool) {
-	c := commandSpec{path: "", family: "help", action: "help", effect: model.EffectRead}
+	c := registry[""]
 	remaining := make([]string, 0, len(argv))
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -69,7 +70,7 @@ func findCommand(argv []string) (commandSpec, []string, bool) {
 				attached = len(a) > 2
 			}
 			// Unknown flags without '=' are stripped with a value by Cobra Find.
-			if !attached && ((!known) || (f.takesValue && !f.optionalValue)) && i+1 < len(argv) {
+			if !attached && ((!known) || f.noOptDefVal == "") && i+1 < len(argv) {
 				i++
 				remaining = append(remaining, argv[i])
 			}
@@ -94,7 +95,7 @@ func findCommand(argv []string) (commandSpec, []string, bool) {
 
 func hasChildren(path string) bool { return commandGroups[path] }
 
-func newFlagSet(c commandSpec) *pflag.FlagSet {
+func newFlagSet(c commandSpec) (*pflag.FlagSet, error) {
 	fs := pflag.NewFlagSet(c.path, pflag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	for _, f := range c.flags {
@@ -102,17 +103,33 @@ func newFlagSet(c commandSpec) *pflag.FlagSet {
 		if f.short != 0 {
 			short = string(f.short)
 		}
-		switch {
-		case !f.takesValue:
+		switch f.valueType {
+		case "bool":
 			fs.BoolP(f.long, short, false, "")
-		case f.repeatable:
-			fs.StringArrayP(f.long, short, nil, "")
-		default:
+		case "string":
 			fs.StringP(f.long, short, "", "")
+		case "stringArray":
+			fs.StringArrayP(f.long, short, nil, "")
+		case "stringSlice":
+			fs.StringSliceP(f.long, short, nil, "")
+		case "int":
+			fs.IntP(f.long, short, 0, "")
+		case "uint16":
+			fs.Uint16P(f.long, short, 0, "")
+		case "uint64":
+			fs.Uint64P(f.long, short, 0, "")
+		case "float64":
+			fs.Float64P(f.long, short, 0, "")
+		case "duration":
+			fs.DurationP(f.long, short, 0, "")
+		default:
+			return nil, fmt.Errorf("unsupported gh flag type %q for --%s", f.valueType, f.long)
 		}
-		if f.optionalValue {
-			fs.Lookup(f.long).NoOptDefVal = "last"
-		}
+		flag := fs.Lookup(f.long)
+		flag.NoOptDefVal = f.noOptDefVal
+		flag.Hidden = f.hidden
+		flag.Deprecated = f.deprecated
+		flag.ShorthandDeprecated = f.shorthandDeprecated
 	}
 	if fs.Lookup("help") == nil {
 		fs.Bool("help", false, "")
@@ -120,7 +137,7 @@ func newFlagSet(c commandSpec) *pflag.FlagSet {
 	if fs.Lookup("version") == nil {
 		fs.Bool("version", false, "")
 	}
-	return fs
+	return fs, nil
 }
 
 // discoverUnknownFlags uses pflag's errors as evidence, not a second flag
@@ -156,12 +173,20 @@ func discoverUnknownFlags(fs *pflag.FlagSet, argv []string, p *parsedArgs) {
 
 func parseArgs(c commandSpec, argv []string) parsedArgs {
 	p := parsedArgs{flags: make(map[string][]string), dashIndex: -1}
-	fs := newFlagSet(c)
-	err := fs.Parse(argv)
+	fs, err := newFlagSet(c)
+	if err != nil {
+		p.errors = append(p.errors, err.Error())
+		return p
+	}
+	err = fs.Parse(argv)
 	var unknown *pflag.NotExistError
 	if errors.As(err, &unknown) {
 		discoverUnknownFlags(fs, argv, &p)
-		fs = newFlagSet(c)
+		fs, err = newFlagSet(c)
+		if err != nil {
+			p.errors = append(p.errors, err.Error())
+			return p
+		}
 		fs.ParseErrorsAllowlist.UnknownFlags = true
 		err = fs.Parse(argv)
 	}
@@ -187,8 +212,15 @@ func parseArgs(c commandSpec, argv []string) parsedArgs {
 // Normalize classifies alias-expanded argv without filesystem, git or API I/O.
 func Normalize(inv model.Invocation, argv []string) model.Result {
 	c, args, known := findCommand(argv)
+	if known && c.family == model.FamilyUnknown {
+		return singleResult(argv, model.Operation{
+			Family: model.FamilyUnknown, Action: model.FamilyUnknown, Effect: model.EffectUnknown,
+			Execution: model.ExecutionWillRun, UnknownReason: model.UnknownCommand,
+			Detail: "gh command not yet classified by ghok", Origin: model.Origin{Command: strings.Fields(c.path)},
+		}, model.ConfidenceExact, nil)
+	}
 	var p parsedArgs
-	if c.path == "extension exec" {
+	if c.disableFlagParsing {
 		p = parsedArgs{positionals: args, dashIndex: -1}
 	} else {
 		p = parseArgs(c, args)
@@ -287,9 +319,9 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 			op.Parameters[key] = true
 			continue
 		}
-		if !f.takesValue {
+		if f.valueType == "bool" {
 			op.Parameters[key] = p.enabled(f.long)
-		} else if f.repeatable {
+		} else if f.repeatable() {
 			op.Parameters[key] = p.flags[f.long]
 		} else {
 			op.Parameters[key] = p.value(f.long)
@@ -297,7 +329,7 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 	}
 	path := c.path
 	if strings.HasPrefix(path, "auth ") {
-		op.Parameters["sensitive"] = path == "auth token" || p.enabled("with-token") || p.enabled("show-token")
+		op.Parameters["sensitive"] = path == "auth token" || path == "auth git-credential" || p.enabled("with-token") || p.enabled("show-token")
 		if p.enabled("with-token") {
 			op.Parameters["tokenFromStdin"] = true
 		}

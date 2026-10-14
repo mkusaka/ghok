@@ -2,6 +2,7 @@ package native
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -164,12 +165,6 @@ func TestParseArgsPflagSemantics(t *testing.T) {
 			flags: map[string][]string{"admin": {"true"}, "delete-branch": {"false"}, "auto": {"true"}}, dashIndex: -1,
 		},
 		{
-			name: "interspersed repeatable strings retain commas", command: "pr create",
-			argv:        []string{"one", "-lbug,docs", "two", "--label=help wanted"},
-			flags:       map[string][]string{"label": {"bug,docs", "help wanted"}},
-			positionals: []string{"one", "two"}, dashIndex: -1,
-		},
-		{
 			name: "terminator after interspersed flags", command: "repo clone",
 			argv:  []string{"o/r", "--no-upstream", "--", "--depth", "1"},
 			flags: map[string][]string{"no-upstream": {"true"}}, positionals: []string{"o/r", "--depth", "1"}, dashIndex: 1,
@@ -297,10 +292,16 @@ func TestNormalizeDeepParameters(t *testing.T) {
 }
 
 func TestRegistryClassifiesEveryCommand(t *testing.T) {
-	for path, c := range registry {
-		if c.family == "" || c.action == "" || c.effect == "" {
-			t.Errorf("unclassified %q", path)
+	var missing []string
+	for path, metadata := range generatedCommands {
+		c, ok := curatedCommands[metadata.canonicalPath]
+		if !ok || c.family == "" || c.action == "" || c.effect == "" {
+			missing = append(missing, path)
 		}
+	}
+	slices.Sort(missing)
+	if len(missing) > 0 {
+		t.Fatalf("gh commands without curated semantics (update semantics.go):\n%s", strings.Join(missing, "\n"))
 	}
 }
 
