@@ -18,7 +18,7 @@ The executable name selects its role; `ghok pr merge ...` is not wrapper syntax.
 ```text
 basename(argv[0])
   ghok (or any name except gh) -> management commands
-  gh -> discover real gh -> normalize L1/L2/L3 -> resolve only needed context
+  gh -> discover real gh -> classify the operation -> resolve only needed context
      -> evaluate policy + pre-hooks -> deny (enforce mode): exit 1, no gh
      -> execute original gh argv, cwd, environment, and streams
         no matching post-hook/live stdin pump: exec replaces wrapper
@@ -99,7 +99,7 @@ make build
 `make build` injects `VERSION` (default: git describe) and `COMMIT` (default:
 empty). To label a build explicitly: `make build VERSION=v1.2.3 COMMIT=<sha>`.
 
-## Enable, disable, upgrade, uninstall
+## Shim install, uninstall, upgrade
 
 ```sh
 ghok shim install                    # owned symlink ~/.local/bin/gh -> ghok
@@ -129,6 +129,17 @@ retained; remove them separately only if you no longer want them. ghok does not
 change real gh, gh/git configuration, or shell rc files.
 
 ## Configuration and hooks
+
+The config format has a JSON Schema generated from ghok's Go config types:
+[`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and
+[`schema/project.schema.json`](schema/project.schema.json) for a project
+`.ghok.yaml`. Print it with `ghok config schema [--project]`; regenerate the
+files with `make schema` (`go generate ./internal/config`). For editor
+completion, start the YAML file with:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/config.schema.json
+```
 
 Global config: `GHOK_CONFIG_DIR/config.yaml`, otherwise
 `$XDG_CONFIG_HOME/ghok/config.yaml`, otherwise `~/.config/ghok/config.yaml`.
@@ -198,7 +209,11 @@ multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
 
-## L1/L2/L3 normalization
+## Operation normalization
+
+ghok classifies every invocation into structured operations at one of three
+levels. "L1/L2/L3" are ghok's own labels (they appear as `classification.level`
+in the hook JSON and as `match.level` in config), not an established term:
 
 | Level | Input | Method |
 | --- | --- | --- |

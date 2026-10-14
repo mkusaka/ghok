@@ -174,10 +174,16 @@ and 57 built-in alias spellings. The table includes groups, hidden help topics,
 and completion entry points; registered identity is not a guarantee that effects
 are known or targets are deeply extracted.
 
-Supported argument forms include interspersed flags, options before subcommands,
-`--flag=value`, `--flag value`, `-Rvalue`, `-R=value`, `-R value`, bundled short
-booleans, explicit boolean values, repeated flags, and `--`. Registered `-h`
-meanings take precedence over help (auth hostname, config host, repo homepage).
+Native flags use **pflag v1.0.10**, the same version as gh 2.102.0. FlagSets are
+built from the versioned registry: strings, repeatable string arrays, booleans,
+and optional-value options using `NoOptDefVal`. Supported forms include
+interspersed flags, options before subcommands, `--flag=value`, `--flag value`,
+`-Rvalue`, `-R=value`, `-R value`, bundled short booleans, explicit boolean values,
+repeated flags, and `--`. Registered `-h` meanings take precedence over help
+(auth hostname, config host, repo homepage).
+Optional shorthand values require `=`: `browse -c=main` selects commit `main`,
+but `browse -cn` selects commit `last` plus no-browser. An attached suffix without
+`=` is a shorthand bundle, not an optional value.
 Help/version prove non-mutation only when parsed as options on a known command
 with known effects; forwarded/unknown command `--help` does not become safe.
 
@@ -546,10 +552,14 @@ aliases also work when followed by canonical descendants (`cs ssh` becomes
 
 No native file/body/stdin content, interactive choice, local git/API resolution,
 complete Cobra positional-count validation, enum validation, or actual outcome is
-inferred. Known leaves with unknown flags keep intent but have heuristic confidence;
-unknown flag arity discards positional extraction and reports ambiguous
-`target.selector`. Attached unknown long values can leave positionals usable. If
-unknown arity obscures command discovery, the command itself remains unknown.
+inferred. Registry value flags remain strings, not gh's full numeric/enum types.
+Known leaves with unknown flags keep intent but have heuristic confidence.
+Unknown flag evidence comes from strict pflag errors; a fresh parse uses pflag's
+unknown-flag allowlist, which consumes a following non-option for a bare unknown.
+Unknown flag arity discards positional extraction and reports ambiguous
+`target.selector`, even if help/version was also supplied. Attached unknown long
+values can leave positionals usable. If unknown arity obscures command discovery,
+the command itself remains unknown.
 `--json` without a value is not reproduced as gh's field-discovery listing.
 `secret get` is not a baseline built-in. Clone/fork `--` tails are `gitArguments`,
 not the clone directory.
@@ -572,14 +582,22 @@ baseline request construction before [typed route matching](../internal/normaliz
 - Exactly one positional endpoint is required. `-X`/`--method` wins; otherwise any
   raw/typed field or `--input` infers POST, and no fields/input means GET. Headers,
   pagination, output formatting, cache, and previews do not change that inference.
-- API parsing accepts long attached/separate values, short attached/separate values,
-  bundled boolean shorthand, explicit boolean values, interspersed flags, and `--`.
+- API parsing uses **pflag v1.0.10** with the flag declarations/types from
+  [cli/cli 2.102.0 `pkg/cmd/api/api.go`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/api/api.go).
+  Endpoint count uses Cobra's `ExactArgs(1)`. Long attached/separate values, short
+  attached/separate values, bundled boolean shorthand, explicit boolean values,
+  interspersed flags, and `--` follow pflag rather than a hand-written scanner.
   Recognized flags are `allow-escape-sequences`, `cache`, `field` (`-F`), `header`
   (`-H`), `help`, `hostname`, `include` (`-i`), `input`, `jq` (`-q`), `method` (`-X`),
   `paginate`, `preview` (`-p`), `raw-field` (`-f`), `silent`, `slurp`, `template` (`-t`),
   and `verbose`. `allow-escape-sequences` is accepted but classification-irrelevant.
-  API unknown flags/missing values/invalid booleans are parse unknowns. `--help`
-  returns L2 `help` / read when argument parsing reaches a help result.
+  Fields and headers use string arrays (commas remain literal); previews use
+  string slices with CSV quoting and repeated occurrences. Cache values must be
+  valid Go durations. Explicit method selection uses `FlagSet.Changed("method")`,
+  including an explicitly empty value, rather than comparing against GET.
+  API unknown flags/missing values/invalid booleans, durations, or preview CSV
+  are parse unknowns. `--help` and pflag's `-h` help shorthand return L2 `help` /
+  read only when parsing reaches a help result; errors before help stay unknown.
 - Relative host precedence is `--hostname`, then `GH_HOST`, otherwise deferred
   gh-config/git context. `GH_REPO` supplies repository placeholders, not the API
   request host. Absolute api.github.com/uploads.github.com canonicalize to github.com;

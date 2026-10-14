@@ -92,23 +92,17 @@ func (a *managementAnalysis) subject(phase string) policy.Subject {
 	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase}
 }
 
-func managementInspect(command string, args []string) int {
-	fs := managementFlags(command, "ghok "+command+" [options] -- <gh args>")
-	resolveTargets := fs.Bool("resolve", false, "resolve targets from local git metadata")
-	allowAPI := fs.Bool("allow-api", false, "allow read-only API resolution (requires --resolve)")
-	showSecrets := false
-	if command == "normalize" {
-		fs.Bool("json", true, "print the normalization result as JSON (the only output format)")
-	} else {
-		fs.BoolVar(&showSecrets, "show-secrets", false, "show secrets in explain output; never affects hook payload redaction")
-	}
-	if code := managementParse(fs, args, true); code >= 0 {
-		return code
-	}
-	if *allowAPI && !*resolveTargets {
+type managementInspectOptions struct {
+	resolveTargets bool
+	allowAPI       bool
+	showSecrets    bool
+}
+
+func managementInspect(command string, args []string, options managementInspectOptions) int {
+	if options.allowAPI && !options.resolveTargets {
 		return managementUsageError("--allow-api requires --resolve")
 	}
-	a, err := managementAnalyze(fs.Args(), *resolveTargets, *allowAPI)
+	a, err := managementAnalyze(args, options.resolveTargets, options.allowAPI)
 	if err != nil {
 		return managementFailure(err)
 	}
@@ -119,71 +113,48 @@ func managementInspect(command string, args []string) int {
 		}
 		return managementJSON(r.Result(a.result), nil)
 	}
-	return managementExplain(a, showSecrets)
+	return managementExplain(a, options.showSecrets)
 }
 
-func managementHooks(args []string) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--json] -- <gh args>")
-		if len(args) == 0 {
-			return 2
+func managementHooksList(asJSON bool) int {
+	env := environment()
+	c, notes, _, err := managementLoad(env)
+	if err != nil {
+		return managementFailure(err)
+	}
+	r := redact.New(env)
+	// Command flags need contextual redaction in addition to JSON key redaction.
+	display := make([]config.Hook, len(c.Hooks))
+	copy(display, c.Hooks)
+	for i := range display {
+		display[i].Command = r.Argv(display[i].Command)
+	}
+	if asJSON {
+		return managementJSON(display, r)
+	}
+	if len(display) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No hooks configured.")
+	}
+	for _, h := range display {
+		enabled := h.Enabled == nil || *h.Enabled
+		_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
+		_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
+		managementPrintMatch(os.Stdout, "  ", h.Match, r)
+		if len(h.DependsOn) != 0 {
+			_, _ = fmt.Fprintln(os.Stdout, r.String("  dependsOn: "+strings.Join(h.DependsOn, ", ")))
 		}
-		return 0
 	}
-	if args[0] != "list" && args[0] != "test" {
-		return managementUsageError("unknown hooks command " + args[0])
+	for _, note := range notes {
+		_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
 	}
-	command := args[0]
-	usage := "ghok hooks list [--json]"
-	if command == "test" {
-		usage = "ghok hooks test [--phase pre|post] [--json] -- <gh args>"
-	}
-	fs := managementFlags("hooks "+command, usage)
-	asJSON := fs.Bool("json", false, "print JSON")
-	phase := config.PhasePre
-	if command == "test" {
-		fs.StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
-	}
-	if code := managementParse(fs, args[1:], command == "test"); code >= 0 {
-		return code
-	}
+	return 0
+}
+
+func managementHooksTest(args []string, phase string, asJSON bool) int {
 	if phase != config.PhasePre && phase != config.PhasePost {
 		return managementUsageError("--phase must be pre or post")
 	}
-	if command == "list" {
-		env := environment()
-		c, notes, _, err := managementLoad(env)
-		if err != nil {
-			return managementFailure(err)
-		}
-		r := redact.New(env)
-		// Command flags need contextual redaction in addition to JSON key redaction.
-		display := make([]config.Hook, len(c.Hooks))
-		copy(display, c.Hooks)
-		for i := range display {
-			display[i].Command = r.Argv(display[i].Command)
-		}
-		if *asJSON {
-			return managementJSON(display, r)
-		}
-		if len(display) == 0 {
-			_, _ = fmt.Fprintln(os.Stdout, "No hooks configured.")
-		}
-		for _, h := range display {
-			enabled := h.Enabled == nil || *h.Enabled
-			_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
-			_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
-			managementPrintMatch(os.Stdout, "  ", h.Match, r)
-			if len(h.DependsOn) != 0 {
-				_, _ = fmt.Fprintln(os.Stdout, r.String("  dependsOn: "+strings.Join(h.DependsOn, ", ")))
-			}
-		}
-		for _, note := range notes {
-			_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
-		}
-		return 0
-	}
-	a, err := managementAnalyze(fs.Args(), true, false)
+	a, err := managementAnalyze(args, true, false)
 	if err != nil {
 		return managementFailure(err)
 	}
@@ -193,7 +164,7 @@ func managementHooks(args []string) int {
 	r := redact.New(a.env)
 	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: os.Environ(), RealGh: a.real, Redact: r.String}
 	selected := runner.Select(phase, a.subject(phase))
-	input := hookInput(fs.Args(), a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
+	input := hookInput(args, a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
 	if phase == config.PhasePost {
 		// This is explicitly a synthetic successful execution, not a real result.
 		input.Result = &protocol.ExecResult{ExitCode: 0}
@@ -214,7 +185,7 @@ func managementHooks(args []string) int {
 	if results == nil {
 		results = []protocol.HookResult{}
 	}
-	if *asJSON {
+	if asJSON {
 		value := struct {
 			Phase     string                `json:"phase"`
 			Synthetic bool                  `json:"synthetic"`

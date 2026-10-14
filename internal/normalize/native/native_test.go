@@ -133,6 +133,125 @@ func TestNormalizeFlagSafety(t *testing.T) {
 	}
 }
 
+func TestParseArgsPflagSemantics(t *testing.T) {
+	tests := []struct {
+		name, command string
+		argv          []string
+		flags         map[string][]string
+		positionals   []string
+		dashIndex     int
+		unknown       []string
+		ambiguous     bool
+		parseError    bool
+	}{
+		{
+			name: "optional attached shorthand is a bundle", command: "browse",
+			argv: []string{"-cn", "main.go"}, flags: map[string][]string{"commit": {"last"}, "no-browser": {"true"}},
+			positionals: []string{"main.go"}, dashIndex: -1,
+		},
+		{
+			name: "optional shorthand equals supplies value", command: "browse",
+			argv: []string{"-c=main"}, flags: map[string][]string{"commit": {"main"}}, dashIndex: -1,
+		},
+		{
+			name: "optional long leaves separate value positional", command: "browse",
+			argv: []string{"--commit", "main"}, flags: map[string][]string{"commit": {"last"}},
+			positionals: []string{"main"}, dashIndex: -1,
+		},
+		{
+			name: "boolean values are canonicalized", command: "pr merge",
+			argv:  []string{"--admin=1", "-d=FALSE", "--auto=T"},
+			flags: map[string][]string{"admin": {"true"}, "delete-branch": {"false"}, "auto": {"true"}}, dashIndex: -1,
+		},
+		{
+			name: "interspersed repeatable strings retain commas", command: "pr create",
+			argv:        []string{"one", "-lbug,docs", "two", "--label=help wanted"},
+			flags:       map[string][]string{"label": {"bug,docs", "help wanted"}},
+			positionals: []string{"one", "two"}, dashIndex: -1,
+		},
+		{
+			name: "terminator after interspersed flags", command: "repo clone",
+			argv:  []string{"o/r", "--no-upstream", "--", "--depth", "1"},
+			flags: map[string][]string{"no-upstream": {"true"}}, positionals: []string{"o/r", "--depth", "1"}, dashIndex: 1,
+		},
+		{
+			name: "unknown option consumes following nonflag", command: "pr merge",
+			argv:  []string{"--future", "value", "123", "--squash"},
+			flags: map[string][]string{"squash": {"true"}}, positionals: []string{"123"}, dashIndex: -1,
+			unknown: []string{"--future"}, ambiguous: true,
+		},
+		{
+			name: "attached unknown does not consume positional", command: "pr merge",
+			argv: []string{"--future=value", "123"}, flags: map[string][]string{},
+			positionals: []string{"123"}, dashIndex: -1, unknown: []string{"--future"},
+		},
+		{
+			name: "unknown arity does not consume following option", command: "pr merge",
+			argv: []string{"--future", "--admin", "123"}, flags: map[string][]string{"admin": {"true"}},
+			positionals: []string{"123"}, dashIndex: -1, unknown: []string{"--future"}, ambiguous: true,
+		},
+		{
+			name: "all unknown flags supply evidence", command: "pr merge",
+			argv: []string{"--future=value", "--another", "value", "123"}, flags: map[string][]string{},
+			positionals: []string{"123"}, dashIndex: -1, unknown: []string{"--future", "--another"}, ambiguous: true,
+		},
+		{
+			name: "unknown shorthand uses raw byte without panic", command: "pr merge",
+			argv: []string{"-\xff", "value", "123"}, flags: map[string][]string{},
+			positionals: []string{"123"}, dashIndex: -1, unknown: []string{"-\xff"}, ambiguous: true,
+		},
+		{
+			name: "unregistered h is pflag help even with false value", command: "pr merge",
+			argv: []string{"-h=false"}, flags: map[string][]string{"help": {"true"}}, dashIndex: -1,
+		},
+		{
+			name: "empty shorthand equals is a bundled unknown", command: "pr merge",
+			argv: []string{"-d="}, flags: map[string][]string{"delete-branch": {"true"}},
+			dashIndex: -1, unknown: []string{"-="}, ambiguous: true,
+		},
+		{
+			name: "empty long boolean equals is invalid", command: "pr merge",
+			argv: []string{"--delete-branch="}, flags: map[string][]string{}, dashIndex: -1, parseError: true,
+		},
+		{
+			name: "malformed long flag is invalid", command: "pr merge",
+			argv: []string{"---bad"}, flags: map[string][]string{}, dashIndex: -1, parseError: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := parseArgs(registry[tt.command], tt.argv)
+			if !reflect.DeepEqual(p.flags, tt.flags) || !reflect.DeepEqual(p.unknown, tt.unknown) || p.ambiguous != tt.ambiguous || p.dashIndex != tt.dashIndex || (len(p.errors) > 0) != tt.parseError {
+				t.Fatalf("parsed=%+v", p)
+			}
+			if strings.Join(p.positionals, "\x00") != strings.Join(tt.positionals, "\x00") {
+				t.Fatalf("positionals=%q want %q", p.positionals, tt.positionals)
+			}
+		})
+	}
+}
+
+func TestNormalizePflagRegressions(t *testing.T) {
+	r := Normalize(model.Invocation{}, []string{"browse", "-cmain", "-R", "o/r"})
+	op := r.Operations[0]
+	if r.Classification.Confidence != model.ConfidenceHeuristic || r.Classification.MutationFree || op.Target.SHA != "last" || op.Parameters["commit"] != "last" || !strings.Contains(op.Detail, "-m") || !strings.Contains(op.Detail, "-i") {
+		t.Fatalf("optional shorthand must not consume attached text: %+v", r)
+	}
+	for _, argv := range [][]string{
+		{"pr", "merge", "--help", "--future=value"},
+		{"pr", "merge", "--future=value", "-h"},
+		{"pr", "merge", "--help", "--auto=invalid"},
+		{"pr", "merge", "--auto=invalid", "--help"},
+		{"pr", "view", "--help", "--future=value"},
+		{"pr", "view", "--version", "--future"},
+	} {
+		r := Normalize(model.Invocation{}, argv)
+		if r.Operations[0].Family == "help" || r.Classification.MutationFree || r.Classification.Confidence != model.ConfidenceHeuristic {
+			t.Fatalf("uncertain arguments must not become safe help: %+v", r)
+		}
+	}
+}
+
 func TestNormalizeDeepParameters(t *testing.T) {
 	tests := []struct {
 		argv []string
@@ -186,7 +305,7 @@ func TestRegistryClassifiesEveryCommand(t *testing.T) {
 }
 
 func FuzzNormalize(f *testing.F) {
-	for _, s := range []string{"pr\x00merge\x00123\x00--squash", "-R\x00o/r\x00pr\x00merge\x001", "pr\x00merge\x00--future\x00123", "auth\x00login\x00-h\x00ghe.example", "", "--", "pr\x00merge\x00--body"} {
+	for _, s := range []string{"pr\x00merge\x00123\x00--squash", "-R\x00o/r\x00pr\x00merge\x001", "pr\x00merge\x00--future\x00123", "auth\x00login\x00-h\x00ghe.example", "", "--", "pr\x00merge\x00--body", "browse\x00-cmain", "pr\x00merge\x00-\xff", "pr\x00view\x00--help\x00--future"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {

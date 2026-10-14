@@ -13,12 +13,29 @@ and never mutation-free.
 The static registry contains 243 paths (groups, built-ins, hidden help topics and Cobra
 completion entry points) and 57 built-in alias spellings. Each entry declares flags,
 positional interpretation, family/action/effect and its target extractor. All visible
-v2.102.0 commands have flag tables, including inherited flags. Command discovery keeps
-options appearing before the subcommand for the leaf parser. Flags support interspersed
-positionals, `--name=value`, `--name value`, `-Rvalue`, `-R=value`, `-R value`, bundled
-short booleans, explicit boolean values, repeat occurrences, and `--` termination.
-Repeatable parameter arrays preserve each occurrence, including its literal CSV text;
-they do not flatten commas or interpret enum/numeric values beyond booleans.
+v2.102.0 commands have flag tables, including inherited flags. Each invocation builds
+a `pflag v1.0.10` FlagSet from those specs: value flags use String, repeatable value
+flags use StringArray, boolean flags use Bool, and optional values use NoOptDefVal
+(`browse --commit` defaults to `last`). Only flags actually changed enter Parameters.
+Interspersed args, `--`, bundled shorthands, attached values, and equals values are
+parsed by pflag rather than a handwritten scanner. Booleans are canonicalized to
+`true`/`false`; repeatable arrays retain literal CSV text without flattening commas.
+The registry intentionally retains values as strings rather than validating gh's
+full enum/numeric/duration types.
+
+Command discovery retains options before a subcommand for the final leaf parser.
+It follows Cobra Find's strip/remove strategy over the static registry: known
+required values and unknown bare options skip a following argument, attached
+values do not, and `--` stops discovery. This keeps `gh -R o/r pr merge 123` and
+`gh pr -Ro/r merge 123` working without constructing a runtime Cobra command tree.
+It is command-path discovery only, not another flag-value parser.
+
+Notable fidelity corrections: `browse -cn` means commit `last` plus no-browser,
+not commit `n`; `browse -cmain` means commit `last` followed by bundled flags
+(`m`/`i` are unknown). Supply optional shorthand values with `-c=main`, or use
+`--commit=main`. A separate `--commit main` leaves `main` positional. pflag treats
+`-d=` as boolean `-d` followed by unknown shorthand `=`, unlike `--delete-branch=`,
+which is an invalid boolean value.
 
 Repository selection: explicit positional repository/PR/issue URL overrides `--repo`,
 then `GH_REPO`, with `GH_HOST` as the fallback host for owner/name. Full repository URLs,
@@ -60,20 +77,32 @@ interactive event stays unresolved. `repo set-default --view`, `issue develop --
 and `secret set --no-store` specialize to read actions listed below.
 
 Known commands with unknown flags retain their effect/family/action, use heuristic
-confidence, and include the flag in detail. Unknown arity conservatively discards
-positional extraction and records `target.selector` as ambiguous; attached unknown
-long values leave positionals usable. Unknown command paths can be extensions/newer
-gh, so remain unknown. `extension exec`, Copilot and codespace execution/IDE integration
+confidence, and include flag evidence in detail; they are never mutation-free, even
+with help/version present. A strict pflag parse supplies typed NotExistError evidence.
+Discovery retries temporarily register those names as optional strings without
+guessing their arity; a fresh registry FlagSet then parses with UnknownFlags enabled.
+That allowlist consumes a following non-option for a bare unknown, but preserves a
+following option and keeps positionals after attached `--unknown=value` usable.
+Unknown shorthand arity or any bare `--unknown` occurrence conservatively disables
+positional extraction and records `target.selector` as ambiguous. The bare-name
+check is deliberately conservative even if an identical token also appears as a
+literal value or after `--`. Malformed flags/values return non-fatal errors with
+heuristic confidence rather than panicking or proving help safe.
+Unknown command paths can be extensions/newer gh, so remain unknown. `extension exec`,
+Copilot and codespace execution/IDE integration
 remain unknown even when their command identity is exact. Downloads are GitHub reads,
 though they can write local files; checkout/clone/config/auth/install operations are
 conservatively writes. This is not a local-filesystem security boundary.
 
-Help/version options are mutation-free only when parsed as options, never when consumed
-as a value or after `--`. `-h` follows a registered shorthand first: on auth it is
-hostname, on config host, on repo create/edit homepage. Otherwise it denotes help.
+Help/version options are mutation-free only without parse errors/unknown flags and
+when parsed as options, never when consumed as values or after `--`. The registered
+`--help` Bool is long-only, matching gh; pflag's ErrHelp handles an unregistered `-h`
+(including `-h=false`). A registered shorthand wins: on auth `-h` is hostname, on
+config host, on repo create/edit homepage.
 Leaf `--version` is treated as non-mutating intent (gh may reject it as root-only).
 Unknown/externally executed commands do not become safe merely because their argv
-contains `--help`: extensions can interpret it arbitrarily. `extension exec` preserves
+contains `--help`: extensions can interpret it arbitrarily.
+`extension exec` preserves
 all forwarded arguments without flag parsing, matching its `DisableFlagParsing` setting
 in [extension/command.go](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/extension/command.go).
 Repo clone/fork keep arguments following `--` in `gitArguments`, never as clone directory.
@@ -115,6 +144,13 @@ Repo clone/fork keep arguments following `--` in `gitArguments`, never as clone 
   [root/help.go](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/root/help.go),
   [actions/actions.go](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/actions/actions.go):
   creation context, rendered flag sections, and hidden Actions help-only command.
+- [pflag v1.0.10 flag.go](https://github.com/spf13/pflag/blob/v1.0.10/flag.go),
+  [errors.go](https://github.com/spf13/pflag/blob/v1.0.10/errors.go) and
+  [bool.go](https://github.com/spf13/pflag/blob/v1.0.10/bool.go): source inspection
+  confirms optional shorthand bundle precedence, boolean normalization, typed
+  unknown errors, ErrHelp and unknown-flag allowlist consumption.
+- [cli/cli browse/browse.go](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/browse/browse.go):
+  `commit` is a StringVarP with NoOptDefVal `last`, preserving its former boolean use.
 
 No shell/process primitives are used by this package. Its implementation is identical
 on macOS/Linux and both architectures; there are no OS-specific files or dependencies.

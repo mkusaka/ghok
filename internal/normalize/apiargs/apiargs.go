@@ -6,63 +6,16 @@ package apiargs
 import (
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
-
-type flagKind int
-
-const (
-	kBool flagKind = iota
-	kString
-)
-
-type flagSpec struct {
-	long  string
-	short byte
-	kind  flagKind
-}
-
-var flags = []flagSpec{
-	{"allow-escape-sequences", 0, kBool},
-	{"cache", 0, kString},
-	{"field", 'F', kString},
-	{"header", 'H', kString},
-	{"help", 0, kBool},
-	{"hostname", 0, kString},
-	{"include", 'i', kBool},
-	{"input", 0, kString},
-	{"jq", 'q', kString},
-	{"method", 'X', kString},
-	{"paginate", 0, kBool},
-	{"preview", 'p', kString},
-	{"raw-field", 'f', kString},
-	{"silent", 0, kBool},
-	{"slurp", 0, kBool},
-	{"template", 't', kString},
-	{"verbose", 0, kBool},
-}
-
-func lookupLong(name string) *flagSpec {
-	for i := range flags {
-		if flags[i].long == name {
-			return &flags[i]
-		}
-	}
-	return nil
-}
-
-func lookupShort(c byte) *flagSpec {
-	for i := range flags {
-		if flags[i].short == c {
-			return &flags[i]
-		}
-	}
-	return nil
-}
 
 // ErrHelp is returned when --help is present (gh prints help, no request).
 var ErrHelp = errors.New("help requested")
@@ -72,124 +25,38 @@ var ErrHelp = errors.New("help requested")
 // short bools, `--` terminator). Exactly one positional endpoint is required.
 func Parse(args []string) (model.APIRequest, error) {
 	var req model.APIRequest
-	var positionals []string
 	var raw, magic []string
-	help := false
-
-	set := func(f *flagSpec, val string, hasVal bool) error {
-		if f.kind == kBool {
-			b := true
-			if hasVal {
-				var err error
-				if b, err = strconv.ParseBool(val); err != nil {
-					return fmt.Errorf("invalid argument %q for --%s", val, f.long)
-				}
-			}
-			switch f.long {
-			case "help":
-				help = b
-			case "include":
-				req.Include = b
-			case "paginate":
-				req.Paginate = b
-			case "silent":
-				req.Silent = b
-			case "slurp":
-				req.Slurp = b
-			case "verbose":
-				req.Verbose = b
-			}
-			return nil
+	var help, allowEscapeSequences bool
+	var cache time.Duration
+	fs := pflag.NewFlagSet("api", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	// Keep these types/defaults aligned with cli/cli pkg/cmd/api/api.go.
+	fs.StringVar(&req.Hostname, "hostname", "", "")
+	fs.StringVarP(&req.Method, "method", "X", "GET", "")
+	fs.StringArrayVarP(&magic, "field", "F", nil, "")
+	fs.StringArrayVarP(&raw, "raw-field", "f", nil, "")
+	fs.StringArrayVarP(&req.Headers, "header", "H", nil, "")
+	fs.StringSliceVarP(&req.Previews, "preview", "p", nil, "")
+	fs.BoolVarP(&req.Include, "include", "i", false, "")
+	fs.BoolVar(&req.Slurp, "slurp", false, "")
+	fs.BoolVar(&req.Paginate, "paginate", false, "")
+	fs.StringVar(&req.Input, "input", "", "")
+	fs.BoolVar(&req.Silent, "silent", false, "")
+	fs.StringVarP(&req.Template, "template", "t", "", "")
+	fs.StringVarP(&req.JQ, "jq", "q", "", "")
+	fs.DurationVar(&cache, "cache", 0, "")
+	fs.BoolVar(&req.Verbose, "verbose", false, "")
+	fs.BoolVar(&allowEscapeSequences, "allow-escape-sequences", false, "")
+	fs.BoolVar(&help, "help", false, "") // inherited from gh's root command
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, pflag.ErrHelp) {
+			return req, ErrHelp
 		}
-		switch f.long {
-		case "cache":
-			req.Cache = val
-		case "field":
-			magic = append(magic, val)
-		case "raw-field":
-			raw = append(raw, val)
-		case "header":
-			req.Headers = append(req.Headers, val)
-		case "hostname":
-			req.Hostname = val
-		case "input":
-			req.Input = val
-		case "jq":
-			req.JQ = val
-		case "method":
-			req.Method = val
-			req.MethodExplicit = true
-		case "preview":
-			// StringSlice: comma separated, repeatable.
-			req.Previews = append(req.Previews, strings.Split(val, ",")...)
-		case "template":
-			req.Template = val
-		}
-		return nil
+		return req, err
 	}
-
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			positionals = append(positionals, args[i+1:]...)
-			i = len(args)
-		case strings.HasPrefix(a, "--"):
-			name, val, hasVal := strings.Cut(a[2:], "=")
-			f := lookupLong(name)
-			if f == nil {
-				return req, fmt.Errorf("unknown flag: --%s", name)
-			}
-			if f.kind == kString && !hasVal {
-				if i+1 >= len(args) {
-					return req, fmt.Errorf("flag needs an argument: --%s", name)
-				}
-				i++
-				val, hasVal = args[i], true
-			}
-			if err := set(f, val, hasVal); err != nil {
-				return req, err
-			}
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			for j := 1; j < len(a); j++ {
-				f := lookupShort(a[j])
-				if f == nil {
-					return req, fmt.Errorf("unknown shorthand flag: %q in %s", a[j], a)
-				}
-				if f.kind == kBool {
-					// pflag accepts -i=true style only for the last shorthand.
-					if j+1 < len(a) && a[j+1] == '=' {
-						if err := set(f, a[j+2:], true); err != nil {
-							return req, err
-						}
-						break
-					}
-					if err := set(f, "", false); err != nil {
-						return req, err
-					}
-					continue
-				}
-				var val string
-				switch {
-				case j+1 < len(a) && a[j+1] == '=':
-					val = a[j+2:]
-				case j+1 < len(a):
-					val = a[j+1:]
-				default:
-					if i+1 >= len(args) {
-						return req, fmt.Errorf("flag needs an argument: %q in %s", a[j], a)
-					}
-					i++
-					val = args[i]
-				}
-				if err := set(f, val, true); err != nil {
-					return req, err
-				}
-				break
-			}
-		default:
-			positionals = append(positionals, a)
-		}
+	req.MethodExplicit = fs.Changed("method")
+	if fs.Changed("cache") {
+		req.Cache = cache.String()
 	}
 
 	req.Fields = make([]model.APIField, 0, len(raw)+len(magic))
@@ -204,10 +71,10 @@ func Parse(args []string) (model.APIRequest, error) {
 	if help {
 		return req, ErrHelp
 	}
-	if len(positionals) != 1 {
-		return req, fmt.Errorf("accepts 1 arg(s), received %d", len(positionals))
+	if err := cobra.ExactArgs(1)(nil, fs.Args()); err != nil {
+		return req, err
 	}
-	req.Endpoint = positionals[0]
+	req.Endpoint = fs.Arg(0)
 
 	if req.MethodExplicit {
 		req.Method = strings.ToUpper(req.Method)

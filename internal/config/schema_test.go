@@ -2,7 +2,6 @@ package config
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,22 +11,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var updateSchema = flag.Bool("update-schema", false, "rewrite schema/*.schema.json")
-
 // The committed schema files must match the Go config types.
 func TestSchemaFilesUpToDate(t *testing.T) {
 	for name, project := range map[string]bool{"config.schema.json": false, "project.schema.json": true} {
 		path := filepath.Join("..", "..", "schema", name)
-		want := SchemaJSON(project)
-		if *updateSchema {
-			if err := os.WriteFile(path, want, 0o644); err != nil {
-				t.Fatal(err)
-			}
-			continue
-		}
 		got, err := os.ReadFile(path)
-		if err != nil || !bytes.Equal(got, want) {
-			t.Errorf("%s is stale (err=%v); run: go test ./internal/config -run TestSchemaFilesUpToDate -update-schema", path, err)
+		if err != nil || !bytes.Equal(got, SchemaJSON(project)) {
+			t.Errorf("%s is stale (err=%v); run: go generate ./internal/config", path, err)
 		}
 	}
 }

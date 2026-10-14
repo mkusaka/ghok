@@ -32,7 +32,13 @@ Hook input and logger records cross `redact.New(env)` boundaries. gh still recei
 
 ## Management and platform
 
-Management commands use stdlib flag parsing. Success is 0, failure is 1, usage errors are 2. Explain exits 0 even for a displayed deny; it does not run hooks or gh. Hooks test runs selected hooks with synthetic execution metadata for post phase, never executes the requested gh command. Enable/disable manage only owned shims/state and never edit shell rc files. Normalization JSON and explanations redact secrets unless explain explicitly requests `--show-secrets`.
+Management commands use Cobra v1.10.2 and pflag v1.0.10, matching gh v2.102.0. The command tree is constructed only inside `cli.Management`; wrapper mode never invokes Cobra. Automatic error/usage output and the default completion command are disabled. Custom help rendering preserves ghok's existing root/group/subcommand usage and flag-default layout; `ghok help normalize` and `ghok normalize --help` share the same help. Structured pflag errors preserve the existing unknown-flag, missing-value, and invalid-boolean diagnostics. Success is 0, failure is 1, usage errors are 2; bare shim/hooks/config print group usage and exit 2.
+
+Normalize, explain, and hooks test require a nonempty gh argv after `--`, with `ArgsLenAtDash() == 0` rejecting gh operands before the separator. All arguments after the separator—including gh help, management-looking flags, empty arguments, and further separators—remain unchanged by management parsing. Management flags now use pflag's interspersed parsing and long-flag/shorthand syntax rather than stdlib flag's single-dash long aliases. No new management shorthand except `-h` is registered. The normalize `--json` flag remains accepted with either boolean value; normalization has only JSON output.
+
+Explain exits 0 even for a displayed deny; it does not run hooks or gh. Hooks test runs selected hooks with synthetic execution metadata for post phase, never executes the requested gh command. Shim install/uninstall manage only owned shims/state and never edit shell rc files. Normalization JSON and explanations redact secrets unless explain explicitly requests `--show-secrets`.
+
+Sources read: gh v2.102.0 [`pkg/cmd/root/root.go`](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/root/root.go) for Cobra's root command, silent errors/usage, and help customization; Cobra v1.10.2 `command.go` (`Find`, `execute`, `ArgsLenAtDash`, `InitDefaultHelpCmd`) for command discovery, separator handling, and custom help; pflag v1.0.10 `errors.go` for typed error translation. This changes management parsing only, not wrapper argument execution. No new platform-specific behavior is introduced.
 
 Plain doctor checks sorted `state/shims.json` records, including custom enable locations, with one precedence/ownership pair per shim. No records falls back to the default location; unreadable/corrupt state fails diagnostics. No doctor flag or exported signature was added.
 
@@ -40,7 +46,41 @@ Unix process code targets macOS/Linux. Terminal detection reuses install's nativ
 
 ## Verification
 
-Final-fix run: root `gofmt -l .` printed nothing; `go build ./...`,
+### Cobra/pflag migration checks
+
+On macOS arm64, `gofmt -l .` printed nothing; `go build ./...`, `go vet ./...`,
+`go test ./...`, `go test -race ./...`, and `make build` passed. Both test runs
+reported 14 passing packages and nine packages without tests. `FuzzParse` and
+`FuzzNormalize` each passed a 30-second run (16,776,631 and 9,249,084 executions).
+golangci-lint v2.14.0 reported `0 issues.` for Darwin and Linux. Cross-Linux lint
+requires `CGO_ENABLED=0` on this macOS host: plain `GOOS=linux` attempted Linux
+cgo preprocessing through pflag's `net` dependency and failed to import `C`.
+Linux runtime/race execution was not part of this migration run.
+
+Standalone built-binary smoke preserved exact status/stdout/stderr for 12
+baseline management scenarios. It exercised invalid API cache → unknown,
+API `-h` → help, pre-subcommand `-R`, optional shorthand bundles, and unknown
+flags with help → heuristic/non-mutation-free. A fake-gh wrapper invocation
+received original argv, including empty arguments and management-looking flags,
+with no wrapper stdout/stderr. Real gh help-only commands confirmed that
+`browse -cn` and `-c=main` parse, while `-cmain` and `pr merge -d=` are rejected.
+
+Startup comparison used identically built before/after executables, isolated
+HOME/XDG/GH_CONFIG_DIR/PATH, and a hermetic fake gh. Five warmups then 60 measured
+runs per executable; before/after order alternated to reduce drift. Wall-clock
+medians include process launch:
+
+| Path | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `ghok version` | 3.484 ms | 3.541 ms | +0.056 ms (+1.62%) |
+| Wrapper exec fast path, logging disabled | 5.902 ms | 5.883 ms | -0.019 ms (-0.32%) |
+| Wrapper, missing config/default logging | 6.932 ms | 7.003 ms | +0.071 ms (+1.03%) |
+
+The wrapper exec fast path did not regress in this measurement.
+
+### Historical verification
+
+Historical pre-Cobra final-fix run: root `gofmt -l .` printed nothing; `go build ./...`,
 `go vet ./...`, `go test ./...`, `go test -race ./...`, and `make build`
 passed on macOS arm64. Both full test commands reported 14 passing test
 packages and nine packages without tests.

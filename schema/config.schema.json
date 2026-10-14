@@ -91,7 +91,7 @@
                 ]
               },
               "level": {
-                "description": "Normalization level: L1 native gh command, L2 gh api REST, L3 gh api graphql.",
+                "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
                 "oneOf": [
                   {
                     "enum": [
@@ -302,7 +302,7 @@
                     ]
                   },
                   "level": {
-                    "description": "Normalization level: L1 native gh command, L2 gh api REST, L3 gh api graphql.",
+                    "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
                     "oneOf": [
                       {
                         "enum": [

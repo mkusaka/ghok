@@ -2,10 +2,14 @@
 package native
 
 import (
+	"errors"
+	"io"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/spf13/pflag"
 )
 
 type parsedArgs struct {
@@ -90,89 +94,92 @@ func findCommand(argv []string) (commandSpec, []string, bool) {
 
 func hasChildren(path string) bool { return commandGroups[path] }
 
-func parseArgs(c commandSpec, argv []string) parsedArgs {
-	p := parsedArgs{flags: make(map[string][]string), dashIndex: -1}
-	set := func(f flagSpec, v string, explicit bool) {
-		if !f.takesValue {
-			if !explicit {
-				v = "true"
-			}
-			if _, err := strconv.ParseBool(v); err != nil {
-				p.errors = append(p.errors, "invalid boolean for --"+f.long)
-				return
-			}
+func newFlagSet(c commandSpec) *pflag.FlagSet {
+	fs := pflag.NewFlagSet(c.path, pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	for _, f := range c.flags {
+		short := ""
+		if f.short != 0 {
+			short = string(f.short)
 		}
-		if f.repeatable {
-			p.flags[f.long] = append(p.flags[f.long], v)
-		} else {
-			p.flags[f.long] = []string{v}
+		switch {
+		case !f.takesValue:
+			fs.BoolP(f.long, short, false, "")
+		case f.repeatable:
+			fs.StringArrayP(f.long, short, nil, "")
+		default:
+			fs.StringP(f.long, short, "", "")
+		}
+		if f.optionalValue {
+			fs.Lookup(f.long).NoOptDefVal = "last"
 		}
 	}
-	for i := 0; i < len(argv); i++ {
-		a := argv[i]
-		if a == "--" {
-			p.dashIndex = len(p.positionals)
-			p.positionals = append(p.positionals, argv[i+1:]...)
-			break
+	if fs.Lookup("help") == nil {
+		fs.Bool("help", false, "")
+	}
+	if fs.Lookup("version") == nil {
+		fs.Bool("version", false, "")
+	}
+	return fs
+}
+
+// discoverUnknownFlags uses pflag's errors as evidence, not a second flag
+// scanner. Temporary no-value flags let discovery continue without guessing
+// unknown arity; the actual parse uses the unmodified registry and allowlist.
+func discoverUnknownFlags(fs *pflag.FlagSet, argv []string, p *parsedArgs) {
+	for {
+		err := fs.ParseAll(argv, func(*pflag.Flag, string) error { return nil })
+		var unknown *pflag.NotExistError
+		if !errors.As(err, &unknown) {
+			return
 		}
-		if strings.HasPrefix(a, "--") {
-			name, v, explicit := strings.Cut(a[2:], "=")
-			f, ok := lookupFlag(c, name, 0)
-			if !ok {
-				p.unknown = append(p.unknown, "--"+name)
-				if !explicit {
-					p.ambiguous = true
-				}
-				continue
+		name := unknown.GetSpecifiedName()
+		short := ""
+		if unknown.GetSpecifiedShortnames() != "" {
+			short = unknown.GetSpecifiedShortnames()[:1]
+			p.unknown = append(p.unknown, "-"+short)
+			p.ambiguous = true
+			// A shorthand may already be a registered long name.
+			for fs.Lookup(name) != nil {
+				name += "-"
 			}
-			if f.takesValue && !explicit {
-				if f.optionalValue {
-					v = "last"
-				} else if i+1 < len(argv) {
-					i++
-					v = argv[i]
-				} else {
-					p.errors = append(p.errors, "missing value for --"+name)
-					continue
-				}
-			}
-			set(f, v, explicit)
-			continue
+		} else {
+			p.unknown = append(p.unknown, "--"+name)
+			// A bare occurrence anywhere is conservatively ambiguous, even
+			// if another occurrence is a literal value or follows '--'.
+			p.ambiguous = p.ambiguous || slices.Contains(argv, "--"+name)
 		}
-		if strings.HasPrefix(a, "-") && len(a) > 1 {
-			for j := 1; j < len(a); j++ {
-				f, ok := lookupFlag(c, "", a[j])
-				if !ok {
-					p.unknown = append(p.unknown, "-"+string(a[j]))
-					p.ambiguous = true
-					break
-				}
-				v := ""
-				explicit := false
-				if j+1 < len(a) && a[j+1] == '=' {
-					v = a[j+2:]
-					explicit = true
-					j = len(a)
-				} else if f.takesValue {
-					if j+1 < len(a) {
-						v = a[j+1:]
-						explicit = true
-					} else if f.optionalValue {
-						v = "last"
-					} else if i+1 < len(argv) {
-						i++
-						v = argv[i]
-					} else {
-						p.errors = append(p.errors, "missing value for --"+f.long)
-						break
-					}
-					j = len(a)
-				}
-				set(f, v, explicit)
-			}
-			continue
+		fs.StringP(name, short, "", "")
+		fs.Lookup(name).NoOptDefVal = "unknown"
+	}
+}
+
+func parseArgs(c commandSpec, argv []string) parsedArgs {
+	p := parsedArgs{flags: make(map[string][]string), dashIndex: -1}
+	fs := newFlagSet(c)
+	err := fs.Parse(argv)
+	var unknown *pflag.NotExistError
+	if errors.As(err, &unknown) {
+		discoverUnknownFlags(fs, argv, &p)
+		fs = newFlagSet(c)
+		fs.ParseErrorsAllowlist.UnknownFlags = true
+		err = fs.Parse(argv)
+	}
+	fs.Visit(func(f *pflag.Flag) {
+		if values, ok := f.Value.(pflag.SliceValue); ok {
+			p.flags[f.Name] = values.GetSlice()
+		} else {
+			p.flags[f.Name] = []string{f.Value.String()}
 		}
-		p.positionals = append(p.positionals, a)
+	})
+	p.positionals = fs.Args()
+	p.dashIndex = fs.ArgsLenAtDash()
+	if errors.Is(err, pflag.ErrHelp) {
+		// gh inherits a long-only --help; unregistered -h is pflag's
+		// help sentinel, unless a command owns that shorthand.
+		p.flags["help"] = []string{"true"}
+	} else if err != nil {
+		p.errors = append(p.errors, err.Error())
 	}
 	return p
 }
@@ -188,7 +195,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	}
 	// Unknown commands may be extensions, and extension exec forwards even
 	// --help to external code (DisableFlagParsing). Never prove those safe.
-	if known && c.effect != model.EffectUnknown && (p.enabled("help") || (len(argv) > 0 && argv[0] == "help") || p.enabled("version")) {
+	if known && c.effect != model.EffectUnknown && len(p.unknown) == 0 && len(p.errors) == 0 && (p.enabled("help") || (len(argv) > 0 && argv[0] == "help") || p.enabled("version")) {
 		return singleResult(argv, model.Operation{Family: "help", Action: "help", Effect: model.EffectRead, Execution: model.ExecutionWillRun}, model.ConfidenceExact, nil)
 	}
 	if !known {

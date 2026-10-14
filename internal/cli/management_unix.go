@@ -6,9 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +16,8 @@ import (
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/install"
 	"github.com/mkusaka/ghok/internal/redact"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const managementUsage = `Usage: ghok <command> [options]
@@ -37,6 +37,7 @@ Commands:
                               Explain operations, policy and hook matching
   config validate [--file PATH] Validate effective configuration
   config path                 Print the global configuration path
+  config schema [--project]   Print the JSON Schema for config.yaml (or .ghok.yaml)
   help [command]              Show help
 
 Resolution is local unless --allow-api is explicitly supplied with --resolve.
@@ -46,84 +47,204 @@ Exit status: 0 success, 1 failure/denial, 2 usage error.
 
 // Management runs the management CLI. It never executes the user's gh command.
 func Management(args []string, version, commit string) int {
-	if len(args) == 0 {
-		_, _ = fmt.Fprint(os.Stdout, managementUsage)
-		return 0
-	}
-	if args[0] == "help" {
-		if len(args) == 1 {
-			_, _ = fmt.Fprint(os.Stdout, managementUsage)
-			return 0
-		}
-		return Management(append(append([]string(nil), args[1:]...), "--help"), version, commit)
-	}
-	switch args[0] {
-	case "-h", "--help":
-		if len(args) != 1 {
-			return managementUsageError("help does not accept arguments")
-		}
-		_, _ = fmt.Fprint(os.Stdout, managementUsage)
-		return 0
-	case "shim":
-		return managementShim(args[1:])
-	case "doctor":
-		return managementDoctor(args[1:], version)
-	case "version":
-		fs := managementFlags("version", "ghok version")
-		if code := managementParse(fs, args[1:], false); code >= 0 {
-			return code
-		}
-		if version == "" {
-			version = "dev"
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "ghok %s\n", version)
-		if commit != "" {
-			_, _ = fmt.Fprintf(os.Stdout, "commit %s\n", commit)
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "%s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
-		return 0
-	case "hooks":
-		return managementHooks(args[1:])
-	case "normalize", "explain":
-		return managementInspect(args[0], args[1:])
-	case "config":
-		return managementConfig(args[1:])
-	default:
-		return managementUsageError("unknown command " + args[0])
-	}
-}
-
-func managementFlags(name, usage string) *flag.FlagSet {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.Usage = func() {
-		_, _ = fmt.Fprintf(os.Stdout, "Usage: %s\n", usage)
-		fs.SetOutput(os.Stdout)
-		fs.PrintDefaults()
-		fs.SetOutput(io.Discard)
-	}
-	return fs
-}
-
-// -1 means successfully parsed; all other values are CLI exit statuses.
-func managementParse(fs *flag.FlagSet, args []string, invocationArgs bool) int {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
+	code := 0
+	root := managementRoot(&code, version, commit)
+	root.SetArgs(args)
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
+	if err := root.Execute(); err != nil {
 		return managementUsageError(err.Error())
 	}
-	if !invocationArgs && fs.NArg() != 0 {
-		return managementUsageError("unexpected argument " + fs.Arg(0))
+	return code
+}
+
+func managementRoot(code *int, version, commit string) *cobra.Command {
+	root := managementCommand("ghok", managementUsage, code, func(cmd *cobra.Command, _ []string) int {
+		_ = cmd.Help()
+		return 0
+	})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	root.DisableSuggestions = true
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.SetFlagErrorFunc(managementFlagError)
+
+	shim := managementCommand("shim", "Usage: ghok shim <install|uninstall> [--bin-dir DIR]\n", code, managementGroup)
+	defaultBin := filepath.Join(environment()["HOME"], ".local", "bin")
+	for _, name := range []string{"install", "uninstall"} {
+		bin := defaultBin
+		cmd := managementCommand(name, "Usage: ghok shim "+name+" [--bin-dir DIR]\n", code, func(cmd *cobra.Command, _ []string) int {
+			return managementShim(cmd.Name(), bin)
+		})
+		cmd.Flags().StringVar(&bin, "bin-dir", bin, "directory containing the gh shim")
+		shim.AddCommand(cmd)
 	}
-	if invocationArgs {
-		// Require the documented separator so gh flags cannot become ghok flags.
-		separator := len(args) - fs.NArg() - 1
-		if separator < 0 || args[separator] != "--" || fs.NArg() == 0 {
-			return managementUsageError("provide gh arguments after --")
+
+	var doctorJSON bool
+	doctor := managementCommand("doctor", "Usage: ghok doctor [--json]\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementDoctor(doctorJSON, version)
+	})
+	doctor.Flags().BoolVar(&doctorJSON, "json", false, "print diagnostic checks as JSON")
+	versionCmd := managementCommand("version", "Usage: ghok version\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementVersion(version, commit)
+	})
+
+	hookCommands := managementCommand("hooks", "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--json] -- <gh args>\n", code, managementGroup)
+	var listJSON bool
+	list := managementCommand("list", "Usage: ghok hooks list [--json]\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementHooksList(listJSON)
+	})
+	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
+	var testJSON bool
+	phase := config.PhasePre
+	test := managementCommand("test", "Usage: ghok hooks test [--phase pre|post] [--json] -- <gh args>\n", code, func(_ *cobra.Command, args []string) int {
+		return managementHooksTest(args, phase, testJSON)
+	})
+	test.Args = managementInvocationArgs
+	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
+	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
+	hookCommands.AddCommand(list, test)
+
+	for _, name := range []string{"normalize", "explain"} {
+		var options managementInspectOptions
+		cmd := managementCommand(name, "Usage: ghok "+name+" [options] -- <gh args>\n", code, func(cmd *cobra.Command, args []string) int {
+			return managementInspect(cmd.Name(), args, options)
+		})
+		cmd.Args = managementInvocationArgs
+		cmd.Flags().BoolVar(&options.resolveTargets, "resolve", false, "resolve targets from local git metadata")
+		cmd.Flags().BoolVar(&options.allowAPI, "allow-api", false, "allow read-only API resolution (requires --resolve)")
+		if name == "normalize" {
+			cmd.Flags().Bool("json", true, "print the normalization result as JSON (the only output format)")
+		} else {
+			cmd.Flags().BoolVar(&options.showSecrets, "show-secrets", false, "show secrets in explain output; never affects hook payload redaction")
 		}
+		root.AddCommand(cmd)
 	}
-	return -1
+
+	configCommands := managementCommand("config", "Usage: ghok config <validate|path|schema>\n", code, managementGroup)
+	var file string
+	validate := managementCommand("validate", "Usage: ghok config validate\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementConfig("validate", file)
+	})
+	validate.Flags().StringVar(&file, "file", "", "global configuration file to validate")
+	path := managementCommand("path", "Usage: ghok config path\n", code, func(_ *cobra.Command, _ []string) int {
+		return managementConfig("path", "")
+	})
+	var project bool
+	schema := managementCommand("schema", "Usage: ghok config schema [--project]\n", code, func(_ *cobra.Command, _ []string) int {
+		_, _ = os.Stdout.Write(config.SchemaJSON(project))
+		return 0
+	})
+	schema.Flags().BoolVar(&project, "project", false, "print the schema for a project .ghok.yaml instead of config.yaml")
+	configCommands.AddCommand(validate, path, schema)
+	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands)
+	root.SetHelpCommand(&cobra.Command{
+		Use:  "help [command]",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(_ *cobra.Command, args []string) error {
+			cmd, rest, err := root.Find(args)
+			if err != nil {
+				return err
+			}
+			if err := managementCommandArgs(cmd, rest); err != nil {
+				return err
+			}
+			return cmd.Help()
+		},
+	})
+	return root
+}
+
+func managementCommand(use, usage string, code *int, run func(*cobra.Command, []string) int) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:  use,
+		Args: managementCommandArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			*code = run(cmd, args)
+		},
+	}
+	cmd.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
+		if cmd.Parent() == nil && len(cmd.Flags().Args()) != 0 {
+			*code = managementUsageError("help does not accept arguments")
+			return
+		}
+		_, _ = fmt.Fprint(os.Stdout, usage)
+		// Keep the established help layout while taking all flag metadata from
+		// pflag, which is the only parser used by management commands.
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			if flag.Name == "help" {
+				return
+			}
+			_, _ = fmt.Fprintf(os.Stdout, "  -%s", flag.Name)
+			if flag.Value.Type() == "string" {
+				_, _ = fmt.Fprint(os.Stdout, " string")
+			}
+			_, _ = fmt.Fprint(os.Stdout, "\n    \t"+flag.Usage)
+			if flag.Value.Type() == "string" && flag.DefValue != "" {
+				_, _ = fmt.Fprintf(os.Stdout, " (default %q)", flag.DefValue)
+			} else if flag.Value.Type() == "bool" && flag.DefValue != "false" {
+				_, _ = fmt.Fprintf(os.Stdout, " (default %s)", flag.DefValue)
+			}
+			_, _ = fmt.Fprintln(os.Stdout)
+		})
+	})
+	return cmd
+}
+
+func managementCommandArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if cmd.HasSubCommands() {
+		if cmd.Parent() == nil {
+			return fmt.Errorf("unknown command %s", args[0])
+		}
+		return fmt.Errorf("unknown %s command %s", cmd.Name(), args[0])
+	}
+	return fmt.Errorf("unexpected argument %s", args[0])
+}
+
+func managementInvocationArgs(cmd *cobra.Command, args []string) error {
+	// No gh argument may precede --; pflag leaves everything after it untouched.
+	if cmd.ArgsLenAtDash() != 0 || len(args) == 0 {
+		return errors.New("provide gh arguments after --")
+	}
+	return nil
+}
+
+func managementGroup(cmd *cobra.Command, _ []string) int {
+	_ = cmd.Help()
+	return 2
+}
+
+func managementFlagError(_ *cobra.Command, err error) error {
+	// Preserve existing diagnostics using pflag's structured errors, not a
+	// second parser or string matching against library-generated messages.
+	var unknown *pflag.NotExistError
+	var required *pflag.ValueRequiredError
+	var invalid *pflag.InvalidValueError
+	switch {
+	case errors.As(err, &unknown):
+		return fmt.Errorf("flag provided but not defined: -%s", unknown.GetSpecifiedName())
+	case errors.As(err, &required):
+		return fmt.Errorf("flag needs an argument: -%s", required.GetSpecifiedName())
+	case errors.As(err, &invalid) && invalid.GetFlag().Value.Type() == "bool":
+		return fmt.Errorf("invalid boolean value %q for -%s: parse error", invalid.GetValue(), invalid.GetFlag().Name)
+	default:
+		return err
+	}
+}
+
+func managementVersion(version, commit string) int {
+	if version == "" {
+		version = "dev"
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "ghok %s\n", version)
+	if commit != "" {
+		_, _ = fmt.Fprintf(os.Stdout, "commit %s\n", commit)
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "%s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return 0
 }
 
 func managementUsageError(message string) int {
@@ -168,28 +289,11 @@ func managementLoad(env map[string]string) (*config.Config, []string, string, er
 	return c, notes, cwd, err
 }
 
-func managementShim(args []string) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok shim <install|uninstall> [--bin-dir DIR]")
-		if len(args) == 0 {
-			return 2
-		}
-		return 0
-	}
-	command := args[0]
-	if command != "install" && command != "uninstall" {
-		return managementUsageError("unknown shim command " + command)
-	}
-	args = args[1:]
-	env := environment()
-	fs := managementFlags("shim "+command, "ghok shim "+command+" [--bin-dir DIR]")
-	bin := fs.String("bin-dir", filepath.Join(env["HOME"], ".local", "bin"), "directory containing the gh shim")
-	if code := managementParse(fs, args, false); code >= 0 {
-		return code
-	}
-	if *bin == "" {
+func managementShim(command, bin string) int {
+	if bin == "" {
 		return managementUsageError("--bin-dir must not be empty")
 	}
+	env := environment()
 	self, err := os.Executable()
 	if err != nil {
 		return managementFailure(err)
@@ -197,7 +301,7 @@ func managementShim(args []string) int {
 	state := filepath.Join(config.Dir(env), "state")
 	r := redact.New(env)
 	if command == "uninstall" {
-		removed, err := install.Disable(install.DisableOptions{BinDir: *bin, Self: self, StateDir: state})
+		removed, err := install.Disable(install.DisableOptions{BinDir: bin, Self: self, StateDir: state})
 		if err != nil {
 			return managementFailure(err)
 		}
@@ -209,7 +313,7 @@ func managementShim(args []string) int {
 		}
 		return 0
 	}
-	result, err := install.Enable(install.EnableOptions{BinDir: *bin, Self: self, StateDir: state, PathEnv: env["PATH"]})
+	result, err := install.Enable(install.EnableOptions{BinDir: bin, Self: self, StateDir: state, PathEnv: env["PATH"]})
 	if err != nil {
 		return managementFailure(err)
 	}
@@ -226,25 +330,7 @@ func managementShim(args []string) int {
 	return 0
 }
 
-func managementConfig(args []string) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		_, _ = fmt.Fprintln(os.Stdout, "Usage: ghok config <validate|path>")
-		if len(args) == 0 {
-			return 2
-		}
-		return 0
-	}
-	if args[0] != "validate" && args[0] != "path" {
-		return managementUsageError("unknown config command " + args[0])
-	}
-	fs := managementFlags("config "+args[0], "ghok config "+args[0])
-	var file string
-	if args[0] == "validate" {
-		fs.StringVar(&file, "file", "", "global configuration file to validate")
-	}
-	if code := managementParse(fs, args[1:], false); code >= 0 {
-		return code
-	}
+func managementConfig(command, file string) int {
 	env := environment()
 	selected := config.DefaultPath(env)
 	if file != "" {
@@ -255,7 +341,7 @@ func managementConfig(args []string) int {
 		return managementFailure(err)
 	}
 	r := redact.New(env)
-	if args[0] == "path" {
+	if command == "path" {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(path))
 		return 0
 	}
@@ -274,12 +360,7 @@ func managementConfig(args []string) int {
 	return 0
 }
 
-func managementDoctor(args []string, version string) int {
-	fs := managementFlags("doctor", "ghok doctor [--json]")
-	asJSON := fs.Bool("json", false, "print diagnostic checks as JSON")
-	if code := managementParse(fs, args, false); code >= 0 {
-		return code
-	}
+func managementDoctor(asJSON bool, version string) int {
 	env := environment()
 	self, err := os.Executable()
 	if err != nil {
@@ -325,7 +406,7 @@ func managementDoctor(args []string, version string) int {
 		checks[i].Detail = r.String(checks[i].Detail)
 		checks[i].Fix = r.String(checks[i].Fix)
 	}
-	if *asJSON {
+	if asJSON {
 		if code := managementJSON(checks, nil); code != 0 {
 			return code
 		}

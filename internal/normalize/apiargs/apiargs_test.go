@@ -45,6 +45,64 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+func TestParsePflagSemantics(t *testing.T) {
+	t.Run("preview CSV and repeatable literal fields", func(t *testing.T) {
+		req, err := Parse([]string{"repos/o/r", "-p", `"a,b",c`, "--preview=d", "--preview=",
+			"-H", "Accept: a,b", "-f", "body=a,b", "-F", "labels[]=c,d"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(req.Previews, []string{"a,b", "c", "d"}) {
+			t.Fatalf("preview CSV: %#v", req.Previews)
+		}
+		if !reflect.DeepEqual(req.Headers, []string{"Accept: a,b"}) {
+			t.Fatalf("headers must not split commas: %#v", req.Headers)
+		}
+		params, _, err := BuildParams(req, model.Invocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(params, map[string]any{"body": "a,b", "labels": []any{"c,d"}}) {
+			t.Fatalf("field arrays must not split commas: %#v", params)
+		}
+	})
+	t.Run("duration validation", func(t *testing.T) {
+		for _, value := range []string{"bogus", "60", "999999999999999999999h"} {
+			if _, err := Parse([]string{"repos/o/r", "--cache", value}); err == nil {
+				t.Fatalf("invalid cache %q accepted", value)
+			}
+		}
+		req, err := Parse([]string{"repos/o/r", "--cache", "60m"})
+		if err != nil || req.Cache != "1h0m0s" {
+			t.Fatalf("cache duration: %q, %v", req.Cache, err)
+		}
+	})
+	t.Run("CSV errors precede help", func(t *testing.T) {
+		if _, err := Parse([]string{"--preview", `"unterminated`, "--help"}); err == nil || err == ErrHelp {
+			t.Fatalf("malformed CSV must be an error, got %v", err)
+		}
+	})
+	t.Run("help shorthand and option boundary", func(t *testing.T) {
+		if _, err := Parse([]string{"-ih"}); err != ErrHelp {
+			t.Fatalf("bundled help shorthand: %v", err)
+		}
+		req, err := Parse([]string{"--", "--help"})
+		if err != nil || req.Endpoint != "--help" {
+			t.Fatalf("terminator consumed as help: %+v, %v", req, err)
+		}
+		req, err = Parse([]string{"repos/o/r", "-q", "--help"})
+		if err != nil || req.JQ != "--help" {
+			t.Fatalf("value consumed as help: %+v, %v", req, err)
+		}
+	})
+	t.Run("explicit method and boolean shorthand", func(t *testing.T) {
+		req, err := Parse([]string{"-i=false", "repos/o/r", "-f", "a=b", "--method="})
+		if err != nil || !req.MethodExplicit || req.Method != "" || req.Include {
+			t.Fatalf("explicit empty method or false include lost: %+v, %v", req, err)
+		}
+	})
+}
+
 func TestBuildParams(t *testing.T) {
 	req, err := Parse([]string{"x", "-f", "a=1", "-F", "n=2", "-F", "b=true", "-F", "z=null",
 		"-F", "p[][name]=e", "-F", "p[][vals][]=s", "-F", "p[][vals][]=t", "-f", "empty[]", "-F", "q=@-", "-F", "f=@file"})

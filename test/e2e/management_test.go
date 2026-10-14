@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -258,6 +259,17 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 	if strings.TrimSpace(string(result.stdout)) != s.cfg {
 		t.Fatalf("config path=%q", result.stdout)
 	}
+	for _, project := range []bool{false, true} {
+		args := []string{"config", "schema"}
+		if project {
+			args = append(args, "--project")
+		}
+		result = s.management(nil, args...)
+		result.code(t, 0)
+		if !bytes.Equal(result.stdout, config.SchemaJSON(project)) {
+			t.Fatalf("config schema project=%v output differs from config.SchemaJSON", project)
+		}
+	}
 	result = s.management(nil, "config", "validate")
 	result.code(t, 0)
 	if !bytes.Contains(result.stdout, []byte(s.cfg)) {
@@ -464,6 +476,76 @@ func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 	result.code(t, 0)
 	if !bytes.Contains(result.stdout, []byte(".ghok.yaml")) {
 		t.Fatal("validation omitted untrusted project note")
+	}
+	s.absentRecord()
+}
+
+func TestManagementCobraUsageBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		args  []string
+		group bool
+	}{
+		{[]string{"shim"}, true},
+		{[]string{"hooks"}, true},
+		{[]string{"config"}, true},
+		{[]string{"--help", "extra"}, false},
+		{[]string{"doctor", "--json=bad"}, false},
+		{[]string{"config", "validate", "--file"}, false},
+		{[]string{"help", "unknown-command"}, false},
+		{[]string{"completion"}, false},
+		{[]string{"normalize", "version", "--", "version"}, false},
+		{[]string{"explain", "version", "--", "version"}, false},
+		{[]string{"hooks", "test", "version", "--", "version"}, false},
+	} {
+		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
+			s := newSandbox(t)
+			result := s.management(nil, tc.args...)
+			result.code(t, 2)
+			if tc.group {
+				if !bytes.HasPrefix(result.stdout, []byte("Usage:")) || len(result.stderr) != 0 {
+					t.Fatalf("bare group must show usage on stdout: %+v", result)
+				}
+			} else if len(result.stdout) != 0 || !bytes.HasPrefix(result.stderr, []byte("ghok:")) {
+				t.Fatalf("usage error must report only on stderr: %+v", result)
+			}
+			s.absentRecord()
+		})
+	}
+}
+
+func TestManagementCobraPassthrough(t *testing.T) {
+	s := newSandbox(t)
+	s.configure(func(c *config.Config) {
+		c.Hooks = []config.Hook{s.hook("passthrough", "pre")}
+	})
+	// These management-looking options, the second separator, and the empty
+	// argument belong exclusively to gh; none may affect management parsing.
+	args := []string{"api", "user", "--json=false", "--resolve", "--allow-api", "--show-secrets", "--phase=post", "--help", "", "--", "-h", "help", "version"}
+	result := s.management(nil, append([]string{"normalize", "--"}, args...)...)
+	result.code(t, 0)
+	var normalized model.Result
+	decodeJSON(t, result.stdout, &normalized)
+	if !reflect.DeepEqual(normalized.Source.Argv, args) {
+		t.Fatalf("normalize changed passthrough argv: %q", normalized.Source.Argv)
+	}
+	result = s.management(nil, append([]string{"explain", "--"}, args...)...)
+	result.code(t, 0)
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(result.stdout, encoded) || bytes.Contains(result.stdout, []byte("WARNING: --show-secrets")) {
+		t.Fatalf("explain consumed passthrough options: %s", result.stdout)
+	}
+	result = s.management(nil, append([]string{"hooks", "test", "--json", "--"}, args...)...)
+	result.code(t, 0)
+	var report struct {
+		Phase string `json:"phase"`
+	}
+	decodeJSON(t, result.stdout, &report)
+	input := s.hookInput("passthrough")
+	if report.Phase != "pre" || !reflect.DeepEqual(input.Invocation.Argv, args) {
+		t.Fatalf("hooks test consumed passthrough options: phase=%s argv=%q", report.Phase, input.Invocation.Argv)
 	}
 	s.absentRecord()
 }

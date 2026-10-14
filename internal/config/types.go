@@ -12,7 +12,7 @@ import (
 
 // Config is ~/.config/ghok/config.yaml (version 1).
 type Config struct {
-	Version int     `yaml:"version" json:"version"`
+	Version int     `yaml:"version" json:"version" enum:"1" doc:"Config format version; must be 1."`
 	Policy  Policy  `yaml:"policy" json:"policy"`
 	Hooks   []Hook  `yaml:"hooks" json:"hooks"`
 	Runtime Runtime `yaml:"runtime" json:"runtime"`
@@ -37,24 +37,24 @@ const (
 )
 
 type Policy struct {
-	Mode string `yaml:"mode" json:"mode"` // observe|enforce (default observe)
+	Mode string `yaml:"mode" json:"mode" enum:"observe,enforce" doc:"observe: classify and log only; enforce: deny according to rules, unknown handling and pre-hooks."` // observe|enforce (default observe)
 	// UnknownMutation applies to operations with Effect write/unknown that
 	// could not be normalized (Family unknown) — anywhere. allow|deny|audit
 	// (default audit).
-	UnknownMutation string `yaml:"unknownMutation" json:"unknownMutation"`
+	UnknownMutation string `yaml:"unknownMutation" json:"unknownMutation" enum:"allow,deny,audit" doc:"Handling of write/unknown operations that could not be classified."`
 	// ProtectedRepositories are "owner/repo" globs (path.Match). For these,
 	// unknown/unresolved write operations are denied in enforce mode unless
 	// ProtectedUnknown says otherwise (default deny = fail-closed).
-	ProtectedRepositories []string `yaml:"protectedRepositories" json:"protectedRepositories"`
-	ProtectedUnknown      string   `yaml:"protectedUnknown" json:"protectedUnknown"`
+	ProtectedRepositories []string `yaml:"protectedRepositories" json:"protectedRepositories" doc:"owner/repo globs; unclassified or unresolved writes against them use protectedUnknown."`
+	ProtectedUnknown      string   `yaml:"protectedUnknown" json:"protectedUnknown" enum:"allow,deny,audit" doc:"Handling of unclassified/unresolved writes that may target a protected repository."`
 	// Rules are declarative deny/allow/audit rules evaluated without hooks.
 	Rules []Rule `yaml:"rules" json:"rules"`
 }
 
 type Rule struct {
-	ID       string `yaml:"id" json:"id"`
+	ID       string `yaml:"id" json:"id" required:"true"`
 	Match    Match  `yaml:"match" json:"match"`
-	Decision string `yaml:"decision" json:"decision"` // deny|audit (allow rules cannot override deny)
+	Decision string `yaml:"decision" json:"decision" enum:"deny,audit" required:"true"` // deny|audit (allow rules cannot override deny)
 	Reason   string `yaml:"reason" json:"reason"`
 }
 
@@ -62,12 +62,12 @@ type Rule struct {
 // (AND); entries within one list are OR. Globs use path.Match semantics with
 // '.'-separated action names matched by MatchAction (see policy package).
 type Match struct {
-	Operations   StringList `yaml:"operation" json:"operation,omitempty"`       // action globs, e.g. "pr.merge.*"
-	Commands     StringList `yaml:"command" json:"command,omitempty"`           // command path prefixes, e.g. "pr merge", "api"
-	Repositories StringList `yaml:"repositories" json:"repositories,omitempty"` // "owner/repo" globs
+	Operations   StringList `yaml:"operation" json:"operation,omitempty" doc:"Action globs such as pr.merge.* (see docs/normalization.md)."` // action globs, e.g. "pr.merge.*"
+	Commands     StringList `yaml:"command" json:"command,omitempty" doc:"gh command path prefixes such as \"pr merge\" or \"api\"."`        // command path prefixes, e.g. "pr merge", "api"
+	Repositories StringList `yaml:"repositories" json:"repositories,omitempty" doc:"owner/repo globs (case-insensitive)."`                   // "owner/repo" globs
 	Hosts        StringList `yaml:"hosts" json:"hosts,omitempty"`
-	Effects      StringList `yaml:"effect" json:"effect,omitempty"` // read|write|unknown
-	Levels       StringList `yaml:"level" json:"level,omitempty"`   // L1|L2|L3|none
+	Effects      StringList `yaml:"effect" json:"effect,omitempty" enum:"read,write,unknown"`                                                                   // read|write|unknown
+	Levels       StringList `yaml:"level" json:"level,omitempty" enum:"L1,L2,L3,none" doc:"L1 native gh command, L2 gh api REST call, L3 gh api graphql call."` // L1|L2|L3|none
 }
 
 // Hook phases.
@@ -84,22 +84,22 @@ const (
 )
 
 type Hook struct {
-	ID       string            `yaml:"id" json:"id"`
-	Phase    string            `yaml:"phase" json:"phase"` // pre|post
+	ID       string            `yaml:"id" json:"id" required:"true"`
+	Phase    string            `yaml:"phase" json:"phase" enum:"pre,post" required:"true"` // pre|post
 	Match    Match             `yaml:"match" json:"match"`
-	Command  []string          `yaml:"command" json:"command"` // argv; relative paths resolve against Config.Dir
+	Command  []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
 	Env      map[string]string `yaml:"env" json:"env,omitempty"`
-	Timeout  Duration          `yaml:"timeout" json:"timeout"`   // default 10s
-	OnError  string            `yaml:"onError" json:"onError"`   // pre default deny, post default ignore
-	Priority int               `yaml:"priority" json:"priority"` // lower runs first; ties broken by config order
+	Timeout  Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."`                      // default 10s
+	OnError  string            `yaml:"onError" json:"onError" enum:"deny,allow,ignore"`                          // pre default deny, post default ignore
+	Priority int               `yaml:"priority" json:"priority" doc:"Lower runs first; ties keep config order."` // lower runs first; ties broken by config order
 	// DependsOn lists hook IDs that must complete before this hook runs.
-	DependsOn []string `yaml:"dependsOn" json:"dependsOn,omitempty"`
+	DependsOn []string `yaml:"dependsOn" json:"dependsOn,omitempty" doc:"IDs of hooks (same phase) that must finish first."`
 	// Optional: if the command is missing/not executable, skip instead of error.
-	Optional bool  `yaml:"optional" json:"optional,omitempty"`
+	Optional bool  `yaml:"optional" json:"optional,omitempty" doc:"Skip instead of failing when the command is missing or not executable."`
 	Enabled  *bool `yaml:"enabled" json:"enabled,omitempty"` // default true
 	// CaptureOutput (post only) streams gh stdout/stderr into the hook input,
 	// bounded by Runtime.CaptureLimit. Default false.
-	CaptureOutput bool `yaml:"captureOutput" json:"captureOutput,omitempty"`
+	CaptureOutput bool `yaml:"captureOutput" json:"captureOutput,omitempty" doc:"Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input."`
 	// MaxOutputBytes bounds what ghok reads from the hook's stdout/stderr
 	// (default 1 MiB / 64 KiB).
 	MaxOutputBytes int64 `yaml:"maxOutputBytes" json:"maxOutputBytes,omitempty"`
@@ -113,21 +113,21 @@ type Runtime struct {
 	CaptureLimit    int64    `yaml:"captureLimit" json:"captureLimit"`       // post-hook stdout/stderr capture, default 1 MiB
 	ResolveTimeout  Duration `yaml:"resolveTimeout" json:"resolveTimeout"`   // resolver API calls, default 5s
 	// RealGh optionally pins the real gh path (otherwise discovered on PATH).
-	RealGh string `yaml:"realGh" json:"realGh,omitempty"`
+	RealGh string `yaml:"realGh" json:"realGh,omitempty" doc:"Absolute path of the real gh; discovered on PATH when empty."`
 }
 
 type Logging struct {
 	Enabled *bool  `yaml:"enabled" json:"enabled,omitempty"` // default true
 	Path    string `yaml:"path" json:"path,omitempty"`       // default <config dir>/logs/ghok.jsonl
 	// Level: "info" logs every invocation; "decision" only non-allow decisions and errors.
-	Level string `yaml:"level" json:"level,omitempty"`
+	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }
 
 // Trust controls project-level config. Project config (<repo>/.ghok.yaml) is
 // ignored unless its absolute path is listed here; even then it can only add
 // hooks/rules/protected repos and can never weaken global policy.
 type Trust struct {
-	Projects []string `yaml:"projects" json:"projects,omitempty"`
+	Projects []string `yaml:"projects" json:"projects,omitempty" doc:"Absolute paths of project .ghok.yaml files that may add hooks/rules."`
 }
 
 // StringList accepts either a YAML scalar or a sequence.
