@@ -100,7 +100,7 @@ func TestTypedRoutes(t *testing.T) {
 		{"PUT", "repos/o/r/pulls/1/reviews/2/dismissals", "pr.review", "pr.review.dismiss"},
 		{"POST", "repos/o/r/pulls/1/requested_reviewers", "pr.reviewers", "pr.reviewers.request"},
 		{"DELETE", "repos/o/r/pulls/1/requested_reviewers", "pr.reviewers", "pr.reviewers.remove"},
-		{"PUT", "repos/o/r/pulls/1/update-branch", "pr.update_branch", "pr.update_branch"},
+		{"PUT", "repos/o/r/pulls/1/update-branch", "pr.update-branch", "pr.update-branch"},
 		{"GET", "repos/o/r/pulls/comments", "pr.read", "pr.comments.list"},
 		{"PATCH", "repos/o/r/pulls/comments/1", "pr.comment", "pr.comment.update"},
 		{"POST", "repos/o/r/pulls/1/comments/2/replies", "pr.comment", "pr.comment.reply"},
@@ -206,7 +206,7 @@ func TestStateAndReviewSpecialization(t *testing.T) {
 		{"PATCH", "repos/o/r/issues/1", "state", "closed", "issue.close", "issue.close", false},
 		{"PATCH", "repos/o/r/issues/1", "state", "open", "issue.reopen", "issue.reopen", false},
 		{"PATCH", "repos/o/r", "archived", "true", "repo.archive", "repo.archive", true},
-		{"PATCH", "repos/o/r", "archived", "true", "repo.update", "repo.update", false},
+		{"PATCH", "repos/o/r", "archived", "true", "repo.edit", "repo.edit", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "event", "APPROVE", "pr.review", "pr.review.approve", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "event", "REQUEST_CHANGES", "pr.review", "pr.review.request_changes", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "event", "COMMENT", "pr.review", "pr.review.comment", false},
@@ -221,7 +221,7 @@ func TestStateAndReviewSpecialization(t *testing.T) {
 		requireOperation(t, res, tc.family, tc.action, model.EffectWrite)
 	}
 	res := classify(t, knownInv(), "-XPATCH", "repos/o/r/pulls/1?state=closed")
-	requireOperation(t, res, "pr.update", "pr.update", model.EffectWrite)
+	requireOperation(t, res, "pr.edit", "pr.edit", model.EffectWrite)
 	res = classify(t, knownInv(), "-XPOST", "repos/o/r/pulls/1/reviews", "-f", "event=INVALID")
 	op := requireOperation(t, res, "pr.review", "pr.review.create", model.EffectWrite)
 	if !unresolvedField(op, "parameters.event", "input") {
@@ -269,13 +269,13 @@ func TestInputBodies(t *testing.T) {
 	}{
 		{"file", "body.json", []byte(`{"state":"closed","nested":{"a":[1,true]}}`), "", false, "pr.close", false},
 		{"stdin", "-", []byte(`{"state":"open"}`), model.StdinCaptured, false, "pr.reopen", false},
-		{"uncaptured", "-", nil, model.StdinNotCaptured, false, "pr.update", true},
-		{"tty", "-", nil, model.StdinTTY, false, "pr.update", true},
-		{"invalid", "body.json", []byte(`not json`), "", false, "pr.update", true},
-		{"array", "body.json", []byte(`[1,2]`), "", false, "pr.update", true},
-		{"null", "body.json", []byte(`null`), "", false, "pr.update", true},
-		{"trailing", "body.json", []byte(`{} {}`), "", false, "pr.update", true},
-		{"unreadable", "body.json", nil, "", true, "pr.update", true},
+		{"uncaptured", "-", nil, model.StdinNotCaptured, false, "pr.edit", true},
+		{"tty", "-", nil, model.StdinTTY, false, "pr.edit", true},
+		{"invalid", "body.json", []byte(`not json`), "", false, "pr.edit", true},
+		{"array", "body.json", []byte(`[1,2]`), "", false, "pr.edit", true},
+		{"null", "body.json", []byte(`null`), "", false, "pr.edit", true},
+		{"trailing", "body.json", []byte(`{} {}`), "", false, "pr.edit", true},
+		{"unreadable", "body.json", nil, "", true, "pr.edit", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inv := knownInv()

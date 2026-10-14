@@ -114,15 +114,15 @@ func addQueryFields(query url.Values, key string, value any) {
 
 func specialize(op *model.Operation, body map[string]any, bodyKnown bool) {
 	switch op.Action {
-	case "pr.update", "issue.update":
-		prefix := strings.TrimSuffix(op.Action, ".update")
+	case "pr.edit", "issue.edit":
+		prefix := strings.TrimSuffix(op.Action, ".edit")
 		switch body["state"] {
 		case "closed":
 			op.Family, op.Action = prefix+".close", prefix+".close"
 		case "open":
 			op.Family, op.Action = prefix+".reopen", prefix+".reopen"
 		}
-	case "repo.update":
+	case "repo.edit":
 		if body["archived"] == true {
 			op.Family, op.Action = "repo.archive", "repo.archive"
 		}
