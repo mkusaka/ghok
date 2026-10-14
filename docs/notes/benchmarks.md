@@ -50,8 +50,9 @@ measurements, not cold disk-cache or first-install latency measurements.
   discovery, normalization, observe-mode policy evaluation, and a local JSONL
   log write before execution. It is deliberately **not** the explicit
   `logging.enabled: false` direct-exec fast path. Normal rotation remains part
-  of repeated default-logging runs. Subtract the paired direct baseline to
-  estimate added wrapper latency; report both raw measurements as well.
+  of repeated default-logging runs. Subtract the direct baseline to estimate
+  added wrapper latency; unpaired differences of medians are not paired samples.
+  Report both raw measurements as well.
 - **`BenchmarkNormalize/L1NativeMerge`** normalizes a native admin/squash merge
   with an explicit repository.
 - **`BenchmarkNormalize/L2RESTMerge`** normalizes the REST merge endpoint with
@@ -115,3 +116,18 @@ a difference of medians of 6.488 ms, not a controlled paired overhead estimate.
 The explicit no-analysis/disabled-logging fast path was not benchmarked.
 The broad startup spread makes these local measurements unsuitable as a
 portable latency guarantee.
+
+## Separate lead measurement
+
+The lead reported **approximately +3.5 ms median added startup latency** from
+a Python `subprocess` loop: 60 direct fake-gh starts and 60 starts through the
+shim with default configuration (observe, no hooks/rules, logging enabled).
+Both paths wait for the fake process to exit. This is a different sampling
+method from the five Go benchmark samples above; individual raw timings,
+direct/shim medians, build flags, and host-load controls were not supplied here.
+No raw values are inferred from the reported delta.
+
+Retain both observations: **+6.488 ms** from the earlier Go benchmark medians,
+and **about +3.5 ms** from the separate Python run. Neither is a controlled
+paired estimate or a portable performance guarantee. Neither measures an
+active stdin producer or the explicit disabled-logging shortcut.

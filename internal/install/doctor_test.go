@@ -23,7 +23,8 @@ func checkNamed(t *testing.T, checks []Check, name string) Check {
 func doctorFixture(t *testing.T) DoctorOptions {
 	t.Helper()
 	o := enableFixture(t, "ghok")
-	if _, err := Enable(o); err != nil {
+	result, err := Enable(o)
+	if err != nil {
 		t.Fatal(err)
 	}
 	stdin, err := os.Open(os.DevNull)
@@ -31,7 +32,7 @@ func doctorFixture(t *testing.T) DoctorOptions {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = stdin.Close() })
-	return DoctorOptions{Self: o.Self, Version: "test", PathEnv: o.PathEnv, BinDir: o.BinDir, StateDir: o.StateDir, Env: []string{"HOME=" + filepath.Dir(o.Self), "XDG_CONFIG_HOME=" + filepath.Join(filepath.Dir(o.Self), "config"), "PATH=/nonexistent"}, Stdin: stdin}
+	return DoctorOptions{Self: o.Self, Version: "test", PathEnv: o.PathEnv, BinDir: filepath.Dir(result.ShimPath), StateDir: o.StateDir, Env: []string{"HOME=" + filepath.Dir(o.Self), "XDG_CONFIG_HOME=" + filepath.Join(filepath.Dir(o.Self), "config"), "PATH=/nonexistent"}, Stdin: stdin}
 }
 
 func TestDoctorHealthyAndRecursionRisks(t *testing.T) {
@@ -68,6 +69,139 @@ func TestDoctorHealthyAndRecursionRisks(t *testing.T) {
 	}
 	if c := checkNamed(t, checks, "recursion-risk"); c.Status != StatusFail || !strings.Contains(c.Detail, "override") {
 		t.Errorf("%+v", c)
+	}
+}
+
+func TestDoctorRecordedCustomShim(t *testing.T) {
+	for _, kind := range []string{"owned", "absent", "foreign-file", "foreign-symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			o := doctorFixture(t)
+			shim := filepath.Join(o.BinDir, "gh")
+			// The caller supplies the default directory, not the custom install.
+			o.BinDir = filepath.Join(filepath.Dir(o.Self), ".local", "bin")
+			if kind != "owned" {
+				if err := os.Remove(shim); err != nil {
+					t.Fatal(err)
+				}
+				switch kind {
+				case "foreign-file":
+					executable(t, shim, "exit 0")
+				case "foreign-symlink":
+					link(t, filepath.Join(filepath.Dir(o.Self), "real", "gh"), shim)
+				}
+			}
+			checks := Checks(o)
+			ownership := checkNamed(t, checks, "shim-ownership")
+			want := StatusWarn
+			if kind == "owned" {
+				want = StatusOK
+			}
+			if ownership.Status != want || !strings.Contains(ownership.Detail, shim) || strings.Contains(ownership.Detail, o.BinDir) {
+				t.Fatalf("ownership=%+v", ownership)
+			}
+			precedence := checkNamed(t, checks, "path-precedence")
+			want = StatusOK
+			if kind == "absent" {
+				want = StatusWarn
+			}
+			if precedence.Status != want || !strings.Contains(precedence.Detail, shim) {
+				t.Fatalf("precedence=%+v", precedence)
+			}
+			if kind == "foreign-symlink" {
+				target, err := os.Readlink(shim)
+				if err != nil || target != filepath.Join(filepath.Dir(o.Self), "real", "gh") {
+					t.Fatalf("doctor changed foreign shim: target=%q err=%v", target, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDoctorRecordedShimPrecedence(t *testing.T) {
+	for _, kind := range []string{"shadowed", "not-on-path", "directory-alias"} {
+		t.Run(kind, func(t *testing.T) {
+			o := doctorFixture(t)
+			bin := o.BinDir
+			realDir := filepath.Join(filepath.Dir(o.Self), "real")
+			want, detail := StatusWarn, "precedes"
+			switch kind {
+			case "shadowed":
+				o.PathEnv = realDir + ":" + bin
+			case "not-on-path":
+				o.PathEnv = realDir
+				detail = "not on PATH"
+			case "directory-alias":
+				alias := filepath.Join(filepath.Dir(o.Self), "alias-bin")
+				link(t, bin, alias)
+				o.PathEnv = alias + ":" + realDir
+				want, detail = StatusOK, "first executable gh"
+			}
+			o.BinDir = ""
+			c := checkNamed(t, Checks(o), "path-precedence")
+			if c.Status != want || !strings.Contains(c.Detail, detail) || (c.Fix == "") != (want == StatusOK) {
+				t.Fatalf("%+v", c)
+			}
+		})
+	}
+}
+
+func TestDoctorMultipleRecordedShims(t *testing.T) {
+	o := doctorFixture(t)
+	first := filepath.Join(o.BinDir, "gh")
+	second := filepath.Join(filepath.Dir(o.Self), "other-bin", "gh")
+	link(t, o.Self, second)
+	if err := saveState(o.StateDir, shimState{second: o.Self, first: o.Self}); err != nil {
+		t.Fatal(err)
+	}
+	o.PathEnv = filepath.Dir(second) + ":" + o.PathEnv
+	o.BinDir = ""
+	var shimChecks []Check
+	for _, c := range Checks(o) {
+		if c.Name == "path-precedence" || c.Name == "shim-ownership" {
+			shimChecks = append(shimChecks, c)
+		}
+	}
+	if len(shimChecks) != 4 {
+		t.Fatalf("shim checks=%+v", shimChecks)
+	}
+	for i, shim := range []string{first, second} {
+		precedence, ownership := shimChecks[2*i], shimChecks[2*i+1]
+		want := StatusWarn
+		if shim == second {
+			want = StatusOK
+		}
+		if precedence.Name != "path-precedence" || precedence.Status != want || !strings.Contains(precedence.Detail, shim) || ownership.Name != "shim-ownership" || ownership.Status != StatusOK || !strings.HasPrefix(ownership.Detail, shim+" ") {
+			t.Fatalf("shim checks out of order or incorrect: %+v", shimChecks)
+		}
+	}
+}
+
+func TestDoctorInvalidShimState(t *testing.T) {
+	for _, data := range []string{"invalid", "null"} {
+		t.Run(data, func(t *testing.T) {
+			o := doctorFixture(t)
+			if err := os.WriteFile(filepath.Join(o.StateDir, "shims.json"), []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			checks := Checks(o)
+			precedence := checkNamed(t, checks, "path-precedence")
+			ownership := checkNamed(t, checks, "shim-ownership")
+			if precedence.Status != StatusFail || ownership.Status != StatusFail || precedence.Detail != ownership.Detail || !strings.Contains(ownership.Detail, "shim state") {
+				t.Fatalf("precedence=%+v ownership=%+v", precedence, ownership)
+			}
+		})
+	}
+}
+
+func TestDoctorUnrecordedShimFallback(t *testing.T) {
+	o := doctorFixture(t)
+	if err := os.Remove(filepath.Join(o.StateDir, "shims.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"path-precedence", "shim-ownership"} {
+		if c := checkNamed(t, Checks(o), name); c.Status != StatusOK || !strings.Contains(c.Detail, filepath.Join(o.BinDir, "gh")) {
+			t.Fatalf("%+v", c)
+		}
 	}
 }
 

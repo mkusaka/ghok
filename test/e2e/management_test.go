@@ -309,6 +309,47 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 	}
 }
 
+func TestManagementDoctorRecordedCustomInstall(t *testing.T) {
+	s := newSandbox(t)
+	s.management(nil, "enable", "--bin-dir", s.bin).code(t, 0)
+	bin, err := filepath.EvalSymlinks(s.bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(bin, "gh")
+	defaultShim := filepath.Join(s.env["HOME"], ".local", "bin", "gh")
+	if _, err := os.Lstat(defaultShim); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected default shim: %v", err)
+	}
+	setBytes(s.env, "FAKEGH_STDOUT_B64", []byte("gh version 2.102.0 (fake)\n"))
+	result := s.management(nil, "doctor")
+	result.code(t, 0)
+	for _, diagnostic := range []string{"ok path-precedence: " + shim + " is the first executable gh", "ok shim-ownership: " + shim + " is an owned symlink"} {
+		if !bytes.Contains(result.stdout, []byte(diagnostic)) {
+			t.Fatalf("doctor omitted custom shim diagnostic %q: %s", diagnostic, result.stdout)
+		}
+	}
+	if bytes.Contains(result.stdout, []byte(defaultShim)) {
+		t.Fatalf("doctor inspected absent default shim: %s", result.stdout)
+	}
+	result = s.management(nil, "doctor", "--json")
+	result.code(t, 0)
+	var checks []install.Check
+	decodeJSON(t, result.stdout, &checks)
+	found := 0
+	for _, check := range checks {
+		if check.Name == "path-precedence" || check.Name == "shim-ownership" {
+			found++
+			if check.Status != install.StatusOK || !strings.HasPrefix(check.Detail, shim+" ") {
+				t.Fatalf("custom shim check=%+v", check)
+			}
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected one pair of custom shim checks: %+v", checks)
+	}
+}
+
 func TestManagementDoctorHookFailures(t *testing.T) {
 	for _, kind := range []string{"missing", "not-executable", "writable"} {
 		t.Run(kind, func(t *testing.T) {

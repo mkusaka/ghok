@@ -57,6 +57,13 @@ members of the hook process group (TERM then KILL after 500 ms), not descendants
 that deliberately leave it. Interactive hooks and escaped-process cleanup are
 unsupported. Hook stderr/response diagnostics are redacted before display/logs.
 
+SIGINT/SIGTERM/SIGHUP during resolver/pre-hook execution cancel helper groups
+and re-raise the signal after reaping; during post-hooks they cancel/reap hooks
+but preserve the completed gh result and log the interruption. Startup-ignored
+signals are not watched (subject to Go's documented disposition limits).
+**SIGKILL cannot be intercepted: hooks may outlive ghok when the wrapper is
+killed with SIGKILL.** Deliberately escaped descendants remain unsupported.
+
 ## Project configuration trust
 
 Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then

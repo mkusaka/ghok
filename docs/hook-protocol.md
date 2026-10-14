@@ -266,6 +266,12 @@ Unresolved repository/host constraints are selected conservatively.
   the leader already exited, and waits the direct child. Retained inherited
   pipes after normal exit cause bounded wait error and group KILL. Descendants
   escaping the group are unsupported.
+- SIGINT/SIGTERM/SIGHUP cancel resolver/pre-hook helper groups and re-raise the
+  signal after cleanup, without starting the user's gh command. The watcher
+  excludes startup-ignored signals and stops/joins before real-gh supervision.
+  During post-hooks it restarts, cancels/reaps hooks, logs the interruption, and
+  preserves gh's already completed exit code/signal. SIGKILL cannot be handled:
+  hooks may then outlive ghok.
 
 ## Environment and execution context
 

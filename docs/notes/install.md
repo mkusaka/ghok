@@ -10,7 +10,7 @@
 
 After Enable, the management CLI must call `ProbeShim(shim, env)`. This executes the shim with the supplied environment plus one GHOK_PROBE=1, expecting exactly `ghok-probe\n`. The wrapper must handle this **before discovery/hooks**. Enable deliberately does not implicitly execute Self. `Disable` removes only owned symlinks in the requested BinDir and clears that path's state record; repetition is a no-op.
 
-`Checks` returns appendable Check records (`Name`, `Status`, `Detail`, `Fix`); statuses are ok/warn/fail/info. DoctorOptions carries Self, Version, PathEnv, Override, BinDir, StateDir, Env, and optional Stdin. Nil Env inherits the current environment; nonnil Env is exact. Stdin defaults to os.Stdin and is inspected, never consumed.
+`Checks` returns appendable Check records (`Name`, `Status`, `Detail`, `Fix`); statuses are ok/warn/fail/info. DoctorOptions carries Self, Version, PathEnv, Override, BinDir, StateDir, Env, and optional Stdin. Recorded shim paths take precedence over BinDir, which is only the fallback when state is empty or absent. Nil Env inherits the current environment; nonnil Env is exact. Stdin defaults to os.Stdin and is inspected, never consumed.
 
 ## Ownership
 
@@ -35,12 +35,14 @@ Normally, real gh launched through the shim selects its own installation's stabl
 
 Doctor checks binary/version label, real gh, exact shim precedence, ownership, recursion, gh compatibility, and process capabilities. Recorded renamed shims are flagged and never executed for version checking. Probes and `gh --version` execute explicit paths with a ten-second timeout, bounded stdout (64 KiB), and bounded inherited-pipe waiting. Older/unparseable/failed version checks warn; 2.102.0+ is informational. The threshold is the verified normalization/source baseline, not a hard functional minimum or future compatibility guarantee.
 
+Plain `ghok doctor` inspects the installs recorded in `shims.json`, including custom `enable --bin-dir DIR` paths, rather than an absent default shim. Multiple records produce one `path-precedence`/`shim-ownership` pair per shim in sorted path order; each still checks exact PATH precedence and current symlink ownership, so replaced foreign links are not trusted. Without records, doctor checks `~/.local/bin/gh`. Corrupt/unreadable state fails the shim diagnostics instead of silently falling back.
+
 macOS/Linux amd64/arm64 share installation semantics. Native termios ioctl distinguishes PTYs from files and /dev/null (Darwin TIOCGETA, Linux TCGETS). Doctor reports /dev/tty access and foreground-process-group job-control requirements without changing process groups; Linux additionally reports /proc availability. Windows/other OS builds are unsupported.
 
 Discovery cannot identify an arbitrary renamed, different ghok binary without identity/state evidence; GHOK_DEPTH bounds the resulting activations. Executability uses file type and permission bits, not ACL/noexec-mount effective-access checks. Relative overrides are unsupported. No process-control certification is implied by informational capability checks.
 
 ## Verification
 
-Hermetic temp-directory tests cover ordered/duplicate installs, self/renamed/other shims, absent gh, broken/looping links, permission/type/PATH rejection, overrides, depth boundaries, Homebrew upgrade plus old-version deletion, unchanged foreign collisions/replacements, repeated lifecycle, directory aliases, probes, doctor recursion/version/failure/timeout, and PTY detection. No network. BenchmarkFindRealGh measures stat-only discovery.
+Hermetic temp-directory tests cover ordered/duplicate installs, self/renamed/other shims, absent gh, broken/looping links, permission/type/PATH rejection, overrides, depth boundaries, Homebrew upgrade plus old-version deletion, unchanged foreign collisions/replacements, repeated lifecycle, directory aliases, probes, doctor custom/multiple installs, invalid state, precedence, recursion/version/failure/timeout, and PTY detection. E2E covers custom enable followed by plain and JSON doctor. No network. BenchmarkFindRealGh measures stat-only discovery.
 
-Runtime smoke executed the actual installed symlink, probe protocol, fake real gh with propagated depth/argv, doctor, and enable/enable/disable/disable. Required build/vet/full tests and installation race tests passed on macOS arm64. Linux amd64/arm64 and Darwin amd64 packages cross-compiled; Linux execution and race verification remain CI responsibilities.
+Installation unit tests and the custom-install doctor E2E passed on macOS arm64, Linux arm64 (`node:22-bookworm-slim`), and translated Linux amd64 (`mcr.microsoft.com/powershell:7.4-ubuntu-22.04`). Required root build/vet/full tests/race and make build passed on macOS arm64. Linux runs used cross-built test/fixture binaries with network disabled, read-only mounts/images, and tmpfs; Linux race was not run. The unrelated Linux arm64 process job-control failure is recorded in [cli.md](cli.md).
