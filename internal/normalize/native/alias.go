@@ -16,7 +16,7 @@ const maxAliasDepth = 64
 func ExpandAlias(argv []string, aliases map[string]string) (expanded []string, alias string, reason model.UnknownReason) {
 	expanded = argv
 	var seen [][]string
-	for len(expanded) > 0 && !builtinTopLevel(expanded[0]) {
+	for len(expanded) > 0 && !IsBuiltinCommand(expanded[0]) {
 		expansion, ok := aliases[expanded[0]]
 		if !ok {
 			break

@@ -235,6 +235,11 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 			input.SchemaVersion = 1
 			input.Event = phase
 			input.HookID = h.ID
+			if phase == config.PhasePost && input.Result != nil && !h.CaptureOutput {
+				result := *input.Result
+				result.Stdout, result.Stderr = nil, nil
+				input.Result = &result
+			}
 			input.Previous = nil
 			for _, dep := range h.DependsOn {
 				input.Previous = append(input.Previous, aggregate.Results[ids[dep]])
