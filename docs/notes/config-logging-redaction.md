@@ -7,11 +7,15 @@
 - Defaults are exported constants: observe mode; unknown mutation audit; protected unknown deny; hooks enabled, timeout 10s (maximum 10m), pre onError deny, post onError ignore, maxOutputBytes 1 MiB; runtime concurrency 1, stdin/file limit 8 MiB, stdin timeout 30s, capture limit 1 MiB, resolve timeout 5s; logging enabled, info level, `logs/ghok.jsonl` beneath Config.Dir.
 - Hook and rule IDs must be unique; hook dependencies must exist, have the same phase, and form an acyclic graph. Post hooks cannot deny on error; only post hooks can capture output. Match globs use `path.Match` syntax; repository patterns require owner/name shape.
 - `HookCommandPath` resolves relative executable paths containing `/` against Config.Dir; bare names remain PATH lookups. Command arguments are unchanged.
-- `LoadEffective` walks upward from the symlink-resolved cwd to the nearest `.git` file/directory, stopping at HOME or the filesystem root. It considers only that repository's `.ghok.yaml`. An untrusted project file is ignored without parsing, with a note for doctor/explain.
-- Trust entries must exactly identify the absolute, symlink-resolved project config path. A symlink spelling alone does not grant trust to its target. Relative project hook paths resolve against the repository config's containing directory, even when the config itself is a symlink. Merged project hook executable paths are made absolute to preserve their origin.
-- Trusted projects may add hooks, rules, and protected repositories. Hook/rule collisions fail validation. Only explicitly supplied project policy values participate in tightening: observe < enforce and allow < audit < deny. Attempted weakening is ignored with a note. Any project runtime, logging, or trust section is an error, including empty sections and merged YAML keys.
-- Group/world-writable config and hook files produce notes. Bare hook names are inspected through the supplied PATH; missing executables are left for the runner/doctor. No notes are printed by these packages.
-- Hooks are explicitly trusted code. Trust/path checks are not a security boundary against concurrent filesystem replacement or direct GitHub API access.
+- `LoadEffective` walks upward from the symlink-resolved cwd to the nearest `.git` file/directory, stopping at HOME or the filesystem root. It considers only that repository's `.ghok.yaml` and always parses and merges its declarative policy.
+- Only explicitly supplied project policy values participate in tightening: observe < enforce and allow < audit < deny. Rules and protected repositories append; attempted weakening is ignored with a note. Any project runtime, logging, or trust section is an error, including empty sections and merged YAML keys. Active hook/rule collisions fail validation.
+- Project hooks activate only when the canonical absolute, symlink-resolved config path and SHA256 of its exact bytes match `<config-dir>/trust.json`. Entries also record `trustedAt`. Any byte edit revokes hooks only; `Config.Hooks` contains active hooks, while `Config.IgnoredHooks` records `untrusted` or `changed since trust` reasons.
+- `TrustProject(path, cwd, env)` validates repository-root `.ghok.yaml`, project restrictions and effective config, writes the trust record, and returns canonical path, enabled hooks with resolved commands, and notes. `UntrustProject(path, cwd, env)` removes the record idempotently; both reject missing/outside-repository files. Empty path selects the current repository root. File/repository symlinks are allowed.
+- Trust writes use a 0700 config directory and 0600 temporary file plus atomic rename to `trust.json`. Corrupt reads return a note and empty hook trust, without suppressing project policy. Legacy `trust.projects` parses but is ignored with a deprecation note, even when empty.
+- Relative project hook paths resolve against the repository config's containing directory, even when the config itself is a symlink. Merged project hook executable paths are made absolute to preserve their origin. Hook executable contents are not hashed.
+- Group/world-writable config and hook files produce notes. Bare hook names are inspected through the supplied PATH; missing executables are left for the runner/doctor. Packages return notes without printing them; validate/doctor/explain present them, while ordinary wrapper stderr stays quiet.
+- Hooks are explicitly trusted code. Trust/path hashes and atomic writes are not a security boundary against concurrent filesystem replacement, competing writers or direct GitHub API access.
+- Schemas use the local standard-library reflection generator, including `deprecated:"true"` field tags. Curate `types.go` tags and templates, not generated JSON; regenerate with `go generate ./internal/config`. No new upstream snapshot or generator dependency is needed.
 
 ## gh aliases: verified source behavior
 
@@ -45,5 +49,13 @@ Read-only source verification against [cli/cli v2.102.0 `internal/config/config.
 ## Verification and platforms
 
 Config, redaction, and logger suites run hermetically with temporary fixtures. Logger tests exercise concurrent goroutines and pipe-synchronized subprocesses, including rotation without stale appends. Redaction has a learned-secret nonleak fuzz target and Result benchmark; logging has a Write benchmark. A throwaway executable exercised trusted config merging, immutable/redacted hook JSON, and credential-safe/no-capture JSONL through the public APIs, then was removed.
+
+Project-trust unit/e2e coverage exercises automatic policy, trust/edit/untrust,
+corruption, canonical symlink paths, legacy-key diagnostics and store permissions.
+An actual CLI/wrapper fixture confirmed hooks never run before trust, run after
+trust, stop after a comment-only YAML edit, and resume after re-trust; policy
+denials remain active throughout and allowed wrapper calls emit no trust stderr.
+`FuzzTrustStore` completed a 30-second run with 5,414,968 executions without a
+failure; corrupt entries must never return partial trust.
 
 Config and redaction use platform-neutral Go APIs. Logging's descriptor, O_APPEND, O_NOFOLLOW, O_NONBLOCK, and flock code is Unix-build-tagged; macOS/Linux are the supported platforms. Tests were executed on macOS arm64. Linux amd64/arm64 cross-compilation is checked separately; Linux runtime execution remains the CI matrix's responsibility. Cooperating local-filesystem flock semantics are assumed; network-filesystem lock behavior is not guaranteed.

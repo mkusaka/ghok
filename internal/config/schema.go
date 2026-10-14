@@ -24,6 +24,7 @@ var projectForbidden = []string{"runtime", "logging", "trust"}
 //	enum:"a,b"       allowed values (integers when they parse as such)
 //	doc:"..."        description
 //	required:"true"  property must be present
+//	deprecated:"true" property is retained only for migration
 
 // Schema returns the JSON Schema (draft 2020-12) for the global config.yaml,
 // or, with project set, for a project .ghok.yaml (which may not set
@@ -98,6 +99,9 @@ func schemaFor(t reflect.Type, tag reflect.StructTag) map[string]any {
 			p := schemaFor(f.Type, f.Tag)
 			if d := f.Tag.Get("doc"); d != "" {
 				p["description"] = d
+			}
+			if f.Tag.Get("deprecated") == "true" {
+				p["deprecated"] = true
 			}
 			if f.Tag.Get("required") == "true" {
 				required = append(required, name)

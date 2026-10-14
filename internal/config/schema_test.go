@@ -43,6 +43,26 @@ func TestExampleConfigMatchesSchema(t *testing.T) {
 	}
 }
 
+func TestLegacyTrustSchema(t *testing.T) {
+	s := Schema(false)
+	trust := s["properties"].(map[string]any)["trust"].(map[string]any)
+	projects := trust["properties"].(map[string]any)["projects"].(map[string]any)
+	if trust["deprecated"] != true || projects["deprecated"] != true {
+		t.Fatal("legacy trust and trust.projects must be deprecated")
+	}
+	valid := map[string]any{
+		"version": 1,
+		"trust":   map[string]any{"projects": []any{"/repo/.ghok.yaml"}},
+	}
+	if err := checkSchema(s, valid, "$"); err != nil {
+		t.Fatalf("legacy trust structure must remain accepted: %v", err)
+	}
+	valid["trust"] = map[string]any{"projects": []any{1}}
+	if err := checkSchema(s, valid, "$"); err == nil {
+		t.Fatal("legacy trust.projects must still require string paths")
+	}
+}
+
 // checkSchema is a minimal validator for the subset of JSON Schema that
 // Schema emits (type, properties, additionalProperties, items, enum, oneOf, required).
 func checkSchema(s map[string]any, v any, at string) error {

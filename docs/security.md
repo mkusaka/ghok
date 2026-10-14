@@ -81,31 +81,43 @@ killed with SIGKILL.** Deliberately escaped descendants remain unsupported.
 ## Project configuration trust
 
 Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then
-HOME/.config/ghok. The nearest discovered repository's `.ghok.yaml` is ignored
-without parsing unless its **canonical absolute config path** exactly appears in
-`trust.projects` globally:
+HOME/.config/ghok. The nearest discovered repository's `.ghok.yaml` always
+contributes declarative policy: explicitly set values can only tighten observe
+to enforce or allow to audit to deny, while rules and protected repositories
+append. Attempted weakening is ignored with a note. Projects cannot set
+runtime/logging/trust, even empty sections. Invalid project policy or an invalid
+effective config still fails validation; wrapper config failure then passes
+through without hooks.
 
-```yaml
-version: 1
-trust:
-  projects:
-    - /absolute/trusted/repository/.ghok.yaml
-```
-
-Symlink spelling alone does not trust the destination. Trust grants execution
-of repository-specified hooks; inspect the repository and any hook changes.
-Trusted project executable paths resolve against the repository config's
+Repository hooks are inactive until the user inspects them and runs
+`ghok config trust [PATH]`. Without PATH it selects the current repository-root
+`.ghok.yaml`; an explicit path must designate a repository-root `.ghok.yaml`.
+Repository and config symlinks are allowed. Trust validates project restrictions
+and the effective config, then reports enabled hooks with resolved commands.
+Relative project executable paths resolve against the repository config's
 containing directory, even if the config itself is a symlink.
 
-Projects may add hooks/rules/protected repositories and tighten observe to
-enforce or allow to audit to deny. Weakening is ignored with a diagnostic note.
-Projects cannot set runtime/logging/trust, even empty sections. Duplicate IDs,
-invalid dependencies, or other invalid merged config fail validation; remember
-that wrapper config failure then passes through without hooks.
+The local `<config-dir>/trust.json` store keys entries by **canonical absolute,
+symlink-resolved config path**, recording the SHA256 of the exact file bytes and
+`trustedAt`. It uses a 0700 config directory and a 0600 temporary file followed
+by atomic rename to a 0600 store. A corrupt store grants no hook trust and
+returns a diagnostic note; declarative policy still applies. Any byte change
+to `.ghok.yaml`, including comments or a git pull, revokes only its hooks until
+re-trusted. Legacy global `trust.projects` is parsed but ignored and deprecated,
+including an empty list.
 
+`ghok config untrust [PATH]` removes the entry without removing policy and is
+idempotent if the entry is absent. Both commands reject missing files and paths
+outside a repository-root `.ghok.yaml`. Validate, doctor and explain report
+trust notes and how to activate hooks; hook listings/explain explicitly show
+ignored hooks. Normal wrapper invocations do not print trust notes to stderr.
+
+**Hook executable contents are not hashed.** Trusting YAML does not authenticate
+the programs it invokes, their dependencies, PATH lookups or subsequent changes.
 Group/world-writable configs and hook files produce diagnostic notes, not a
-mandatory refusal. Trust/path checks do not protect against concurrent
-filesystem replacement. No ownership/signature check authenticates hook code.
+mandatory refusal. No ownership/signature check authenticates hook code, and
+hash/path checks and atomic writes are not a concurrency security boundary
+against filesystem replacement or competing writers.
 
 ## Redaction rules and limits
 
@@ -144,7 +156,8 @@ Limits:
 ## Files, permissions, and logging
 
 Recommended user-created config mode: 0600; hook/config directories: 0700;
-executable hooks: 0700. ghok does not create or harden your config automatically.
+executable hooks: 0700. Trust-store commands create/harden their config directory
+and store as described above; this does not harden your hook programs.
 `ghok shim install` creates a missing bin directory as 0755 (subject to umask), an owned
 symlink, and shim state. Newly created state directories are 0700 and atomic
 state files 0600; existing directory permissions remain unchanged. Disable

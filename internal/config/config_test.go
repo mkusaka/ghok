@@ -239,42 +239,55 @@ func TestProjectTrust(t *testing.T) {
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 	project := filepath.Join(repo, ".ghok.yaml")
 	global := filepath.Join(root, "global", "config.yaml")
-	env := map[string]string{"HOME": home}
-	writeFixture(t, global, "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n")
-	writeFixture(t, project, "invalid: [")
-	c, notes, err := LoadEffective(global, cwd, env)
-	if err != nil || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "ignored-untrusted") {
-		t.Fatalf("untrusted: %+v, %v, %v", c, notes, err)
-	}
+	env := map[string]string{"HOME": home, "GHOK_CONFIG_DIR": filepath.Dir(global)}
 	base := "version: 1\ntrust:\n  projects: [" + project + "]\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
 	writeFixture(t, global, base)
-	writeFixture(t, project, "version: 1\npolicy:\n  mode: observe\n  unknownMutation: allow\n  protectedUnknown: audit\n  protectedRepositories: [org/project]\n  rules: [{id: rule, decision: audit}]\nhooks: [{id: project, phase: post, command: [./hooks/hook]}]\n")
-	c, notes, err = LoadEffective(global, cwd, env)
+	writeFixture(t, project, "invalid: [")
+	if _, _, err := LoadEffective(global, cwd, env); err == nil {
+		t.Fatal("invalid untrusted project must still be parsed")
+	}
+	writeFixture(t, project, "version: 1\npolicy:\n  mode: observe\n  unknownMutation: allow\n  protectedUnknown: audit\n  protectedRepositories: [org/project]\n  rules: [{id: rule, decision: deny}]\nhooks: [{id: project, phase: post, command: [./hooks/hook]}]\n")
+	c, notes, err := LoadEffective(global, cwd, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || c.HookCommandPath(c.Hooks[1]) != filepath.Join(repo, "hooks", "hook") || c.HookCommandPath(c.Hooks[0]) != filepath.Join(filepath.Dir(global), "global-hook") {
-		t.Fatalf("overlay: %+v, notes %v", c, notes)
+	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
+		t.Fatalf("untrusted policy overlay: %+v, notes %v", c, notes)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "trust.projects is deprecated and ignored") {
+		t.Fatalf("missing migration note: %v", notes)
+	}
+	if _, _, _, err := TrustProject("", cwd, env); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err = LoadEffective(global, cwd, env)
+	if err != nil || len(c.Hooks) != 2 || len(c.IgnoredHooks) != 0 || c.HookCommandPath(c.Hooks[1]) != filepath.Join(repo, "hooks", "hook") || c.HookCommandPath(c.Hooks[0]) != filepath.Join(filepath.Dir(global), "global-hook") {
+		t.Fatalf("trusted overlay: %+v, %v", c, err)
 	}
 	writeFixture(t, global, strings.ReplaceAll(base, "policy: {mode: enforce, unknownMutation: deny}", "policy: {mode: observe, unknownMutation: allow, protectedUnknown: allow}"))
-	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}")
+	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}\nhooks: [{id: project, phase: pre, command: [hook]}]")
 	c, _, err = LoadEffective(global, cwd, env)
-	if err != nil || c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny {
-		t.Fatalf("tightening: %+v, %v", c, err)
+	if err != nil || c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
+		t.Fatalf("changed policy still applies: %+v, %v", c, err)
 	}
-	// Omitted project policy must not tighten an explicitly permissive global.
+	// Omitted project values must not tighten an explicitly permissive global.
 	writeFixture(t, project, "version: 1\nhooks: [{id: project, phase: pre, command: [hook]}]")
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.Policy.UnknownMutation != UnknownAllow || c.Policy.ProtectedUnknown != UnknownAllow {
 		t.Fatalf("omitted policy: %+v, %v", c, err)
 	}
-	for _, section := range []string{"runtime: {}", "logging: {}", "trust: {}", "hooks: [{id: global, phase: pre, command: [hook]}]"} {
+	for _, section := range []string{"runtime: {}", "logging: {}", "trust: {}", "<<: {runtime: {}}", "<<: {logging: {}}", "<<: {trust: {}}"} {
 		writeFixture(t, project, "version: 1\n"+section)
 		if _, _, err := LoadEffective(global, cwd, env); err == nil {
-			t.Fatalf("accepted project %s", section)
+			t.Fatalf("accepted untrusted project %s", section)
 		}
 	}
-	// Trust is evaluated against the canonical config path, not a symlink name.
+	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [hook]}]")
+	if _, _, _, err := TrustProject("", cwd, env); err == nil {
+		t.Fatal("trust must reject an effective hook ID collision")
+	}
+	// Canonical config identity may be outside the repo through a symlink;
+	// hook commands still resolve against the repository directory.
 	target := filepath.Join(root, "shared.yaml")
 	writeFixture(t, target, "version: 1\nhooks: [{id: linked, phase: pre, command: [./hook]}]")
 	if err := os.Remove(project); err != nil {
@@ -283,11 +296,14 @@ func TestProjectTrust(t *testing.T) {
 	if err := os.Symlink(target, project); err != nil {
 		t.Fatal(err)
 	}
-	c, notes, err = LoadEffective(global, cwd, env)
-	if err != nil || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "untrusted") {
-		t.Fatalf("symlink trust: %v, %v", notes, err)
+	c, _, err = LoadEffective(global, cwd, env)
+	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
+		t.Fatalf("new symlink target: %+v, %v", c, err)
 	}
-	writeFixture(t, global, strings.ReplaceAll(base, project, target))
+	canonical, _, _, err := TrustProject(project, cwd, env)
+	if err != nil || canonical != target {
+		t.Fatalf("canonical trust path: %s, %v", canonical, err)
+	}
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.HookCommandPath(c.Hooks[1]) != filepath.Join(repo, "hook") {
 		t.Fatalf("trusted symlink: %+v, %v", c, err)

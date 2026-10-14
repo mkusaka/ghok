@@ -49,19 +49,22 @@ repeated as policy summaries. `Policy:` shows only matching rules and additional
 reasons; config notes and the short non-boundary/exit-zero footer come last.
 `--show-secrets` only changes explain's display boundary, not hook redaction.
 
-Config loading retains source status in its existing notes return, including
-the global read's exists/not-found status before a parse error, ignored-untrusted
-project paths with their canonical trust reason, and successfully merged project
-paths. Trusted project parse/merge failures report the attempted source before
-the error. `config validate [--file PATH]` prints these sources then
-`Configuration valid` or errors. Doctor's `config` detail uses the same source
-notes; permission/weakening warnings remain separate checks. Trust comparisons,
-project discovery, restrictions, merging and exit codes are unchanged.
+Config loading retains source status in its notes return, including the global
+read's exists/not-found status before a parse error and the project source
+whose declarative policy is merged independently of hook trust. Project
+parse/merge failures report the attempted source before the error.
+`config validate [--file PATH]` prints these sources then `Configuration valid`
+or errors. Doctor's `config` detail and explain use the same notes, including
+untrusted/changed hooks, corrupt trust stores and legacy `trust.projects`
+deprecation. Notes guide users to `ghok config trust`; ordinary wrapper
+invocations do not print trust notes to stderr.
 
 `hooks list` emits load-time `Hook.Source` in text and JSON, identifying the
-global config path or project `.ghok.yaml`; project hook executable rebasing is
-unchanged. `Source` has `yaml:"-"`, so it is not accepted as a configuration
-setting and is excluded from the generated schemas.
+global config path or project `.ghok.yaml`, and explicitly lists ignored project
+hooks with `untrusted` or `changed since trust` reasons. Explain also reports
+ignored hooks without selecting them. Project hook executable rebasing is
+unchanged. Source and ignored-hook metadata are not YAML settings and are
+excluded from generated schemas.
 
 ### Regeneration and curation
 
@@ -75,10 +78,11 @@ direct/queue/auto behavior, admin describes requirement/queue bypass with possib
 server rejection, and auto enable/disable describe their own requests. Existing
 action names and flag precedence remain stable.
 
-To curate hook/rule matches, edit global `config.yaml` or the trusted project
-`.ghok.yaml`, then run `ghok config validate`, `ghok hooks list` and
-`ghok explain -- <gh args>`. Project entries cannot weaken global policy; do not
-change trust merely to suppress an ignored-untrusted note. Inspect unresolved
+To curate hook/rule matches, edit global `config.yaml` or project `.ghok.yaml`,
+then run `ghok config validate`, `ghok hooks list` and `ghok explain -- <gh args>`.
+Project entries cannot weaken global policy. After inspecting hook changes,
+run `ghok config trust` again: any YAML byte edit invalidates project hook trust.
+Do not grant trust merely to suppress a diagnostic note. Inspect unresolved
 targets with `--no-resolve`, or explicitly opt into read-only API lookups with
 `--allow-api`.
 

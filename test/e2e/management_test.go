@@ -401,9 +401,9 @@ func TestManagementHookSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.configure(func(c *config.Config) {
-		c.Trust.Projects = []string{project}
 		c.Hooks = []config.Hook{s.hook("user", "pre")}
 	})
+	s.management(nil, "config", "trust").code(t, 0)
 	result := s.management(nil, "hooks", "list", "--json")
 	result.code(t, 0)
 	var list []struct {
@@ -490,95 +490,6 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("doctor did not report invalid configuration")
-	}
-}
-
-func TestManagementConfigSources(t *testing.T) {
-	for _, state := range []string{"global", "missing", "untrusted", "trusted", "invalid-project", "invalid-global"} {
-		t.Run(state, func(t *testing.T) {
-			s := newSandbox(t)
-			global, err := filepath.Abs(s.cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var project string
-			if strings.Contains(state, "trusted") || state == "invalid-project" {
-				if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
-					t.Fatal(err)
-				}
-				project = filepath.Join(s.cwd, ".ghok.yaml")
-				if err := os.WriteFile(project, []byte("version: 1\npolicy: {mode: enforce}\n"), 0600); err != nil {
-					t.Fatal(err)
-				}
-				project, err = filepath.EvalSymlinks(project)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if state != "untrusted" {
-					s.configure(func(c *config.Config) { c.Trust.Projects = []string{project} })
-				}
-				if state == "untrusted" || state == "invalid-project" {
-					if err := os.WriteFile(project, []byte("invalid: [\n"), 0600); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			switch state {
-			case "missing":
-				if err := os.Remove(s.cfg); err != nil {
-					t.Fatal(err)
-				}
-			case "invalid-global":
-				if err := os.WriteFile(s.cfg, []byte("invalid: [\n"), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			wantCode := 0
-			if strings.HasPrefix(state, "invalid-") {
-				wantCode = 1
-			}
-			result := s.management(nil, "config", "validate")
-			result.code(t, wantCode)
-			wantGlobal := "Global config: " + global + " (exists)"
-			if state == "missing" {
-				wantGlobal = "Global config: " + global + " (not found -> defaults)"
-			}
-			if !bytes.Contains(result.stdout, []byte(wantGlobal)) || bytes.Contains(result.stdout, []byte("missing files use defaults")) || bytes.Contains(result.stdout, []byte("Configuration valid")) != (wantCode == 0) {
-				t.Fatalf("config sources=%s stderr=%s", result.stdout, result.stderr)
-			}
-			projectStatus := ""
-			switch state {
-			case "trusted":
-				projectStatus = "Project config: " + project + " (loaded; merged"
-			case "untrusted":
-				projectStatus = "Project config: " + project + " (ignored-untrusted:"
-			case "invalid-project":
-				projectStatus = "Project config: " + project + " (trusted; loading)"
-			}
-			if projectStatus != "" && !bytes.Contains(result.stdout, []byte(projectStatus)) {
-				t.Fatalf("project source=%s", result.stdout)
-			}
-			if state == "untrusted" && !bytes.Contains(result.stdout, []byte("trust.projects")) {
-				t.Fatalf("missing trust reason=%s", result.stdout)
-			}
-			setBytes(s.env, "FAKEGH_STDOUT_B64", []byte("gh version 2.102.0 (fake)\n"))
-			result = s.management(nil, "doctor", "--json")
-			result.code(t, wantCode)
-			var checks []install.Check
-			decodeJSON(t, result.stdout, &checks)
-			found := false
-			for _, check := range checks {
-				if check.Name == "config" {
-					found = true
-					if !strings.Contains(check.Detail, wantGlobal) || projectStatus != "" && !strings.Contains(check.Detail, projectStatus) {
-						t.Fatalf("doctor config=%+v", check)
-					}
-				}
-			}
-			if !found {
-				t.Fatal("doctor missing config check")
-			}
-		})
 	}
 }
 
@@ -730,7 +641,7 @@ func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := filepath.Join(s.cwd, ".ghok.yaml")
-	if err := os.WriteFile(project, []byte("invalid untrusted YAML: ["), 0600); err != nil {
+	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: pre, command: [missing-hook]}]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result = s.management(nil, "config", "validate")
@@ -752,6 +663,8 @@ func TestManagementCobraUsageBoundaries(t *testing.T) {
 		{[]string{"--help", "extra"}, false},
 		{[]string{"doctor", "--json=bad"}, false},
 		{[]string{"config", "validate", "--file"}, false},
+		{[]string{"config", "trust", "one", "two"}, false},
+		{[]string{"config", "untrust", "one", "two"}, false},
 		{[]string{"help", "unknown-command"}, false},
 		{[]string{"completion"}, false},
 		{[]string{"normalize", "version", "--", "version"}, false},

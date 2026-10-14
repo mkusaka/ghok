@@ -9,8 +9,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// LoadEffective never executes hooks. Notes are for doctor/explain, not normal
-// wrapper stderr. Restricted project sections are rejected, even when trusted.
+// LoadEffective never executes hooks. Project policy always applies; only
+// content-trusted project hooks are active. Notes never go to wrapper stderr.
 func LoadEffective(global, cwd string, env map[string]string) (*Config, []string, error) {
 	if global == "" {
 		global = DefaultPath(env)
@@ -29,6 +29,8 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	for _, h := range c.Hooks {
 		warnWritable(hookPermissionPath(c.HookCommandPath(h), cwd, env), &notes)
 	}
+	store, trustNotes := readTrustStore(env)
+	notes = append(notes, trustNotes...)
 	project, err := findProject(cwd, env["HOME"])
 	if err != nil {
 		return nil, notes, err
@@ -40,59 +42,76 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	if err != nil {
 		return nil, notes, err
 	}
-	trusted := false
-	for _, p := range c.Trust.Projects {
-		if filepath.IsAbs(p) && filepath.Clean(p) == resolved {
-			trusted = true
-			break
-		}
-	}
-	if !trusted {
-		notes = append(notes, fmt.Sprintf("Project config: %s (ignored-untrusted: canonical path %s is not listed in global trust.projects)", project, resolved))
-		return c, notes, nil
-	}
 	sourceIndex := len(notes)
-	notes = append(notes, fmt.Sprintf("Project config: %s (trusted; loading)", project))
+	notes = append(notes, fmt.Sprintf("Project config: %s (loading declarative policy)", project))
 	warnWritable(project, &notes)
-	data, err := os.ReadFile(project)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, notes, err
 	}
+	p, n, err := parseProject(data, project)
+	if err != nil {
+		return nil, notes, err
+	}
+	reason := "untrusted"
+	if entry, ok := store[resolved]; ok {
+		reason = "changed since trust"
+		if entry.SHA256 == projectDigest(data) {
+			reason = ""
+		}
+	}
+	status := "policy loaded; hooks trusted"
+	if reason != "" {
+		status = "policy loaded; hooks ignored (" + reason + "); run ghok config trust"
+	}
+	notes[sourceIndex] = fmt.Sprintf("Project config: %s (%s)", project, status)
+	if err := mergeProject(c, p, n, project, cwd, env, reason, &notes); err != nil {
+		return nil, notes, err
+	}
+	return c, notes, nil
+}
+
+func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 	n, err := document(data)
 	if err != nil {
-		return nil, notes, fmt.Errorf("project config %s: %w", project, err)
+		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
 	var restricted []error
-	for _, key := range []string{"runtime", "logging", "trust"} {
+	for _, key := range projectForbidden {
 		if v := field(n, key); v != nil {
 			restricted = append(restricted, fmt.Errorf("line %d: project %s: cannot set %s", v.Line, project, key))
 		}
 	}
 	if err := errors.Join(restricted...); err != nil {
-		return nil, notes, err
+		return nil, nil, err
 	}
-	// Resolve project hooks against the project config's containing directory,
-	// not the global config or the destination of a symlinked config file.
+	// Resolve hooks against the repository config's directory, not the global
+	// config or the destination of a symlinked project file.
 	p, err := Parse(data, filepath.Dir(project))
 	if err != nil {
-		return nil, notes, fmt.Errorf("project config %s: %w", project, err)
+		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
-	for _, h := range p.Hooks {
+	return p, n, nil
+}
+
+func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, reason string, notes *[]string) error {
+	for i := range p.Hooks {
+		h := &p.Hooks[i]
 		h.Source = project
-		warnWritable(hookPermissionPath(p.HookCommandPath(h), cwd, env), &notes)
-		if len(h.Command) > 0 {
-			command := append([]string(nil), h.Command...)
-			command[0] = p.HookCommandPath(h)
-			h.Command = command
+		h.Command[0] = p.HookCommandPath(*h)
+		if reason != "" {
+			c.IgnoredHooks = append(c.IgnoredHooks, IgnoredHook{Hook: *h, Reason: reason})
+		} else {
+			warnWritable(hookPermissionPath(p.HookCommandPath(*h), cwd, env), notes)
+			c.Hooks = append(c.Hooks, *h)
 		}
-		c.Hooks = append(c.Hooks, h)
 	}
 	c.Policy.Rules = append(c.Policy.Rules, p.Policy.Rules...)
 	c.Policy.ProtectedRepositories = append(c.Policy.ProtectedRepositories, p.Policy.ProtectedRepositories...)
 	policy := field(n, "policy")
 	if field(policy, "mode") != nil {
 		if c.Policy.Mode == ModeEnforce && p.Policy.Mode == ModeObserve {
-			notes = append(notes, "project policy.mode would weaken global policy; ignored")
+			*notes = append(*notes, "project policy.mode would weaken global policy; ignored")
 		} else {
 			c.Policy.Mode = p.Policy.Mode
 		}
@@ -110,16 +129,15 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 			continue
 		}
 		if rank[pair.value] < rank[*pair.dst] {
-			notes = append(notes, "project policy."+pair.key+" would weaken global policy; ignored")
+			*notes = append(*notes, "project policy."+pair.key+" would weaken global policy; ignored")
 		} else {
 			*pair.dst = pair.value
 		}
 	}
 	if err := c.Validate(); err != nil {
-		return nil, notes, fmt.Errorf("effective config: %w", err)
+		return fmt.Errorf("effective config: %w", err)
 	}
-	notes[sourceIndex] = fmt.Sprintf("Project config: %s (loaded; merged with global config)", project)
-	return c, notes, nil
+	return nil
 }
 
 func findProject(cwd, home string) (string, error) {

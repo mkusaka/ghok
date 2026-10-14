@@ -78,7 +78,7 @@ or the SHA of one), verifies it against the immutable release attestation and
 checksums, and puts a `gh -> ghok` shim first on PATH (`shim: false` installs
 only). Inputs: `version` (`vX.Y.Z` or `latest`, overrides the ref), `shim`,
 `token`; outputs: `version`, `path`. Configure it like anywhere else, e.g. with a
-`config.yaml` under `GHOK_CONFIG_DIR` or a trusted project `.ghok.yaml`.
+`config.yaml` under `GHOK_CONFIG_DIR` or a project `.ghok.yaml` (trust its hooks explicitly).
 Linux and macOS runners only.
 
 ### Go install
@@ -181,16 +181,16 @@ ghok config init --scope user    # the global config.yaml
 ```
 
 Neither overwrites an existing file. The project file lives at the repository
-root, so it can be committed and shared; each user's ghok ignores it until that
-user lists its absolute path in `trust.projects` of their global config (cloning
-a repository must never run its hooks automatically).
+root, so it can be committed and shared. Its declarative policy applies
+automatically, but cloning a repository never activates its hooks.
 
 The config format has a JSON Schema generated from ghok's Go config types:
 [`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and
 [`schema/project.schema.json`](schema/project.schema.json) for a project
-`.ghok.yaml`. Print it with `ghok config schema [--project]`; regenerate the
-files with `make schema` (`go generate ./internal/config`). For editor
-completion, start the YAML file with:
+`.ghok.yaml`. Print it with `ghok config schema [--project]`; regenerate with
+`go generate ./internal/config` (also available as `make schema`). Curate field
+tags in `internal/config/types.go` and starter templates, not generated JSON.
+For editor completion, start the YAML file with:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/config.schema.json
@@ -199,9 +199,31 @@ completion, start the YAML file with:
 Global config: `GHOK_CONFIG_DIR/config.yaml`, otherwise
 `$XDG_CONFIG_HOME/ghok/config.yaml`, otherwise `~/.config/ghok/config.yaml`.
 Missing config defaults to **observe**, unknown-mutation **audit**, and logging
-**enabled**. A project `.ghok.yaml` is ignored unless its canonical absolute
-path is explicitly trusted globally; trusted projects can only tighten policy
-and add hooks/rules/protected repositories.
+**enabled**. Project policy can only tighten explicitly set mode/unknown handling
+and append rules/protected repositories; it never weakens global policy.
+Projects cannot set runtime, logging or trust, even as empty sections.
+
+Inspect project hooks, then manage their activation:
+
+```sh
+ghok config trust                   # current repository-root .ghok.yaml
+ghok config trust /path/to/repo/.ghok.yaml
+ghok config untrust                 # deactivate project hooks; policy remains
+```
+
+Trust records the canonical absolute, symlink-resolved config path and SHA256 of
+its exact bytes, plus `trustedAt`, in `<config-dir>/trust.json`. Any byte edit
+(including a git pull) disables only the project hooks until you re-trust.
+The store is written atomically with mode 0600 in a 0700 config directory;
+a corrupt store yields empty trust and a diagnostic note, not weaker policy.
+Trust validates the project and effective config and reports enabled hooks with
+resolved commands. Both commands reject missing files and paths that are not a
+repository-root `.ghok.yaml`; untrust is idempotent when no entry exists.
+Legacy `trust.projects` YAML is accepted but ignored and deprecated.
+Hook executable contents are not hashed: inspect their changes too.
+This is not protection against concurrent file replacement or malicious users.
+Validate, doctor and explain report trust notes; ordinary wrapper invocations
+do not print them to stderr.
 
 ```yaml
 version: 1
@@ -351,9 +373,11 @@ selection, then shows operations and unresolved fields once, followed by rule
 matches, additional policy reasons and config notes. Hook outcomes remain unknown;
 an enforce denial prevents gh and post hooks even if their matches are listed.
 Normalize keeps its JSON contract. `config validate` and doctor's `config` check
-report the global source (exists or not found/defaults) and any project source
-(loaded/merged or ignored-untrusted with its reason). `hooks list` includes each
-hook's source config path in text and JSON; source is not a YAML setting.
+report the global source (exists or not found/defaults) and merged project policy.
+`hooks list` and explain show ignored project hooks with `untrusted` or
+`changed since trust` reasons and guidance to run `ghok config trust`.
+Hook listings include each hook's source config path in text and JSON;
+source is not a YAML setting.
 
 ## Performance
 

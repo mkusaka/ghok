@@ -37,9 +37,8 @@ func TestInitTemplates(t *testing.T) {
 		t.Fatal("shared project template must not embed the creator's paths")
 	}
 	// Trusting the generated project file must load cleanly on top of the user config.
-	trusted := strings.Replace(mustRead(t, user), "  projects: []", "  projects: ["+project+"]", 1)
-	if err := os.WriteFile(user, []byte(trusted), 0o600); err != nil {
-		t.Fatal(err)
+	if _, _, notes, err := TrustProject(project, repo, env); err != nil {
+		t.Fatalf("trust project template: %v (notes %v)", err, notes)
 	}
 	if _, notes, err := LoadEffective(user, repo, env); err != nil {
 		t.Fatalf("trusted project template: %v (notes %v)", err, notes)

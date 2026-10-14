@@ -92,9 +92,3 @@ logging: {}
 #  path: /absolute/path/ghok.jsonl  # default: <config dir>/logs/ghok.jsonl
 #  level: info                       # info: every invocation | decision: non-allow only
 
-# Project configs (.ghok.yaml at a repository root) are ignored unless their
-# absolute path is listed here. They can only add hooks/rules/protected repos
-# and tighten policy; they can never weaken this file.
-trust:
-  projects: []
-  #  - /path/to/repo/.ghok.yaml

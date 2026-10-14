@@ -17,10 +17,13 @@ type Config struct {
 	Hooks   []Hook  `yaml:"hooks" json:"hooks"`
 	Runtime Runtime `yaml:"runtime" json:"runtime"`
 	Logging Logging `yaml:"logging" json:"logging"`
-	Trust   Trust   `yaml:"trust" json:"trust"`
+	Trust   Trust   `yaml:"trust" json:"trust" deprecated:"true" doc:"Deprecated and ignored. Use ghok config trust to authorize project hooks by file content."`
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`
+	// IgnoredHooks are project hooks withheld by trust, for management reporting
+	// only. Execution paths must use Hooks, never this list.
+	IgnoredHooks []IgnoredHook `yaml:"-" json:"-"`
 }
 
 // Policy modes.
@@ -138,11 +141,10 @@ type Logging struct {
 	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }
 
-// Trust controls project-level config. Project config (<repo>/.ghok.yaml) is
-// ignored unless its absolute path is listed here; even then it can only add
-// hooks/rules/protected repos and can never weaken global policy.
+// Trust is retained for v0.0.1 configuration compatibility only. Its entries
+// are ignored; project hook authorization lives in trust.json.
 type Trust struct {
-	Projects []string `yaml:"projects" json:"projects,omitempty" doc:"Absolute paths of project .ghok.yaml files that may add hooks/rules."`
+	Projects []string `yaml:"projects" json:"projects,omitempty" deprecated:"true" doc:"Deprecated and ignored. Run ghok config trust [PATH]; any edit to .ghok.yaml requires re-trust."`
 }
 
 // StringList accepts either a YAML scalar or a sequence.

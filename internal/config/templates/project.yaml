@@ -2,15 +2,13 @@
 #
 # ghok project config. Created by `ghok config init` (scope: project).
 #
-# Commit this file to share hooks and rules with everyone using the repository.
-# Each person's ghok IGNORES it until they trust it by adding the absolute path
-# of this file to `trust.projects` in their own user config
-# (`ghok config path` prints where that is):
-#   trust:
-#     projects:
-#       - /absolute/path/to/repo/.ghok.yaml
-# Even when trusted it can only add hooks, rules and protected repositories, and
-# tighten (never loosen) the user policy. runtime/logging/trust are not allowed here.
+# Commit this file to share policy and hooks with everyone using the repository.
+# Declarative tightening, rules and protected repositories apply automatically;
+# they can never weaken the user policy. runtime/logging/trust are not allowed here.
+# Hooks run only after each user inspects them and runs:
+#   ghok config trust
+# Any byte edit to .ghok.yaml (including a git pull) disables its hooks until
+# `ghok config trust` is run again. Hook executable contents are not hashed.
 # Docs: https://github.com/mkusaka/ghok
 
 version: 1

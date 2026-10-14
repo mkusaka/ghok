@@ -151,6 +151,17 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	})
 	initCmd.Example = "  ghok config init                # <repo root>/.ghok.yaml\n  ghok config init --scope user   # the global config.yaml"
 	initCmd.Flags().StringVar(&scope, "scope", config.ScopeProject, "project: <repo root>/.ghok.yaml; user: the global config.yaml")
+	for _, name := range []string{"trust", "untrust"} {
+		cmd := managementCommand(name+" [PATH]", "Manage trust for project hooks in the current .ghok.yaml or PATH", code, func(cmd *cobra.Command, args []string) int {
+			path := ""
+			if len(args) != 0 {
+				path = args[0]
+			}
+			return managementConfigTrust(cmd.Name(), path)
+		})
+		cmd.Args = cobra.MaximumNArgs(1)
+		configCommands.AddCommand(cmd)
+	}
 	configCommands.AddCommand(initCmd, validate, path, schema)
 	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands)
 	root.SetHelpCommand(&cobra.Command{
@@ -532,7 +543,7 @@ func managementConfigInit(scope string) int {
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "Created "+path)
 	if scope == config.ScopeProject {
-		_, _ = fmt.Fprintf(os.Stdout, "It is ignored until trusted. To trust it, add to %s:\n  trust:\n    projects:\n      - %s\n", config.DefaultPath(env), path)
+		_, _ = fmt.Fprintln(os.Stdout, "Project rules apply automatically. If you add hooks, inspect them and run ghok config trust to enable them.")
 	}
 	return 0
 }

@@ -1,0 +1,46 @@
+//go:build unix
+
+package cli
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/mkusaka/ghok/internal/config"
+	"github.com/mkusaka/ghok/internal/redact"
+)
+
+func managementConfigTrust(command, path string) int {
+	env := environment()
+	r := redact.New(env)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return managementFailure(err)
+	}
+	var canonical string
+	var notes []string
+	var enabled []config.Hook
+	if command == "trust" {
+		canonical, enabled, notes, err = config.TrustProject(path, cwd, env)
+	} else {
+		canonical, notes, err = config.UntrustProject(path, cwd, env)
+	}
+	for _, note := range notes {
+		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
+	}
+	if err != nil {
+		return managementFailure(err)
+	}
+	if command == "untrust" {
+		_, _ = fmt.Fprintln(os.Stdout, r.String("Project hook trust removed: "+canonical))
+		return 0
+	}
+	_, _ = fmt.Fprintln(os.Stdout, r.String("Project hooks trusted: "+canonical))
+	for _, h := range enabled {
+		_, _ = fmt.Fprintln(os.Stdout, r.String(h.ID+" command: "+managementCompact(r.Argv(h.Command))))
+	}
+	if len(enabled) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No enabled project hooks.")
+	}
+	return 0
+}

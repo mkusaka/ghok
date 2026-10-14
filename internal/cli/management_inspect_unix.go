@@ -124,10 +124,18 @@ func managementHooksList(asJSON bool) int {
 	}
 	r := redact.New(env)
 	// Command flags need contextual redaction in addition to JSON key redaction.
-	display := make([]config.Hook, len(c.Hooks))
-	copy(display, c.Hooks)
-	for i := range display {
-		display[i].Command = r.Argv(display[i].Command)
+	type listedHook struct {
+		config.Hook
+		Ignored string `json:"ignored,omitempty"`
+	}
+	display := make([]listedHook, 0, len(c.Hooks)+len(c.IgnoredHooks))
+	for _, h := range c.Hooks {
+		h.Command = r.Argv(h.Command)
+		display = append(display, listedHook{Hook: h})
+	}
+	for _, h := range c.IgnoredHooks {
+		h.Command = r.Argv(h.Command)
+		display = append(display, listedHook{Hook: h.Hook, Ignored: h.Reason})
 	}
 	if asJSON {
 		return managementJSON(display, r)
@@ -138,6 +146,9 @@ func managementHooksList(asJSON bool) int {
 	for _, h := range display {
 		enabled := h.Enabled == nil || *h.Enabled
 		_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
+		if h.Ignored != "" {
+			_, _ = fmt.Fprintln(os.Stdout, r.String("  ignored ("+h.Ignored+")"))
+		}
 		_, _ = fmt.Fprintln(os.Stdout, r.String("  source: "+h.Source))
 		_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
 		managementPrintMatch(os.Stdout, "  ", h.Match, r)

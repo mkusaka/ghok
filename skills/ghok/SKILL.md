@@ -43,10 +43,16 @@ ghok config schema [--project]       # JSON Schema (also referenced by the gener
 Generated files are commented and start with a `yaml-language-server` `$schema` line.
 Never overwrite an existing config; edit it instead.
 
-- **Project `.ghok.yaml`** (repository root, commit it to share) is **ignored until each
-  user trusts it** by adding its absolute path to `trust.projects` in their user config.
-  It can only add hooks/rules/protected repos and tighten policy; it cannot set
-  `runtime`, `logging` or `trust`.
+- **Project `.ghok.yaml`** (repository root, commit it to share) automatically
+  tightens policy and adds rules/protected repos; it cannot set `runtime`,
+  `logging` or `trust`. Inspect hooks, then run `ghok config trust [PATH]` to
+  activate them (`PATH` defaults to the current repository-root `.ghok.yaml`).
+  Any byte edit, including a git pull, disables project hooks until re-trusted.
+  `ghok config untrust [PATH]` deactivates hooks idempotently, leaving policy.
+  Both commands reject missing/non-repository-root files. Legacy `trust.projects`
+  is ignored and deprecated. Trust hashes YAML bytes, not hook program contents.
+  Validate/doctor/explain report trust notes; hooks list/explain show ignored
+  hooks explicitly. Ordinary wrapper stderr stays quiet.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)
