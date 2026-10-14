@@ -71,12 +71,14 @@ jobs:
         env:
           GOFLAGS: -p=1
       - name: Fuzz smoke
+        # Iteration-bounded: a time-bounded -fuzztime can fail with "context
+        # deadline exceeded" when a worker is slow to stop on a loaded runner.
         run: |
-          go test -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s ./internal/normalize/apiargs
-          go test -run '^$' -fuzz '^FuzzNormalize$' -fuzztime 10s ./internal/normalize/native
-          go test -run '^$' -fuzz '^FuzzNormalizeREST$' -fuzztime 10s ./internal/normalize/rest
-          go test -run '^$' -fuzz '^FuzzNormalizeGraphQL$' -fuzztime 10s ./internal/normalize/graphql
-          go test -run '^$' -fuzz '^FuzzRedactString$' -fuzztime 10s ./internal/redact
+          go test -run '^$' -fuzz '^FuzzParse$' -fuzztime 200000x ./internal/normalize/apiargs
+          go test -run '^$' -fuzz '^FuzzNormalize$' -fuzztime 200000x ./internal/normalize/native
+          go test -run '^$' -fuzz '^FuzzNormalizeREST$' -fuzztime 200000x ./internal/normalize/rest
+          go test -run '^$' -fuzz '^FuzzNormalizeGraphQL$' -fuzztime 200000x ./internal/normalize/graphql
+          go test -run '^$' -fuzz '^FuzzRedactString$' -fuzztime 200000x ./internal/redact
       - name: Build
         run: make build
       - name: Cross-compile release targets
