@@ -321,3 +321,25 @@ func TestProjectHomeBoundary(t *testing.T) {
 		t.Fatalf("crossed HOME: %s, %v", got, err)
 	}
 }
+
+func TestValidateOutcomeMatch(t *testing.T) {
+	c, err := Parse([]byte(`version: 1
+policy:
+  rules:
+    - {id: r, decision: deny, match: {result: failure}}
+hooks:
+  - {id: pre, phase: pre, command: [x], match: {exitCode: [1]}}
+  - {id: post, phase: post, command: [x], match: {result: [success, crashed], exitCode: [256]}}
+`), t.TempDir()) // Parse validates
+	if c != nil {
+		t.Fatal("invalid outcome criteria accepted")
+	}
+	for _, want := range []string{"policy.rules[0].match.result", "hooks[0].match.exitCode", "hooks[1].match.result[1]", "hooks[1].match.exitCode[0]"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %s in %v", want, err)
+		}
+	}
+	if _, err := Parse([]byte("version: 1\nhooks:\n  - {id: post, phase: post, command: [x], match: {result: failure, exitCode: [1, 2]}}\n"), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+}

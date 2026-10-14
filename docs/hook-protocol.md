@@ -248,6 +248,26 @@ Command prefixes are token-delimited, using alias-expanded argv and canonical
 native origin after global flags. Skipped/unselected operations are ignored.
 Unresolved repository/host constraints are selected conservatively.
 
+Post hooks may also filter on how the real gh finished (rules and pre hooks
+reject these, since gh has not run yet):
+
+- `result: success | failure` — success is exit status 0; failure is a non-zero
+  exit, termination by a signal, or gh failing to start (`startError`).
+- `exitCode: [n, ...]` — gh exit statuses 0–255 (never matches a signal
+  termination or a start failure).
+
+```yaml
+- id: notify-on-gh-failure
+  phase: post
+  match: {command: "pr merge", result: failure}
+  command: ["./hooks/notify"]
+```
+
+Post-hook candidates are selected before gh runs (which decides supervision and
+output capture) and filtered by these criteria once the result is known; hooks
+that do not match the result are not started. `ghok hooks test --phase post
+--exit-code N -- <gh args>` exercises this selection with a synthetic result.
+
 - Lower priority runs first; equal priority follows config order. Dependencies
   are ordered before dependents; among ready nodes priority/config order wins.
 - runtime.hookConcurrency defaults 1. Increasing it permits independent ready

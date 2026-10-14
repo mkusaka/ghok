@@ -68,7 +68,17 @@ type Match struct {
 	Hosts        StringList `yaml:"hosts" json:"hosts,omitempty"`
 	Effects      StringList `yaml:"effect" json:"effect,omitempty" enum:"read,write,unknown"`                                                                   // read|write|unknown
 	Levels       StringList `yaml:"level" json:"level,omitempty" enum:"L1,L2,L3,none" doc:"L1 native gh command, L2 gh api REST call, L3 gh api graphql call."` // L1|L2|L3|none
+	// Results and ExitCodes filter on how the real gh finished, so they are
+	// valid only for post hooks.
+	Results   StringList `yaml:"result" json:"result,omitempty" enum:"success,failure" doc:"Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started."`
+	ExitCodes []int      `yaml:"exitCode" json:"exitCode,omitempty" doc:"Post hooks only: gh exit codes (0-255) to run for."`
 }
+
+// Match.Results values.
+const (
+	ResultSuccess = "success"
+	ResultFailure = "failure"
+)
 
 // Hook phases.
 const (

@@ -150,7 +150,7 @@ func managementHooksList(asJSON bool) int {
 	return 0
 }
 
-func managementHooksTest(args []string, phase string, asJSON bool) int {
+func managementHooksTest(args []string, phase string, exitCode int, asJSON bool) int {
 	if phase != config.PhasePre && phase != config.PhasePost {
 		return managementUsageError("--phase must be pre or post")
 	}
@@ -163,12 +163,18 @@ func managementHooksTest(args []string, phase string, asJSON bool) int {
 	a.real, _ = realGh(a.config, a.env)
 	r := redact.New(a.env)
 	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: os.Environ(), RealGh: a.real, Redact: r.String}
-	selected := runner.Select(phase, a.subject(phase))
+	if exitCode < 0 || exitCode > 255 {
+		return managementUsageError("--exit-code must be 0-255")
+	}
+	subject := a.subject(phase)
 	input := hookInput(args, a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
 	if phase == config.PhasePost {
-		// This is explicitly a synthetic successful execution, not a real result.
-		input.Result = &protocol.ExecResult{ExitCode: 0}
+		// A synthetic execution result, not a real one; it also drives
+		// match.result / match.exitCode selection.
+		input.Result = &protocol.ExecResult{ExitCode: exitCode}
+		subject.Outcome = input.Result
 	}
+	selected := runner.Select(phase, subject)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	aggregate := runner.Run(ctx, phase, selected, r.Input(input))
 	cancel()

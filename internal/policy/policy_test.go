@@ -300,3 +300,32 @@ func TestDenyReasons(t *testing.T) {
 		}
 	}
 }
+
+func TestOutcomeMatches(t *testing.T) {
+	ok := &protocol.ExecResult{ExitCode: 0}
+	failed := &protocol.ExecResult{ExitCode: 2}
+	signaled := &protocol.ExecResult{ExitCode: -1, Signal: "SIGINT"}
+	notStarted := &protocol.ExecResult{ExitCode: 127, StartError: "not found"}
+	for _, tc := range []struct {
+		m    config.Match
+		o    *protocol.ExecResult
+		want bool
+	}{
+		{config.Match{}, failed, true},
+		{config.Match{Results: config.StringList{"failure"}}, nil, true}, // unknown yet: candidate
+		{config.Match{Results: config.StringList{"failure"}}, ok, false},
+		{config.Match{Results: config.StringList{"failure"}}, failed, true},
+		{config.Match{Results: config.StringList{"failure"}}, signaled, true},
+		{config.Match{Results: config.StringList{"failure"}}, notStarted, true},
+		{config.Match{Results: config.StringList{"success"}}, ok, true},
+		{config.Match{Results: config.StringList{"success", "failure"}}, failed, true},
+		{config.Match{ExitCodes: []int{2, 3}}, failed, true},
+		{config.Match{ExitCodes: []int{0}}, failed, false},
+		{config.Match{ExitCodes: []int{127}}, notStarted, false}, // start failure is not an exit code
+		{config.Match{Results: config.StringList{"failure"}, ExitCodes: []int{3}}, failed, false},
+	} {
+		if got := outcomeMatches(tc.m, tc.o); got != tc.want {
+			t.Errorf("match=%+v outcome=%+v: got %v", tc.m, tc.o, got)
+		}
+	}
+}

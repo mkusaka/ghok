@@ -77,6 +77,13 @@
                   }
                 ]
               },
+              "exitCode": {
+                "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
               "hosts": {
                 "oneOf": [
                   {
@@ -138,6 +145,28 @@
                   },
                   {
                     "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "result": {
+                "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "success",
+                      "failure"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "enum": [
+                        "success",
+                        "failure"
+                      ],
                       "type": "string"
                     },
                     "type": "array"
@@ -288,6 +317,13 @@
                       }
                     ]
                   },
+                  "exitCode": {
+                    "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
                   "hosts": {
                     "oneOf": [
                       {
@@ -349,6 +385,28 @@
                       },
                       {
                         "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "result": {
+                    "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "success",
+                          "failure"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "success",
+                            "failure"
+                          ],
                           "type": "string"
                         },
                         "type": "array"

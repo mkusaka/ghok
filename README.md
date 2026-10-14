@@ -311,7 +311,7 @@ ghok config validate
 ghok config validate --file /path/to/config.yaml
 ghok hooks list --json
 ghok hooks test -- pr merge 123 --admin -R org/repo
-ghok hooks test --phase post --json -- pr merge 123 -R org/repo
+ghok hooks test --phase post --exit-code 1 --json -- pr merge 123 -R org/repo
 ghok normalize -- pr merge 123 --squash -R org/repo
 ghok explain -- pr merge 123 --admin -R org/repo
 ghok explain --resolve -- pr merge 123
@@ -321,8 +321,9 @@ ghok normalize --resolve --allow-api -- pr merge 123
 Normalize/explain never execute the requested gh command; explain never runs
 hooks and exits zero even when it displays a deny. `--resolve` reads local
 metadata; `--allow-api` requires `--resolve` and permits read-only API queries.
-`hooks test` **executes trusted hooks**, using a synthetic successful result
-for post phase, but never runs the original command. Management exit codes:
+`hooks test` **executes trusted hooks**, using a synthetic result for the post
+phase (exit 0, or `--exit-code N` to exercise `match.result`/`match.exitCode`),
+but never runs the original command. Management exit codes:
 0 success, 1 failure/denial, 2 usage error. `explain --show-secrets` deliberately
 disables display redaction; do not paste that output into logs or tickets.
 

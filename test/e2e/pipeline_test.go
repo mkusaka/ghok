@@ -759,3 +759,42 @@ func TestHelperPhasesPreserveIgnoredStartupSignals(t *testing.T) {
 		}
 	}
 }
+
+// Post hooks can be limited to gh's outcome with match.result / match.exitCode;
+// non-matching ones are not run at all.
+func TestPostHooksMatchOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		exit    string
+		code    int
+		ran     []string
+		skipped []string
+	}{
+		{"0", 0, []string{"on-success", "on-zero"}, []string{"on-failure", "on-42"}},
+		{"42", 42, []string{"on-failure", "on-42"}, []string{"on-success", "on-zero"}},
+		{"1", 1, []string{"on-failure"}, []string{"on-success", "on-zero", "on-42"}},
+	} {
+		t.Run("exit"+tc.exit, func(t *testing.T) {
+			s := newSandbox(t)
+			s.configure(func(c *config.Config) {
+				success, failure, zero, fortyTwo := s.hook("on-success", "post"), s.hook("on-failure", "post"), s.hook("on-zero", "post"), s.hook("on-42", "post")
+				success.Match.Results = config.StringList{config.ResultSuccess}
+				failure.Match.Results = config.StringList{config.ResultFailure}
+				zero.Match.ExitCodes = []int{0}
+				fortyTwo.Match.ExitCodes = []int{42}
+				c.Hooks = []config.Hook{success, failure, zero, fortyTwo}
+			})
+			s.env["FAKEGH_EXIT"] = tc.exit
+			s.gh(nil, "version").code(t, tc.code)
+			for _, id := range tc.ran {
+				if in := s.hookInput(id); in.Result == nil || in.Result.ExitCode != tc.code {
+					t.Fatalf("%s: result=%+v", id, in.Result)
+				}
+			}
+			for _, id := range tc.skipped {
+				if _, err := os.Stat(filepath.Join(s.root, id+".json")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("%s ran for exit %s", id, tc.exit)
+				}
+			}
+		})
+	}
+}

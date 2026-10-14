@@ -68,6 +68,13 @@ hooks: []
 #    timeout: 5s
 #    onError: ignore
 #    # captureOutput: false          # post only: pass gh stdout/stderr to the hook
+#  - id: on-gh-failure
+#    phase: post
+#    match:
+#      command: "pr merge"
+#      result: failure               # post only: success | failure (non-zero exit, signal, start error)
+#      # exitCode: [1]               # post only: specific gh exit codes
+#    command: ["./hooks/notify-failure"]
 
 # Defaults shown; uncomment to change.
 runtime: {}

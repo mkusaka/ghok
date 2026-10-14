@@ -219,6 +219,9 @@ func Wrapper(args []string) int {
 		debug(execution.WaitErr)
 	}
 	input.Result = execInfo(execution)
+	// Candidates were selected before gh ran; apply match.result/exitCode now.
+	subject.Outcome = input.Result
+	post = runner.Select(config.PhasePost, subject)
 	aggregate := runner.Run(ctx, config.PhasePost, post, redactor.Input(input))
 	if caught := stopHelpers(); caught != 0 {
 		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))

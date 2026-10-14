@@ -93,6 +93,9 @@ post hooks `result` with `exitCode`/`signal`). A pre-hook prints one JSON respon
 - Non-zero exit, timeout or invalid JSON is an *error outcome*, handled by the hook's
   `onError` (`deny` = fail closed, pre default; `allow`; `ignore`, post default).
 - Skip operations whose `execution` is `not-selected` or `skipped`.
+- Post hooks can be limited to gh's outcome: `match: {result: failure}` (non-zero exit,
+  signal or start failure) or `match: {exitCode: [1]}`; test with
+  `ghok hooks test --phase post --exit-code 1 -- <gh args>`.
 - Post hooks never change gh's exit status. Hooks run as the user with the user's
   environment (credentials included) — treat them as trusted code; keep stdout for the
   JSON response and write diagnostics to stderr.

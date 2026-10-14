@@ -29,7 +29,7 @@ Commands:
   doctor [--json]              Check installation, configuration and permissions
   version                     Show version, commit, Go version and platform
   hooks list [--json]          List configured hooks
-  hooks test [--phase pre|post] [--json] -- <gh args>
+  hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>
                               Run hooks, never the original gh command
   normalize [--json] [--resolve] [--allow-api] -- <gh args>
                               Print redacted normalization JSON
@@ -91,20 +91,22 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		return managementVersion(version, commit)
 	})
 
-	hookCommands := managementCommand("hooks", "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--json] -- <gh args>\n", code, managementGroup)
+	hookCommands := managementCommand("hooks", "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>\n", code, managementGroup)
 	var listJSON bool
 	list := managementCommand("list", "Usage: ghok hooks list [--json]\n", code, func(_ *cobra.Command, _ []string) int {
 		return managementHooksList(listJSON)
 	})
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	var testJSON bool
+	var exitCode int
 	phase := config.PhasePre
-	test := managementCommand("test", "Usage: ghok hooks test [--phase pre|post] [--json] -- <gh args>\n", code, func(_ *cobra.Command, args []string) int {
-		return managementHooksTest(args, phase, testJSON)
+	test := managementCommand("test", "Usage: ghok hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>\n", code, func(_ *cobra.Command, args []string) int {
+		return managementHooksTest(args, phase, exitCode, testJSON)
 	})
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
+	test.Flags().IntVar(&exitCode, "exit-code", 0, "post phase: synthetic gh exit code (selects match.result/exitCode hooks)")
 	hookCommands.AddCommand(list, test)
 
 	for _, name := range []string{"normalize", "explain"} {

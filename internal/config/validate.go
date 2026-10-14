@@ -47,6 +47,23 @@ func (c *Config) Validate() error {
 		for i, v := range m.Levels {
 			enum(fmt.Sprintf("%s.level[%d]", p, i), v, "L1", "L2", "L3", "none")
 		}
+		for i, v := range m.Results {
+			enum(fmt.Sprintf("%s.result[%d]", p, i), v, ResultSuccess, ResultFailure)
+		}
+		for i, v := range m.ExitCodes {
+			if v < 0 || v > 255 {
+				add(fmt.Sprintf("%s.exitCode[%d]", p, i), "must be 0-255")
+			}
+		}
+	}
+	// gh has not run yet for rules and pre hooks, so outcome filters cannot apply.
+	outcomeOnlyPost := func(p string, m Match) {
+		if len(m.Results) > 0 {
+			add(p+".result", "allowed only for post hooks")
+		}
+		if len(m.ExitCodes) > 0 {
+			add(p+".exitCode", "allowed only for post hooks")
+		}
 	}
 	if c.Version != DefaultVersion {
 		add("version", "must be 1")
@@ -67,6 +84,7 @@ func (c *Config) Validate() error {
 		rules[r.ID] = true
 		enum(p+".decision", r.Decision, "deny", "audit")
 		match(p+".match", r.Match)
+		outcomeOnlyPost(p+".match", r.Match)
 	}
 	hooks := map[string]int{}
 	for i, h := range c.Hooks {
@@ -97,6 +115,9 @@ func (c *Config) Validate() error {
 			add(p+".captureOutput", "allowed only for post hooks")
 		}
 		match(p+".match", h.Match)
+		if h.Phase != PhasePost {
+			outcomeOnlyPost(p+".match", h.Match)
+		}
 	}
 	edges := make([][]int, len(c.Hooks))
 	for i, h := range c.Hooks {

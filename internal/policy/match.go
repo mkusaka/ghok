@@ -3,10 +3,12 @@ package policy
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/protocol"
 )
 
 type Subject struct {
@@ -14,6 +16,23 @@ type Subject struct {
 	Argv    []string
 	Context *model.ResolvedContext
 	Phase   string
+	// Outcome is how the real gh finished (post phase). nil means not known
+	// yet: outcome criteria then match, so the hook stays a candidate.
+	Outcome *protocol.ExecResult
+}
+
+// outcomeMatches applies match.result / match.exitCode.
+func outcomeMatches(m config.Match, o *protocol.ExecResult) bool {
+	if o == nil || len(m.Results)+len(m.ExitCodes) == 0 {
+		return true
+	}
+	failed := o.StartError != "" || o.Signal != "" || o.ExitCode != 0
+	if len(m.Results) > 0 && !slices.ContainsFunc(m.Results, func(r string) bool {
+		return r == config.ResultFailure && failed || r == config.ResultSuccess && !failed
+	}) {
+		return false
+	}
+	return len(m.ExitCodes) == 0 || o.StartError == "" && o.Signal == "" && slices.Contains(m.ExitCodes, o.ExitCode)
 }
 
 // MatchAction uses path.Match over action names. Dots are ordinary characters,
@@ -45,6 +64,9 @@ func anyMatch(patterns []string, value string, match func(string, string) bool) 
 func exact(pattern, value string) bool { return pattern == value }
 
 func invocationMatches(m config.Match, s Subject) bool {
+	if !outcomeMatches(m, s.Outcome) {
+		return false
+	}
 	if !anyMatch(m.Levels, string(s.Result.Classification.Level), exact) {
 		return false
 	}
