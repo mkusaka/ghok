@@ -24,9 +24,9 @@ vet, formatting, tests, race tests, five 10-second fuzz smokes, make build, and
 all four CGO-free cross-compiles. Cross-build success alone is not runtime proof.
 
 Engineering records report macOS arm64 runtime/race/E2E/PTY tests and Linux
-arm64 plus translated amd64 non-race runtime suites; the latest arm64 run
-failed one unchanged process job-control test, while all new E2E cases passed
-(see [CLI verification](notes/cli.md#verification)). macOS amd64 was previously
+arm64 plus translated amd64 non-race runtime suites. The reported Linux
+job-control race was repaired; 1,000 iterations pass on Linux arm64 and on
+macOS arm64 under CPU load (see [process verification](notes/process.md#2026-10-15-job-control-race-repair)). macOS amd64 was previously
 cross-compiled, not locally executed. The native CI jobs are the ongoing
 verification surface, not a claim that those hosted jobs have already run.
 No minimum Linux distribution or macOS version beyond these exercised/CI
@@ -59,8 +59,8 @@ signed/notarized. Windows and other operating systems are unsupported.
 | SIGINT/SIGQUIT when supervisor is not terminal foreground | Forwarded to direct child pid. | Supported nonforeground/non-TTY forwarding. |
 | Wrapper-directed SIGTERM/SIGHUP while gh runs | Forwarded to direct child pid. | No process-group broadcast; descendants must be handled by child. |
 | SIGWINCH | Not forwarded; foreground terminal group receives it naturally. | Pid-only WINCH sent to wrapper is not relayed. |
-| SIGTSTP/SIGTTIN/SIGTTOU | Default stop actions retained; genuine child stop mirrored on wrapper. | Shell fg/bg job control supported; stale stop events checked before mirroring. |
-| SIGCONT | Continued wrapper forwards CONT to child. | Supported; cancellation cannot progress while wrapper is stopped. |
+| SIGTSTP/SIGTTIN/SIGTTOU | Child's actual stop controls suspension; wrapper catches its group notification, then raises the same default-action stop only after the child stops. | Shell fg/bg supported; wrapper-pid-only terminal stops are not relayed. A child that handles/ignores the stop does not stop the wrapper. |
+| SIGCONT | On return from controlled suspension, re-arm terminal-stop handling and continue the child before inspecting another wait status; other wrapper CONT notifications are forwarded. | Supports child-pid STOP and ignored CONT notifications; cancellation cannot progress while wrapper is stopped. Uncatchable group-wide STOP/CONT ordering is outside the controlled terminal-stop guarantee. |
 | Child termination by signal | After post-hooks, install default disposition/unblock/raise same signal on wrapper. | Shell sees signaled termination, not merely normal exit 128+n, when platform restoration succeeds. |
 | Core-dump status | Child core flag retained in diagnostics; wrapper RLIMIT_CORE zeroed before re-raising. | Wrapper core-dump wait flag/file may differ from child's. |
 | Signal-restoration failure | Fallback normal exit 128+n. | Exceptional fallback is not WIFSIGNALED-equivalent. |

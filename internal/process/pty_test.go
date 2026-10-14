@@ -211,53 +211,78 @@ func stoppedWithin(t *testing.T, pid int, want syscall.Signal) {
 
 func TestChildStopContinue(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGSTOP, syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
-		t.Run(sig.String(), func(t *testing.T) {
-			cfg := childConfig(t, "block", 0)
-			cmd := wrapperCommand(t, cfg)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			inR, inW, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			outR, outW, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			cmd.Stdin = inR
-			cmd.Stdout = outW
-			if err = cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			inR.Close()
-			outW.Close()
-			var waiter *commandWait
-			t.Cleanup(func() {
-				inW.Close()
-				outR.Close()
-				if waiter == nil {
-					waiter = beginCommandWait(cmd, nil)
+		for _, ignoreContinue := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/ignored-cont=%v", sig, ignoreContinue), func(t *testing.T) {
+				cfg := childConfig(t, "block", 0)
+				if ignoreContinue {
+					// SIGCONT still resumes a stopped process when its notification
+					// is ignored. This deterministically removes asynchronous CONT
+					// delivery: the stop/continue handoff itself must resume the child.
+					cfg.Mode = "run-ignore-cont"
 				}
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-				cleanupCommand(t, waiter)
+				cmd := wrapperCommand(t, cfg)
+				cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+				inR, inW, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				outR, outW, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				cmd.Stdin = inR
+				cmd.Stdout = outW
+				if err = cmd.Start(); err != nil {
+					t.Fatal(err)
+				}
+				inR.Close()
+				outW.Close()
+				var waiter *commandWait
+				t.Cleanup(func() {
+					inW.Close()
+					outR.Close()
+					if waiter == nil {
+						waiter = beginCommandWait(cmd, nil)
+					}
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					cleanupCommand(t, waiter)
+				})
+				line := lineWithin(t, bufio.NewReader(outR))
+				var pid int
+				if _, err = fmt.Sscanf(line, "READY %d", &pid); err != nil {
+					t.Fatal(err)
+				}
+				if err = syscall.Kill(pid, sig); err != nil {
+					t.Fatal(err)
+				}
+				stoppedWithin(t, cmd.Process.Pid, sig)
+				waiter = beginCommandWait(cmd, nil)
+				if err = cmd.Process.Signal(syscall.SIGCONT); err != nil {
+					t.Fatal(err)
+				}
+				inW.Close()
+				if status := waitCommand(t, waiter); !status.Exited() || status.ExitStatus() != 0 {
+					t.Fatal(status)
+				}
 			})
-			line := lineWithin(t, bufio.NewReader(outR))
-			var pid int
-			if _, err = fmt.Sscanf(line, "READY %d", &pid); err != nil {
-				t.Fatal(err)
-			}
-			if err = syscall.Kill(pid, sig); err != nil {
-				t.Fatal(err)
-			}
-			stoppedWithin(t, cmd.Process.Pid, sig)
-			waiter = beginCommandWait(cmd, nil)
-			if err = cmd.Process.Signal(syscall.SIGCONT); err != nil {
-				t.Fatal(err)
-			}
-			inW.Close()
-			if status := waitCommand(t, waiter); !status.Exited() || status.ExitStatus() != 0 {
-				t.Fatal(status)
-			}
-		})
+		}
+	}
+}
+
+func TestHandledTerminalStopDoesNotStopWrapper(t *testing.T) {
+	w, r, input := startPiped(t, childConfig(t, "handled-stop", 0))
+	if !strings.HasPrefix(lineWithin(t, r), "READY ") {
+		t.Fatal("child not ready")
+	}
+	if err := syscall.Kill(-w.Process.Pid, syscall.SIGTSTP); err != nil {
+		t.Fatal(err)
+	}
+	if got := lineWithin(t, r); got != "HANDLED" {
+		t.Fatalf("child stop handler: %q", got)
+	}
+	input.Close()
+	if status := waitCommand(t, w); !status.Exited() || status.ExitStatus() != 0 {
+		t.Fatalf("wrapper stopped despite a running child: %v", status)
 	}
 }
 
