@@ -33,7 +33,7 @@ Normally, real gh launched through the shim selects its own installation's stabl
 
 ## Diagnostics and limits
 
-Doctor checks binary/version label, real gh, exact shim precedence, ownership, recursion, gh compatibility, and process capabilities. Recorded renamed shims are flagged and never executed for version checking. Probes and `gh --version` execute explicit paths with a three-second timeout, bounded stdout (64 KiB), and bounded inherited-pipe waiting. Older/unparseable/failed version checks warn; 2.102.0+ is informational. The threshold is the verified normalization/source baseline, not a hard functional minimum or future compatibility guarantee.
+Doctor checks binary/version label, real gh, exact shim precedence, ownership, recursion, gh compatibility, and process capabilities. Recorded renamed shims are flagged and never executed for version checking. Probes and `gh --version` execute explicit paths with a ten-second timeout, bounded stdout (64 KiB), and bounded inherited-pipe waiting. Older/unparseable/failed version checks warn; 2.102.0+ is informational. The threshold is the verified normalization/source baseline, not a hard functional minimum or future compatibility guarantee.
 
 macOS/Linux amd64/arm64 share installation semantics. Native termios ioctl distinguishes PTYs from files and /dev/null (Darwin TIOCGETA, Linux TCGETS). Doctor reports /dev/tty access and foreground-process-group job-control requirements without changing process groups; Linux additionally reports /proc availability. Windows/other OS builds are unsupported.
 

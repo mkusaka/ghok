@@ -98,6 +98,7 @@ func TestDoctorNeverExecutesKnownRenamedShim(t *testing.T) {
 
 func TestDoctorVersionTimeoutAndFailure(t *testing.T) {
 	o := doctorFixture(t)
+	defer func(d time.Duration) { diagnosticTimeout = d }(diagnosticTimeout)
 	real := filepath.Join(filepath.Dir(o.Self), "real", "gh")
 	for _, tc := range []struct {
 		body, detail string
@@ -111,6 +112,10 @@ func TestDoctorVersionTimeoutAndFailure(t *testing.T) {
 	} {
 		t.Run(tc.detail, func(t *testing.T) {
 			executable(t, real, tc.body)
+			diagnosticTimeout = 10 * time.Second
+			if tc.detail == "timed out" {
+				diagnosticTimeout = 2 * time.Second // only the sleeping fake needs a short bound
+			}
 			start := time.Now()
 			c := checkNamed(t, Checks(o), "gh-version")
 			if c.Status != tc.status || !strings.Contains(c.Detail, tc.detail) {

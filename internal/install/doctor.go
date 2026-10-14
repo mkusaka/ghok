@@ -194,12 +194,17 @@ func (w *diagnosticOutput) Write(p []byte) (int, error) {
 	w.data = append(w.data, p...)
 	return n, nil
 }
+
+// diagnosticTimeout bounds `gh --version` and probes; generous because a cold
+// start on a loaded machine can take seconds. Tests shorten it.
+var diagnosticTimeout = 10 * time.Second
+
 func runDiagnostic(path string, env []string, args ...string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), diagnosticTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, abs, args...)
 	cmd.Env = env
@@ -208,7 +213,7 @@ func runDiagnostic(path string, env []string, args ...string) (string, error) {
 	cmd.Stdout = &out
 	err = cmd.Run()
 	if ctx.Err() != nil {
-		return "", fmt.Errorf("diagnostic timed out after 3s: %w", ctx.Err())
+		return "", fmt.Errorf("diagnostic timed out after %s: %w", diagnosticTimeout, ctx.Err())
 	}
 	if err != nil {
 		return "", err
