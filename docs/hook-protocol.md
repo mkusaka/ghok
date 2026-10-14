@@ -46,6 +46,7 @@ bytes are base64, never an assumed UTF-8 string.
 | isTTY | boolean | no | Original stdout is a terminal. Capture can make child stdout non-TTY. |
 | stdinTTY | boolean | no | Original stdin is a terminal. |
 | realGh | string | yes | Discovered real executable path. |
+| tokenKind | string | yes | Kind of env token gh will use: `app` (`ghs_`, GitHub App installation, e.g. gain or Actions), `user` (`ghp_`/`gho_`/`ghu_`/`github_pat_`), `unknown`, or `none` (gh's stored login). The token itself is never included. |
 
 ### Classification and operation records
 
@@ -247,6 +248,20 @@ Repository/host globs are case-insensitive; repository `org/*` does not span `/`
 Command prefixes are token-delimited, using alias-expanded argv and canonical
 native origin after global flags. Skipped/unselected operations are ignored.
 Unresolved repository/host constraints are selected conservatively.
+
+`token: app | user | unknown | none` matches the kind of credential in
+`GH_TOKEN`/`GITHUB_TOKEN` (prefix only; the value is never logged). Wrappers such
+as gain call `gh` through PATH with a GitHub App token, so they pass through
+ghok and can be told apart:
+
+```yaml
+policy:
+  rules:
+    - id: no-app-pr-writes
+      match: {token: app, operation: ["pr.*", "issue.*"], effect: write}
+      decision: deny
+      reason: PR/issue writes must be authored by you, not the GitHub App
+```
 
 Post hooks may also filter on how the real gh finished (rules and pre hooks
 reject these, since gh has not run yet):

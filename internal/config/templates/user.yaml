@@ -39,6 +39,7 @@ policy:
   #      # command: "pr merge"          # gh command path prefix
   #      # effect: write                # read | write | unknown
   #      # level: L1                    # L1 gh command | L2 gh api REST | L3 gh api graphql
+  #      # token: app                   # app (GitHub App token: gain, Actions) | user | unknown | none
   #      # hosts: ["github.com"]
   #    decision: deny
   #    reason: merge via the merge queue instead of bypassing it

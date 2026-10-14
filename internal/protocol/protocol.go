@@ -36,6 +36,9 @@ type InvocationInfo struct {
 	IsTTY    bool     `json:"isTTY"` // stdout is a terminal
 	StdinTTY bool     `json:"stdinTTY"`
 	RealGh   string   `json:"realGh,omitempty"`
+	// TokenKind is the kind of env token gh will use: app|user|unknown|none
+	// (see config match.token). The token itself is never included.
+	TokenKind string `json:"tokenKind,omitempty"`
 }
 
 type PolicyInfo struct {

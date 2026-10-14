@@ -798,3 +798,49 @@ func TestPostHooksMatchOutcome(t *testing.T) {
 		})
 	}
 }
+
+// match.token distinguishes GitHub App installation tokens (gain, Actions)
+// from user credentials, e.g. to forbid PR writes authored by an App.
+func TestRuleMatchesTokenKind(t *testing.T) {
+	fake := "0123456789abcdefghijklmnopqrstuvwxyzAB" // not a real credential
+	for _, tc := range []struct {
+		token string
+		code  int
+	}{
+		{"ghs" + "_" + fake, 1},
+		{"ghp" + "_" + fake, 0},
+		{"", 0},
+	} {
+		t.Run(tc.token[:min(4, len(tc.token))], func(t *testing.T) {
+			s := newSandbox(t)
+			s.configure(func(c *config.Config) {
+				c.Policy.Mode = config.ModeEnforce
+				c.Policy.Rules = []config.Rule{{ID: "no-app-pr-writes", Decision: "deny", Reason: "PR writes must be authored by a user",
+					Match: config.Match{Tokens: config.StringList{"app"}, Operations: config.StringList{"pr.*"}, Effects: config.StringList{"write"}}}}
+				h := s.hook("pre", "pre")
+				c.Hooks = []config.Hook{h}
+			})
+			if tc.token != "" {
+				s.env["GH_TOKEN"] = tc.token
+			}
+			result := s.gh(nil, "pr", "close", "1", "-R", "o/r")
+			result.code(t, tc.code)
+			if tc.code == 1 {
+				s.absentRecord()
+				return
+			}
+			if in := s.hookInput("pre"); in.Invocation.TokenKind == "" || strings.Contains(string(mustJSON(t, in)), fake) {
+				t.Fatalf("tokenKind=%q, token leaked into hook input", in.Invocation.TokenKind)
+			}
+		})
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}

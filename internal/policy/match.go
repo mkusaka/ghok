@@ -19,6 +19,8 @@ type Subject struct {
 	// Outcome is how the real gh finished (post phase). nil means not known
 	// yet: outcome criteria then match, so the hook stays a candidate.
 	Outcome *protocol.ExecResult
+	// Token is TokenKind of the invocation environment ("" is treated as none).
+	Token string
 }
 
 // outcomeMatches applies match.result / match.exitCode.
@@ -65,6 +67,13 @@ func exact(pattern, value string) bool { return pattern == value }
 
 func invocationMatches(m config.Match, s Subject) bool {
 	if !outcomeMatches(m, s.Outcome) {
+		return false
+	}
+	token := s.Token
+	if token == "" {
+		token = TokenNone
+	}
+	if !anyMatch(m.Tokens, token, exact) {
 		return false
 	}
 	if !anyMatch(m.Levels, string(s.Result.Classification.Level), exact) {

@@ -112,7 +112,7 @@ func Wrapper(args []string) int {
 	}
 	result := normalize.Normalize(inv)
 	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: childEnv, RealGh: real, Redact: redactor.String}
-	subject := policy.Subject{Result: result, Argv: result.Source.Argv}
+	subject := policy.Subject{Result: result, Argv: result.Source.Argv, Token: policy.TokenKind(env)}
 	var resolved *model.ResolvedContext
 	localNeeded := needsLocal(cfg, subject)
 	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || cfg.Policy.Mode == config.ModeEnforce && localNeeded)

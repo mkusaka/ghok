@@ -47,6 +47,9 @@ func (c *Config) Validate() error {
 		for i, v := range m.Levels {
 			enum(fmt.Sprintf("%s.level[%d]", p, i), v, "L1", "L2", "L3", "none")
 		}
+		for i, v := range m.Tokens {
+			enum(fmt.Sprintf("%s.token[%d]", p, i), v, "app", "user", "unknown", "none")
+		}
 		for i, v := range m.Results {
 			enum(fmt.Sprintf("%s.result[%d]", p, i), v, ResultSuccess, ResultFailure)
 		}

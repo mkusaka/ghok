@@ -172,6 +172,32 @@
                     "type": "array"
                   }
                 ]
+              },
+              "token": {
+                "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "app",
+                      "user",
+                      "unknown",
+                      "none"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "enum": [
+                        "app",
+                        "user",
+                        "unknown",
+                        "none"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
               }
             },
             "type": "object"
@@ -387,6 +413,32 @@
                           "enum": [
                             "success",
                             "failure"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "token": {
+                    "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "app",
+                          "user",
+                          "unknown",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "app",
+                            "user",
+                            "unknown",
+                            "none"
                           ],
                           "type": "string"
                         },

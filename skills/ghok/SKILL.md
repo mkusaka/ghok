@@ -54,7 +54,8 @@ Never overwrite an existing config; edit it instead.
   `rules:` — `{id, match, decision: deny|audit, reason}`; no rule can override a deny.
 - **Match** (rules and hooks): `operation` (action glob, e.g. `pr.merge.*`), `command`
   (gh command prefix, e.g. `"pr merge"`), `repositories`, `hosts`,
-  `effect` (`read|write|unknown`), `level`. Criteria are ANDed; list items are ORed.
+  `effect` (`read|write|unknown`), `level`, `token` (`app` = GitHub App installation token
+  such as gain/Actions, `user`, `unknown`, `none` = gh's stored login). Criteria are ANDed; list items are ORed.
 
 Nothing blocks unless `policy.mode: enforce`. When changing a user's policy to enforce,
 confirm first and show `ghok explain` output for the commands they care about.

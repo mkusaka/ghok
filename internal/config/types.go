@@ -72,6 +72,9 @@ type Match struct {
 	// valid only for post hooks.
 	Results   StringList `yaml:"result" json:"result,omitempty" enum:"success,failure" doc:"Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started."`
 	ExitCodes []int      `yaml:"exitCode" json:"exitCode,omitempty" doc:"Post hooks only: gh exit codes (0-255) to run for."`
+	// Tokens matches the kind of credential gh will use, derived from the
+	// GH_TOKEN/GITHUB_TOKEN prefix (the token itself is never recorded).
+	Tokens StringList `yaml:"token" json:"token,omitempty" enum:"app,user,unknown,none" doc:"Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login)."`
 }
 
 // Match.Results values.
@@ -113,6 +116,8 @@ type Hook struct {
 	// MaxOutputBytes bounds what ghok reads from the hook's stdout/stderr
 	// (default 1 MiB / 64 KiB).
 	MaxOutputBytes int64 `yaml:"maxOutputBytes" json:"maxOutputBytes,omitempty"`
+	// Source is load-time provenance, not a configurable YAML field.
+	Source string `yaml:"-" json:"source,omitempty"`
 }
 
 type Runtime struct {
