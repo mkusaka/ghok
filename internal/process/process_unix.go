@@ -95,12 +95,32 @@ func Run(ctx context.Context, opts Options) (result Result) {
 	// Check Ignored BEFORE Notify: inherited nohup/background-job dispositions
 	// must not turn into caught signals in the child.
 	sigs := make(chan os.Signal, 32)
-	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGCONT} {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGHUP} {
 		if !signal.Ignored(sig) {
 			signal.Notify(sigs, sig)
 		}
 	}
 	defer signal.Stop(sigs)
+	signal.Notify(sigs, syscall.SIGCHLD)
+	continues := make(chan os.Signal, 1)
+	notifyContinue := !signal.Ignored(syscall.SIGCONT)
+	if notifyContinue {
+		signal.Notify(continues, syscall.SIGCONT)
+	}
+	defer signal.Stop(continues)
+	stops := make(chan os.Signal, 3)
+	// The child owns terminal-stop behavior, including catching/ignoring it.
+	// Catch our copy without forwarding it or stopping before the child does.
+	stopSignals := make([]os.Signal, 0, 3)
+	for _, sig := range []syscall.Signal{syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
+		if !signal.Ignored(sig) {
+			stopSignals = append(stopSignals, sig)
+		}
+	}
+	if len(stopSignals) != 0 {
+		signal.Notify(stops, stopSignals...)
+	}
+	defer signal.Stop(stops)
 	stdin, stdout, stderr := os.Stdin, os.Stdout, os.Stderr
 	if opts.Stdin != nil {
 		stdin = opts.Stdin.File()
@@ -144,24 +164,49 @@ func Run(ctx context.Context, opts Options) (result Result) {
 			}
 		}()
 	}
-	type waitEvent struct {
-		status syscall.WaitStatus
-		err    error
-	}
-	waits := make(chan waitEvent)
-	go func() {
-		for {
-			var status syscall.WaitStatus
-			_, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
-			if err == syscall.EINTR {
-				continue
-			}
-			waits <- waitEvent{status, err}
-			if err != nil || status.Exited() || status.Signaled() {
-				return
-			}
+	// Do not let a terminal group stop suspend us with an unhandled child
+	// stop event. Own the stop transition, then continue the child before
+	// looking at wait statuses again. A shell may continue group members in
+	// either order; a child state snapshot cannot synchronize that handoff.
+	suspend := func(sig syscall.Signal) error {
+		if signal.Ignored(sig) {
+			return nil
 		}
-	}()
+		signal.Stop(stops)
+		signal.Stop(continues)
+		// Stop joins signal delivery. These are notifications from the cycle
+		// we are handling, not requests to stop/continue a second time.
+		for len(stops) != 0 {
+			<-stops
+		}
+		for len(continues) != 0 {
+			<-continues
+		}
+		runtime.LockOSThread()
+		var err error
+		if sig != syscall.SIGSTOP {
+			err = defaultSignal(sig)
+		}
+		if err == nil {
+			// Raise on this thread: a process-directed kill can return before
+			// another thread takes the stop, letting us continue the child early.
+			raiseSignal(sig)
+			// Re-arm terminal stops before waking a background reader: it can
+			// immediately generate a fresh group SIGTTIN.
+			if len(stopSignals) != 0 {
+				signal.Notify(stops, stopSignals...)
+			}
+			_ = syscall.Kill(pid, syscall.SIGCONT)
+		}
+		runtime.UnlockOSThread()
+		if err != nil && len(stopSignals) != 0 {
+			signal.Notify(stops, stopSignals...)
+		}
+		if notifyContinue {
+			signal.Notify(continues, syscall.SIGCONT)
+		}
+		return err
+	}
 	cancel := ctx.Done()
 	var grace *time.Timer
 	var kill <-chan time.Time
@@ -171,27 +216,32 @@ func Run(ctx context.Context, opts Options) (result Result) {
 		}
 	}()
 	for {
-		select {
-		case ev := <-waits:
-			if ev.err != nil {
-				result.WaitErr = errors.Join(result.WaitErr, ev.err)
-				return
-			}
-			if sig := stoppedSignal(ev.status); sig != 0 {
-				// Stop this pid, never the whole group. Orphaned groups may
-				// ignore terminal stop signals; SIGSTOP itself cannot be ignored.
-				// A group stop may have stopped us before Wait4's event was
-				// handled; after shell fg/bg that old event must not stop us again.
+		// Only this loop owns wait4. No goroutine can retain a consumed stop
+		// across suspend's SIGCONT, which discards the kernel's old stop status.
+		var status syscall.WaitStatus
+		got, err := syscall.Wait4(pid, &status, syscall.WUNTRACED|syscall.WNOHANG, nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			result.WaitErr = errors.Join(result.WaitErr, err)
+			return
+		}
+		if got != 0 {
+			if sig := stoppedSignal(status); sig != 0 {
 				if childStillStopped(pid) {
-					_ = syscall.Kill(os.Getpid(), sig)
+					if err := suspend(sig); err != nil {
+						result.WaitErr = errors.Join(result.WaitErr, err)
+						_ = syscall.Kill(pid, syscall.SIGKILL)
+					}
 				}
 				continue
 			}
-			if ev.status.Signaled() {
-				result.Signal = ev.status.Signal()
-				result.CoreDump = ev.status.CoreDump()
+			if status.Signaled() {
+				result.Signal = status.Signal()
+				result.CoreDump = status.CoreDump()
 			} else {
-				result.ExitCode = ev.status.ExitStatus()
+				result.ExitCode = status.ExitStatus()
 			}
 			if finishPump != nil {
 				finishPump()
@@ -203,8 +253,15 @@ func Run(ctx context.Context, opts Options) (result Result) {
 				stopAbort()
 			}
 			return
+		}
+		select {
+		case <-continues:
+			_ = syscall.Kill(pid, syscall.SIGCONT)
 		case s := <-sigs:
 			sig := s.(syscall.Signal)
+			if sig == syscall.SIGCHLD {
+				continue
+			}
 			if (sig == syscall.SIGINT || sig == syscall.SIGQUIT) && foregroundTTY() {
 				continue
 			}

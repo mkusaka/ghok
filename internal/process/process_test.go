@@ -93,6 +93,9 @@ func wrapperMain() {
 		err := Exec(opts)
 		os.Exit(StartErrorExitCode(err))
 	}
+	if cfg.Mode == "run-ignore-cont" {
+		signal.Ignore(syscall.SIGCONT)
+	}
 	ctx := context.Background()
 	if cfg.Cancel > 0 {
 		var cancel context.CancelFunc
@@ -190,6 +193,14 @@ func childMain() {
 		Result{Signal: sig}.Exit()
 	case "block":
 		fmt.Printf("READY %d\n", os.Getpid())
+		_, _ = io.Copy(io.Discard, os.Stdin)
+	case "handled-stop":
+		stopped := make(chan os.Signal, 1)
+		signal.Notify(stopped, syscall.SIGTSTP)
+		defer signal.Stop(stopped)
+		fmt.Printf("READY %d\n", os.Getpid())
+		<-stopped
+		fmt.Println("HANDLED")
 		_, _ = io.Copy(io.Discard, os.Stdin)
 	case "job":
 		continued := make(chan os.Signal, 8)
