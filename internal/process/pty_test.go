@@ -18,15 +18,72 @@ import (
 	"github.com/mkusaka/ghok/internal/model"
 )
 
-func startPTY(t *testing.T, cfg wrapperConfig) (*exec.Cmd, *os.File, *bufio.Reader) {
+// pollablePTY makes Close interrupt blocked test reads instead of waiting for
+// a blocking read syscall. Keep one owner for the duplicated descriptor.
+func pollablePTY(t *testing.T, f *os.File) *os.File {
+	t.Helper()
+	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_DUPFD_CLOEXEC, 3)
+	if errno != 0 {
+		f.Close()
+		t.Fatal(errno)
+	}
+	if err := syscall.SetNonblock(int(fd), true); err != nil {
+		syscall.Close(int(fd))
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	file := os.NewFile(fd, "test-pty")
+	if err := file.SetReadDeadline(time.Time{}); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	return file
+}
+
+func startPTY(t *testing.T, cfg wrapperConfig) (*commandWait, *os.File, *bufio.Reader) {
 	t.Helper()
 	cmd := wrapperCommand(t, cfg)
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait(); f.Close() })
-	return cmd, f, bufio.NewReader(f)
+	f = pollablePTY(t, f)
+	w := beginCommandWait(cmd, func() {
+		// Darwin exiting processes can wait for unread tty output: release
+		// the master before reaping, including when an assertion failed.
+		f.Close()
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	})
+	t.Cleanup(func() { cleanupCommand(t, w) })
+	return w, f, bufio.NewReader(f)
+}
+
+func waitPTYCommand(t *testing.T, w *commandWait, f *os.File, r *bufio.Reader) syscall.WaitStatus {
+	t.Helper()
+	drained := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, r); close(drained) }()
+	status := waitCommand(t, w)
+	f.Close()
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY drain did not finish after master close")
+	}
+	return status
+}
+
+func TestPTYCleanupWithUnreadOutput(t *testing.T) {
+	w, master, _ := startPTY(t, childConfig(t, "output", 64<<20))
+	if err := master.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var first [1]byte
+	if _, err := io.ReadFull(master, first[:]); err != nil {
+		t.Fatal(err)
+	}
+	// Leave the remaining tty output unread; cleanup must still close/reap.
+	cleanupCommand(t, w)
 }
 
 func TestSpoolTTYIsNotConsumed(t *testing.T) {
@@ -34,8 +91,9 @@ func TestSpoolTTYIsNotConsumed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	master = pollablePTY(t, master)
+	slave = pollablePTY(t, slave)
+	t.Cleanup(func() { master.Close(); slave.Close() })
 	spool, err := SpoolStdin(slave, 0, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +115,7 @@ func TestPTYTerminalAndResize(t *testing.T) {
 	for _, mode := range []string{"exec", "run"} {
 		cfg := childConfig(t, "metadata", 0)
 		cfg.Mode = mode
-		cmd, _, r := startPTY(t, cfg)
+		cmd, master, r := startPTY(t, cfg)
 		s := lineWithin(t, r)
 		var got metadata
 		if err := json.Unmarshal([]byte(s), &got); err != nil {
@@ -66,13 +124,13 @@ func TestPTYTerminalAndResize(t *testing.T) {
 		if got.TTY != [3]bool{true, true, true} {
 			t.Fatalf("TTY fds %#v", got.TTY)
 		}
-		if status := waitCommand(t, cmd); !status.Exited() || status.ExitStatus() != 0 {
+		if status := waitPTYCommand(t, cmd, master, r); !status.Exited() || status.ExitStatus() != 0 {
 			t.Fatal(status)
 		}
 	}
 	cfg := childConfig(t, "metadata", 0)
 	cfg.Capture = true
-	cmd, _, r := startPTY(t, cfg)
+	cmd, master, r := startPTY(t, cfg)
 	var got metadata
 	if err := json.Unmarshal([]byte(lineWithin(t, r)), &got); err != nil {
 		t.Fatal(err)
@@ -80,7 +138,7 @@ func TestPTYTerminalAndResize(t *testing.T) {
 	if got.TTY != [3]bool{true, false, false} {
 		t.Fatalf("capture TTY %#v", got.TTY)
 	}
-	_ = waitCommand(t, cmd)
+	_ = waitPTYCommand(t, cmd, master, r)
 	cmd, f, r := startPTY(t, childConfig(t, "resize", 0))
 	if lineWithin(t, r) != "READY" {
 		t.Fatal("not ready")
@@ -91,7 +149,7 @@ func TestPTYTerminalAndResize(t *testing.T) {
 	if got := lineWithin(t, r); got != "SIZE 41 103" {
 		t.Fatal(got)
 	}
-	if status := waitCommand(t, cmd); !status.Exited() || status.ExitStatus() != 0 {
+	if status := waitPTYCommand(t, cmd, f, r); !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatal(status)
 	}
 }
@@ -113,7 +171,7 @@ func TestPTYInterruptExactlyOnce(t *testing.T) {
 			if !strings.HasSuffix(line, "COUNT 1") {
 				t.Fatalf("terminal delivered %q", line)
 			}
-			status := waitCommand(t, cmd)
+			status := waitPTYCommand(t, cmd, f, r)
 			if !status.Signaled() || status.Signal() != tc.sig {
 				t.Fatalf("status %v", status)
 			}
@@ -124,28 +182,30 @@ func TestPTYInterruptExactlyOnce(t *testing.T) {
 // Observe stop events directly, without cmd.Wait consuming WUNTRACED statuses.
 func stoppedWithin(t *testing.T, pid int, want syscall.Signal) {
 	t.Helper()
-	done := make(chan struct {
-		status syscall.WaitStatus
-		err    error
-	}, 1)
-	go func() {
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
 		var status syscall.WaitStatus
-		_, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
-		done <- struct {
-			status syscall.WaitStatus
-			err    error
-		}{status, err}
-	}()
-	select {
-	case v := <-done:
-		if v.err != nil || stoppedSignal(v.status) != want {
-			t.Fatalf("stop status %v err %v want %v", v.status, v.err, want)
+		got, err := syscall.Wait4(pid, &status, syscall.WUNTRACED|syscall.WNOHANG, nil)
+		if err == syscall.EINTR {
+			continue
 		}
-	case <-time.After(10 * time.Second):
-		_ = syscall.Kill(pid, syscall.SIGCONT)
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-		<-done
-		t.Fatal("wrapper failed to mirror stop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != 0 {
+			if stoppedSignal(status) != want {
+				t.Fatalf("stop status %v want %v", status, want)
+			}
+			return
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("wrapper failed to mirror stop")
+		}
 	}
 }
 
@@ -170,7 +230,16 @@ func TestChildStopContinue(t *testing.T) {
 			}
 			inR.Close()
 			outW.Close()
-			t.Cleanup(func() { inW.Close(); outR.Close(); _ = cmd.Process.Kill() })
+			var waiter *commandWait
+			t.Cleanup(func() {
+				inW.Close()
+				outR.Close()
+				if waiter == nil {
+					waiter = beginCommandWait(cmd, nil)
+				}
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				cleanupCommand(t, waiter)
+			})
 			line := lineWithin(t, bufio.NewReader(outR))
 			var pid int
 			if _, err = fmt.Sscanf(line, "READY %d", &pid); err != nil {
@@ -180,11 +249,12 @@ func TestChildStopContinue(t *testing.T) {
 				t.Fatal(err)
 			}
 			stoppedWithin(t, cmd.Process.Pid, sig)
+			waiter = beginCommandWait(cmd, nil)
 			if err = cmd.Process.Signal(syscall.SIGCONT); err != nil {
 				t.Fatal(err)
 			}
 			inW.Close()
-			if status := waitCommand(t, cmd); !status.Exited() || status.ExitStatus() != 0 {
+			if status := waitCommand(t, waiter); !status.Exited() || status.ExitStatus() != 0 {
 				t.Fatal(status)
 			}
 		})
@@ -198,26 +268,27 @@ func TestShellForegroundBackgroundJobs(t *testing.T) {
 	}
 	cfg := childConfig(t, "job", 0)
 	wrapper := wrapperCommand(t, cfg)
-	cmd := exec.Command(bash, "--noprofile", "--norc", "-i")
-	cmd.Env = append(wrapper.Env, "PS1=GHOK_PROMPT> ", "PS2=GHOK_MORE> ", "TERM=dumb")
+	cmd := testCommand(t, bash, "--noprofile", "--norc", "--noediting", "-i")
+	cmd.Env = append(wrapper.Env, "PS1=", "PS2=", "TERM=dumb")
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		t.Fatal(err)
 	}
+	f = pollablePTY(t, f)
 	jobGroup := 0
-	t.Cleanup(func() {
+	w := beginCommandWait(cmd, func() {
+		f.Close()
 		if jobGroup != 0 {
 			_ = syscall.Kill(-jobGroup, syscall.SIGKILL)
 		}
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Wait()
-		f.Close()
 	})
+	t.Cleanup(func() { cleanupCommand(t, w) })
 	r := bufio.NewReader(f)
 	// Mark prompts with explicit commands, so no timeout/sleep-based prompt polling.
-	_, _ = fmt.Fprintf(f, "printf 'SHELL_READY\\n'\n")
+	_, _ = f.WriteString("stty -echo; printf 'SHELL_READY\\n'\n")
 	for {
-		if strings.Contains(lineWithin(t, r), "SHELL_READY") {
+		if lineWithin(t, r) == "SHELL_READY" {
 			break
 		}
 	}
@@ -263,32 +334,37 @@ func TestShellForegroundBackgroundJobs(t *testing.T) {
 	if !stopped {
 		t.Fatal("shell did not observe stopped background stdin reader")
 	}
-	_, _ = f.WriteString("fg; printf 'FG_DONE:%s\\n' \"$?\"\n")
-	// The child's CONT acknowledgment and bash's job description can arrive in
-	// either order. Wait only for the child's foreground acknowledgment.
-	for {
-		if lineWithin(t, r) == "FOREGROUND" {
-			break
-		}
-	}
-	// A complete line is a deterministic child completion handshake; terminal
-	// EOF markers can be consumed by the shell around tcsetpgrp/fg transitions.
-	_, _ = f.WriteString("DONE\n")
+	_, _ = f.WriteString("fg; code=$?; printf 'FG_DONE:%s\\n' \"$code\"; jobs -l; printf 'FG_JOBS_DONE\\n'\n")
+	// Collect all foreground markers in one phase: neither a CONT acknowledgment
+	// nor a nonzero shell result may be discarded while awaiting another marker.
+	completion := ""
+	sent, childDone := false, false
+	var jobs []string
 	for {
 		line := lineWithin(t, r)
-		if strings.Contains(line, "FG_DONE:") {
-			if !strings.Contains(line, "FG_DONE:0") {
-				t.Fatalf("foreground completion %q", line)
+		if line == "FOREGROUND" && !sent {
+			sent = true
+			if _, err := f.WriteString("DONE\n"); err != nil {
+				t.Fatal(err)
 			}
+		}
+		if line == "CHILD_DONE" {
+			childDone = true
+		}
+		if strings.HasPrefix(line, "FG_DONE:") {
+			completion = line
+		}
+		if line == "FG_JOBS_DONE" {
 			break
 		}
+		jobs = append(jobs, line)
+	}
+	if completion != "FG_DONE:0" || !childDone {
+		t.Fatalf("foreground completion %q; child acknowledged DONE=%v; jobs/output:\n%s", completion, childDone, strings.Join(jobs, "\n"))
 	}
 	// The shell's interactive exit-confirmation policy is not under test.
 	_, _ = f.WriteString("exec /usr/bin/true\n")
-	drained := make(chan struct{})
-	go func() { _, _ = io.Copy(io.Discard, r); close(drained) }()
-	if status := waitCommand(t, cmd); !status.Exited() || status.ExitStatus() != 0 {
+	if status := waitPTYCommand(t, w, f, r); !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatal(status)
 	}
-	<-drained
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 )
 
 func BenchmarkSpoolStdin(b *testing.B) {
@@ -50,7 +51,7 @@ func BenchmarkSpoolStdin(b *testing.B) {
 				_ = w.Close()
 				done <- err
 			}()
-			s, err := SpoolStdin(r, int64(len(payload)), 0)
+			s, err := SpoolStdin(r, int64(len(payload)), commandTimeout)
 			if err != nil {
 				_ = r.Close()
 				b.Fatal(err)
@@ -60,8 +61,14 @@ func BenchmarkSpoolStdin(b *testing.B) {
 				b.Fatal(err)
 			}
 			_ = r.Close()
-			if err := <-done; err != nil {
-				b.Fatal(err)
+			select {
+			case err := <-done:
+				if err != nil {
+					b.Fatal(err)
+				}
+			case <-time.After(commandReapTimeout):
+				_ = w.Close()
+				b.Fatal("spool producer did not terminate")
 			}
 		}
 	})

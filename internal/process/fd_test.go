@@ -6,13 +6,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"testing"
 )
 
 func TestReplayCaptureDescriptorsNotInherited(t *testing.T) {
 	cfg := childConfig(t, "metadata", 0)
-	direct := exec.Command(cfg.Path)
+	direct := testCommand(t, cfg.Path)
 	direct.Args = cfg.Args
 	direct.Env = cfg.Env
 	b, err := direct.Output()

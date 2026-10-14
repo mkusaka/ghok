@@ -26,11 +26,28 @@ func spoolTestPipe(t *testing.T) (*os.File, *os.File) {
 
 func spoolTestClose(t *testing.T, s *Spool) {
 	t.Helper()
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		done := make(chan error, 1)
+		go func() { done <- s.Close() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(commandReapTimeout):
+			t.Fatal("spool Close did not finish")
+		}
 	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
+}
+
+func spoolTestFinish(t *testing.T, finish func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { finish(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(commandReapTimeout):
+		t.Fatal("spool pump did not finish")
 	}
 }
 
@@ -41,7 +58,7 @@ func spoolTestReplay(t *testing.T, s *Spool, want []byte) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer finish()
+		defer spoolTestFinish(t, finish)
 	}
 	type result struct {
 		data []byte
@@ -58,7 +75,7 @@ func spoolTestReplay(t *testing.T, s *Spool, want []byte) {
 			t.Fatalf("replay: got %d bytes, err %v; want %d identical bytes", len(got.data), got.err, len(want))
 		}
 	case <-time.After(5 * time.Second):
-		_ = s.Close()
+		spoolTestClose(t, s)
 		t.Fatal("replay did not finish")
 	}
 }
@@ -273,7 +290,7 @@ func TestSpoolPumpCancellation(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("pump cancellation did not finish")
 			}
-			finish()
+			spoolTestFinish(t, finish)
 			if _, err := r.Stat(); err != nil {
 				t.Fatalf("caller source closed: %v", err)
 			}

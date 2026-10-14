@@ -51,6 +51,21 @@ func captureTestWait(t *testing.T, done <-chan struct{}) {
 	}
 }
 
+func captureTestClose(t *testing.T, c *capture) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { c.close(); close(done) }()
+	captureTestWait(t, done)
+}
+
+func captureTestFinish(t *testing.T, c *capture) (out, stderr *Captured) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { out, stderr = c.finish(); close(done) }()
+	captureTestWait(t, done)
+	return out, stderr
+}
+
 func captureTestFlags(t *testing.T, fd uintptr) int {
 	t.Helper()
 	flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFL, 0)
@@ -69,7 +84,7 @@ func TestCaptureBoundedBinaryTee(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(c.close)
+			t.Cleanup(func() { captureTestClose(t, c) })
 			var gotOut, gotErr []byte
 			readDone := make(chan struct{})
 			go func() {
@@ -84,7 +99,7 @@ func TestCaptureBoundedBinaryTee(t *testing.T) {
 				t.Fatal(err)
 			}
 			c.closeWrites()
-			out, stderr := c.finish()
+			out, stderr := captureTestFinish(t, c)
 			outW.Close()
 			errW.Close()
 			captureTestWait(t, readDone)
@@ -107,9 +122,9 @@ func TestCaptureEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.close)
+	t.Cleanup(func() { captureTestClose(t, c) })
 	c.closeWrites()
-	out, stderr := c.finish()
+	out, stderr := captureTestFinish(t, c)
 	for _, got := range []*Captured{out, stderr} {
 		if len(got.Data) != 0 || got.Size != 0 || got.Truncated || got.Error != nil {
 			t.Fatalf("empty capture = %+v", got)
@@ -123,7 +138,7 @@ func TestCaptureStreamsBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.close)
+	t.Cleanup(func() { captureTestClose(t, c) })
 	if _, err := c.stdout.Write([]byte("first\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +151,7 @@ func TestCaptureStreamsBeforeFinish(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.closeWrites()
-	out, _ := c.finish()
+	out, _ := captureTestFinish(t, c)
 	second := make([]byte, len("second\n"))
 	if _, err := io.ReadFull(outR, second); err != nil || string(second) != "second\n" {
 		t.Fatalf("second chunk: %q, %v", second, err)
@@ -153,7 +168,7 @@ func TestCaptureBrokenPipeClosesChildReadEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.close)
+	t.Cleanup(func() { captureTestClose(t, c) })
 	if _, err := c.stdout.Write([]byte("broken")); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +177,7 @@ func TestCaptureBrokenPipeClosesChildReadEnd(t *testing.T) {
 		t.Fatalf("child write after tee failure = %v; want EPIPE", err)
 	}
 	c.closeWrites()
-	out, _ := c.finish()
+	out, _ := captureTestFinish(t, c)
 	if !errors.Is(out.Error, syscall.EPIPE) || string(out.Data) != "broken" {
 		t.Fatalf("broken pipe capture = %+v", out)
 	}
@@ -182,7 +197,7 @@ func TestCaptureRestoresSharedOutputFlags(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(c.close)
+			t.Cleanup(func() { captureTestClose(t, c) })
 			for _, f := range []*os.File{c.stdout, c.stderr, c.out.read, c.err.read, c.out.sink.file, c.err.sink.file} {
 				raw, err := f.SyscallConn()
 				if err != nil {
@@ -199,15 +214,15 @@ func TestCaptureRestoresSharedOutputFlags(t *testing.T) {
 				}
 			}
 			if abort {
-				c.close()
+				captureTestClose(t, c)
 			} else {
 				c.closeWrites()
-				c.finish()
+				captureTestFinish(t, c)
 			}
 			if after := captureTestFlags(t, fd); after != before {
 				t.Fatalf("output status flags: before=%#x after=%#x", before, after)
 			}
-			c.close()
+			captureTestClose(t, c)
 		})
 	}
 }
@@ -218,7 +233,7 @@ func TestCaptureCloseCancelsFinishWithRetainedWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.close)
+	t.Cleanup(func() { captureTestClose(t, c) })
 	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, c.stdout.Fd(), syscall.F_DUPFD_CLOEXEC, 3)
 	if errno != 0 {
 		t.Fatal(errno)
@@ -231,7 +246,7 @@ func TestCaptureCloseCancelsFinishWithRetainedWriter(t *testing.T) {
 		out, _ = c.finish()
 		close(done)
 	}()
-	c.close()
+	captureTestClose(t, c)
 	captureTestWait(t, done)
 	if !errors.Is(out.Error, os.ErrDeadlineExceeded) {
 		t.Fatalf("retained child writer error = %v", out.Error)
@@ -260,7 +275,7 @@ func TestCaptureAbortUnblocksFullDownstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.close)
+	t.Cleanup(func() { captureTestClose(t, c) })
 	if _, err := c.stdout.Write([]byte("blocked")); err != nil {
 		t.Fatal(err)
 	}
