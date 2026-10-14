@@ -31,5 +31,9 @@ changelog:
   use: github-native
 
 release:
-  draft: false
+  # Created as a draft so every asset is attached before publication; the
+  # release workflow publishes it afterwards (immutable releases lock assets
+  # and the tag once a release is published).
+  draft: true
+  replace_existing_draft: true
   prerelease: auto

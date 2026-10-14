@@ -81,7 +81,9 @@ install -m 755 ghok "$HOME/.local/bin/ghok"
 
 Download all four archives for the complete checksum manifest check. Checksums
 detect corruption; provenance associates an artifact with this repository's
-release workflow. Neither proves the source safe. The release workflow uses
+release workflow. Releases are published as GitHub immutable releases (assets
+and tag cannot change after publication); `gh release verify <tag> -R mkusaka/ghok`
+checks the release attestation. Neither proves the source safe. The release workflow uses
 trimmed build paths, explicit version/commit injection and commit-timestamped
 binaries. Binaries are not Apple Developer-signed/notarized.
 See [release engineering notes](docs/notes/docs.md).
@@ -98,6 +100,15 @@ make build
 
 `make build` injects `VERSION` (default: git describe) and `COMMIT` (default:
 empty). To label a build explicitly: `make build VERSION=v1.2.3 COMMIT=<sha>`.
+
+### Agent skill
+
+An [Agent Skill](skills/ghok/SKILL.md) for using ghok from coding agents
+(Claude Code, Codex, Cursor, ...):
+
+```sh
+npx skills add mkusaka/ghok
+```
 
 ## Shim install, uninstall, upgrade
 
