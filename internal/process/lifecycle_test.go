@@ -67,13 +67,17 @@ func TestRunAndExecFailureCleanup(t *testing.T) {
 func TestRunNoOwnedLeaks(t *testing.T) {
 	// Warm runtime signal/poll workers before taking the lifecycle baseline.
 	opts := Options{Path: "/usr/bin/true", Args: []string{"true"}, Capture: true, CaptureLimit: 10}
-	result := Run(context.Background(), opts)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	result := Run(ctx, opts)
+	cancel()
 	if result.StartErr != nil || result.ExitCode != 0 {
 		t.Fatal(result)
 	}
 	fdBefore, gBefore := openFDCount(), runtime.NumGoroutine()
 	for range 16 {
-		result = Run(context.Background(), opts)
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		result = Run(ctx, opts)
+		cancel()
 		if result.StartErr != nil || result.WaitErr != nil || result.ExitCode != 0 {
 			t.Fatal(result)
 		}

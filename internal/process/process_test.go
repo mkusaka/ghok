@@ -112,6 +112,8 @@ func wrapperMain() {
 }
 
 func childMain() {
+	watchdog := time.AfterFunc(commandTimeout, func() { os.Exit(124) })
+	defer watchdog.Stop()
 	mode := os.Getenv("GHOK_CHILD_MODE")
 	n, _ := strconv.Atoi(os.Getenv("GHOK_CHILD_N"))
 	switch mode {
@@ -202,6 +204,7 @@ func childMain() {
 		fmt.Printf("READY %d\n", os.Getpid())
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil || line != "DONE\n" {
+			fmt.Printf("JOB_READ_ERROR line=%q err=%v foreground=%v\n", line, err, foregroundTTY())
 			os.Exit(41)
 		}
 		fmt.Println("CHILD_DONE")
@@ -226,7 +229,10 @@ func childMain() {
 		if err != nil {
 			panic(err)
 		}
-		cmd := exec.Command(path)
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, path)
+		cmd.WaitDelay = commandReapTimeout
 		cmd.Env = []string{helperKey + "=child", "GHOK_CHILD_MODE=block"}
 		r, w, _ := os.Pipe()
 		cmd.Stdin = r
@@ -234,11 +240,21 @@ func childMain() {
 			panic(err)
 		}
 		r.Close()
+		waiter := beginCommandWait(cmd, func() { _ = w.Close() })
 		fmt.Printf("READY %d\n", cmd.Process.Pid)
-		<-ch
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
 		_ = cmd.Process.Signal(syscall.SIGTERM)
-		w.Close()
-		_ = cmd.Wait()
+		_ = w.Close()
+		if err := waiter.waitWithin(commandReapTimeout); err != nil {
+			if err := waiter.killAndReap(commandReapTimeout); err != nil {
+				if _, ok := err.(*exec.ExitError); !ok {
+					panic(err)
+				}
+			}
+		}
 		fmt.Println("REAPED")
 		Result{Signal: syscall.SIGTERM}.Exit()
 	}
@@ -263,33 +279,9 @@ func wrapperCommand(t testing.TB, cfg wrapperConfig) *exec.Cmd {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(path)
+	cmd := testCommand(t, path)
 	cmd.Env = []string{helperKey + "=wrapper", "GHOK_WRAPPER_CONFIG=" + string(b), "HOME=" + t.TempDir(), "PATH=/usr/bin:/bin", "TMPDIR=" + t.TempDir()}
 	return cmd
-}
-
-func waitCommand(t *testing.T, cmd *exec.Cmd) syscall.WaitStatus {
-	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			if _, ok := err.(*exec.ExitError); !ok {
-				t.Fatal(err)
-			}
-		}
-		return cmd.ProcessState.Sys().(syscall.WaitStatus)
-	case <-time.After(15 * time.Second):
-		err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("wait did not reap pid %d after SIGKILL: %v", cmd.Process.Pid, err)
-		}
-		t.Fatalf("wrapper pid %d did not exit; SIGKILL: %v", cmd.Process.Pid, err)
-		return 0
-	}
 }
 
 func lineWithin(t *testing.T, r *bufio.Reader) string {
@@ -317,7 +309,7 @@ func lineWithin(t *testing.T, r *bufio.Reader) string {
 	}
 }
 
-func startPiped(t *testing.T, cfg wrapperConfig) (*exec.Cmd, *bufio.Reader, *os.File) {
+func startPiped(t *testing.T, cfg wrapperConfig) (*commandWait, *bufio.Reader, *os.File) {
 	t.Helper()
 	cmd := wrapperCommand(t, cfg)
 	// Keep pid-directed INT/QUIT tests outside any inherited foreground tty group.
@@ -338,8 +330,18 @@ func startPiped(t *testing.T, cfg wrapperConfig) (*exec.Cmd, *bufio.Reader, *os.
 	}
 	inR.Close()
 	outW.Close()
-	t.Cleanup(func() { inW.Close(); outR.Close(); _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
-	return cmd, bufio.NewReader(outR), inW
+	waiter := beginCommandWait(cmd, func() { _ = inW.Close(); _ = outR.Close() })
+	t.Cleanup(func() {
+		_ = inW.Close()
+		_ = outR.Close()
+		select {
+		case <-waiter.done:
+		default:
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		cleanupCommand(t, waiter)
+	})
+	return waiter, bufio.NewReader(outR), inW
 }
 
 func TestArgvEnvironmentCwdAndFDs(t *testing.T) {
@@ -347,7 +349,7 @@ func TestArgvEnvironmentCwdAndFDs(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cfg := childConfig(t, "metadata", 0)
 			cfg.Mode = mode
-			direct := exec.Command(cfg.Path)
+			direct := testCommand(t, cfg.Path)
 			direct.Args = cfg.Args
 			direct.Env = cfg.Env
 			direct.Dir = t.TempDir()
@@ -392,7 +394,7 @@ func TestExitAndSpawnStatus(t *testing.T) {
 				if err := cmd.Start(); err != nil {
 					t.Fatal(err)
 				}
-				s := waitCommand(t, cmd)
+				s := waitCommand(t, beginCommandWait(cmd, nil))
 				if !s.Exited() || s.ExitStatus() != n {
 					t.Fatalf("status %v", s)
 				}
@@ -424,7 +426,7 @@ func TestExitAndSpawnStatus(t *testing.T) {
 				if err := cmd.Start(); err != nil {
 					t.Fatal(err)
 				}
-				s := waitCommand(t, cmd)
+				s := waitCommand(t, beginCommandWait(cmd, nil))
 				if !s.Exited() || s.ExitStatus() != want {
 					t.Fatalf("status %v want %d", s, want)
 				}
@@ -440,7 +442,7 @@ func TestSignalWaitStatus(t *testing.T) {
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
-			s := waitCommand(t, cmd)
+			s := waitCommand(t, beginCommandWait(cmd, nil))
 			if !s.Signaled() || s.Signal() != sig {
 				t.Fatalf("wait status %v want signaled %v", s, sig)
 			}
@@ -496,11 +498,18 @@ func TestLargeOutputAndStreaming(t *testing.T) {
 			cfg.Capture = capture
 			cfg.ResultFile = filepath.Join(t.TempDir(), "result")
 			cmd := wrapperCommand(t, cfg)
-			r, err := cmd.StdoutPipe()
+			r, outW, err := os.Pipe()
 			if err != nil {
 				t.Fatal(err)
 			}
+			cmd.Stdout = outW
 			if err = cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			_ = outW.Close()
+			waiter := beginCommandWait(cmd, func() { _ = r.Close() })
+			t.Cleanup(func() { cleanupCommand(t, waiter) })
+			if err := r.SetReadDeadline(time.Now().Add(commandTimeout)); err != nil {
 				t.Fatal(err)
 			}
 			h := sha256.New()
@@ -508,7 +517,7 @@ func TestLargeOutputAndStreaming(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s := waitCommand(t, cmd)
+			s := waitCommand(t, waiter)
 			want := sha256.New()
 			for range 2048 {
 				_, _ = want.Write(bytes.Repeat([]byte{0, 1, 2, 255}, 8192))
@@ -531,7 +540,7 @@ func TestLargeOutputAndStreaming(t *testing.T) {
 			}
 			cfg = childConfig(t, "stream", 0)
 			cfg.Capture = capture
-			cmd, reader, input := startPiped(t, cfg)
+			piped, reader, input := startPiped(t, cfg)
 			if lineWithin(t, reader) != "first" {
 				t.Fatal("first chunk not streamed")
 			}
@@ -540,7 +549,7 @@ func TestLargeOutputAndStreaming(t *testing.T) {
 				t.Fatal("second chunk")
 			}
 			input.Close()
-			if s = waitCommand(t, cmd); !s.Exited() || s.ExitStatus() != 0 {
+			if s = waitCommand(t, piped); !s.Exited() || s.ExitStatus() != 0 {
 				t.Fatal(s)
 			}
 		})
@@ -561,13 +570,18 @@ func TestBrokenPipe(t *testing.T) {
 			if err = cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
+			waiter := beginCommandWait(cmd, func() { _ = r.Close(); _ = w.Close() })
+			t.Cleanup(func() { cleanupCommand(t, waiter) })
+			if err := r.SetReadDeadline(time.Now().Add(commandTimeout)); err != nil {
+				t.Fatal(err)
+			}
 			w.Close()
 			var b [1]byte
 			if _, err = io.ReadFull(r, b[:]); err != nil {
 				t.Fatal(err)
 			}
 			r.Close()
-			s := waitCommand(t, cmd)
+			s := waitCommand(t, waiter)
 			if !s.Signaled() || s.Signal() != syscall.SIGPIPE {
 				t.Fatalf("status %v want SIGPIPE", s)
 			}
@@ -660,14 +674,20 @@ func BenchmarkRunTrue(b *testing.B) {
 		b.Run(fmt.Sprint(supervised), func(b *testing.B) {
 			for b.Loop() {
 				if supervised {
-					r := Run(context.Background(), Options{Path: "/usr/bin/true", Args: []string{"true"}, Env: []string{}})
+					ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+					r := Run(ctx, Options{Path: "/usr/bin/true", Args: []string{"true"}, Env: []string{}})
+					cancel()
 					if r.StartErr != nil || r.ExitCode != 0 {
 						b.Fatal(r)
 					}
 				} else {
-					cmd := exec.Command("/usr/bin/true")
+					ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+					cmd := exec.CommandContext(ctx, "/usr/bin/true")
+					cmd.WaitDelay = commandReapTimeout
 					cmd.Env = []string{} // Same empty environment as the supervised case.
-					if err := cmd.Run(); err != nil {
+					err := cmd.Run()
+					cancel()
+					if err != nil {
 						b.Fatal(err)
 					}
 				}
