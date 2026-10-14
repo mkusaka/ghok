@@ -90,8 +90,7 @@ inspected paths and partial upstream-equivalence limitations.
 - Dispatcher selects API only when expanded argv[0] == api; root flags before
   api remain L1. Unknown native flags can retain known family/effect with
   heuristic confidence rather than a single unknown-family record.
-- REST REQUEST_CHANGES emits pr.review.request_changes; L1/L3 emit
-  pr.review.request-changes. No compatibility alias is invented in docs.
+- (fixed) REST REQUEST_CHANGES now emits pr.review.request-changes like L1/L3.
 - L3 resolution is deferred for every unresolved field, including unavailable
   variables/input; that does not promise the resolver can recover it.
 - Multiple GraphQL stdin consumers reuse captured bytes instead of modeling

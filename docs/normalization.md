@@ -141,10 +141,7 @@ hyphens in verbs (`pr.update-branch`). Groups/help topics become `help`. API
 mappings group semantic reads differently (`pr.read`, `repo.read`), so do not
 assume every equal action has an equal family or vice versa.
 
-**Current cross-layer spelling mismatch:** review rejection is
-`pr.review.request-changes` in L1/L3, but `pr.review.request_changes` in L2. Match
-both if your policy intends to cover all transports; the tables below preserve
-actual emitted spellings rather than inventing a unified alias.
+Review rejection is `pr.review.request-changes` in all three layers.
 
 All examples below have family `pr.merge` and effect `write`, but differ in intent:
 
@@ -625,7 +622,7 @@ precedence over payload values. Specialization uses **only the body**:
 | Issue PATCH `state=closed` / `state=open` | `issue.close` / `issue.reopen` | `issue.close` / `issue.reopen` | write |
 | Repo PATCH typed/JSON `archived: true` | `repo.archive` | `repo.archive` | write |
 | Review create/submit `event=APPROVE` | `pr.review` | `pr.review.approve` | write |
-| Review create/submit `event=REQUEST_CHANGES` | `pr.review` | `pr.review.request_changes` | write |
+| Review create/submit `event=REQUEST_CHANGES` | `pr.review` | `pr.review.request-changes` | write |
 | Review create/submit `event=COMMENT` | `pr.review` | `pr.review.comment` | write |
 | Review create with absent event and fully available body | `pr.review` | `pr.review.pending` | write |
 

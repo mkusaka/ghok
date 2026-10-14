@@ -154,7 +154,7 @@ func specialize(op *model.Operation, body map[string]any, bodyKnown bool) {
 			case "APPROVE":
 				op.Action = "pr.review.approve"
 			case "REQUEST_CHANGES":
-				op.Action = "pr.review.request_changes"
+				op.Action = "pr.review.request-changes"
 			case "COMMENT":
 				op.Action = "pr.review.comment"
 			default:

@@ -208,7 +208,7 @@ func TestStateAndReviewSpecialization(t *testing.T) {
 		{"PATCH", "repos/o/r", "archived", "true", "repo.archive", "repo.archive", true},
 		{"PATCH", "repos/o/r", "archived", "true", "repo.edit", "repo.edit", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "event", "APPROVE", "pr.review", "pr.review.approve", false},
-		{"POST", "repos/o/r/pulls/1/reviews", "event", "REQUEST_CHANGES", "pr.review", "pr.review.request_changes", false},
+		{"POST", "repos/o/r/pulls/1/reviews", "event", "REQUEST_CHANGES", "pr.review", "pr.review.request-changes", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "event", "COMMENT", "pr.review", "pr.review.comment", false},
 		{"POST", "repos/o/r/pulls/1/reviews", "body", "draft", "pr.review", "pr.review.pending", false},
 		{"POST", "repos/o/r/pulls/1/reviews/2/events", "event", "APPROVE", "pr.review", "pr.review.approve", false},
