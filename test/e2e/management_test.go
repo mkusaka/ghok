@@ -502,7 +502,7 @@ func TestManagementCobraUsageBoundaries(t *testing.T) {
 			result := s.management(nil, tc.args...)
 			result.code(t, 2)
 			if tc.group {
-				if !bytes.HasPrefix(result.stdout, []byte("Usage:")) || len(result.stderr) != 0 {
+				if !bytes.Contains(result.stdout, []byte("Usage:")) || len(result.stderr) != 0 {
 					t.Fatalf("bare group must show usage on stdout: %+v", result)
 				}
 			} else if len(result.stdout) != 0 || !bytes.HasPrefix(result.stderr, []byte("ghok:")) {

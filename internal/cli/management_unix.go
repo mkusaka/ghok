@@ -17,35 +17,16 @@ import (
 	"github.com/mkusaka/ghok/internal/install"
 	"github.com/mkusaka/ghok/internal/redact"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
-const managementUsage = `Usage: ghok <command> [options]
-
-Commands:
-  shim install [--bin-dir DIR] Install the gh shim (default ~/.local/bin)
-  shim uninstall [--bin-dir DIR]
-                              Remove only ghok's shim
-  doctor [--json]              Check installation, configuration and permissions
-  version                     Show version, commit, Go version and platform
-  hooks list [--json]          List configured hooks
-  hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>
-                              Run hooks, never the original gh command
-  normalize [--json] [--resolve] [--allow-api] -- <gh args>
-                              Print redacted normalization JSON
-  explain [--show-secrets] [--resolve] [--allow-api] -- <gh args>
-                              Explain operations, policy and hook matching
-  config init [--scope project|user]
-                              Create a commented config file (default: project .ghok.yaml)
-  config validate [--file PATH] Validate effective configuration
-  config path                 Print the global configuration path
-  config schema [--project]   Print the JSON Schema for config.yaml (or .ghok.yaml)
-  help [command]              Show help
+const managementLong = `Manage ghok, a transparent wrapper for the GitHub CLI (gh) that runs
+pre/post hooks and enforces policies on gh commands, gh api REST calls and
+GraphQL mutations. When invoked as "gh" (through the shim) the same binary is
+the wrapper and passes every argument to the real gh untouched.
 
 Resolution is local unless --allow-api is explicitly supplied with --resolve.
 Explain never executes hooks or the original gh command and exits 0 even on deny.
-Exit status: 0 success, 1 failure/denial, 2 usage error.
-`
+Exit status: 0 success, 1 failure/denial, 2 usage error.`
 
 // Management runs the management CLI. It never executes the user's gh command.
 func Management(args []string, version, commit string) int {
@@ -61,21 +42,35 @@ func Management(args []string, version, commit string) int {
 }
 
 func managementRoot(code *int, version, commit string) *cobra.Command {
-	root := managementCommand("ghok", managementUsage, code, func(cmd *cobra.Command, _ []string) int {
-		_ = cmd.Help()
-		return 0
-	})
+	root := managementGroup("ghok", "Manage the ghok gh wrapper: shim, config, hooks, diagnostics", code)
+	root.Run = func(cmd *cobra.Command, _ []string) { _ = cmd.Help() } // bare "ghok": help, exit 0
+	// Parents are runnable only to validate arguments; don't advertise them
+	// as "ghok config [flags]" usage lines.
+	root.SetUsageTemplate(strings.Replace(root.UsageTemplate(), "{{if .Runnable}}", "{{if and .Runnable (not .HasAvailableSubCommands)}}", 1))
+	root.Long = managementLong
 	root.SilenceErrors = true
 	root.SilenceUsage = true
 	root.DisableSuggestions = true
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.SetFlagErrorFunc(managementFlagError)
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return err })
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd == root && len(cmd.Flags().Args()) != 0 {
+			*code = managementUsageError("help does not accept arguments")
+			return
+		}
+		defaultHelp(cmd, args)
+	})
 
-	shim := managementCommand("shim", "Usage: ghok shim <install|uninstall> [--bin-dir DIR]\n", code, managementGroup)
+	shim := managementGroup("shim", "Install or remove the gh shim (gh -> ghok)", code)
 	defaultBin := filepath.Join(environment()["HOME"], ".local", "bin")
 	for _, name := range []string{"install", "uninstall"} {
 		bin := defaultBin
-		cmd := managementCommand(name, "Usage: ghok shim "+name+" [--bin-dir DIR]\n", code, func(cmd *cobra.Command, _ []string) int {
+		short := "Create the gh shim that routes gh through ghok (shell rc files are not modified)"
+		if name == "uninstall" {
+			short = "Remove the gh shim created by ghok (other files are never touched)"
+		}
+		cmd := managementCommand(name, short, code, func(cmd *cobra.Command, _ []string) int {
 			return managementShim(cmd.Name(), bin)
 		})
 		cmd.Flags().StringVar(&bin, "bin-dir", bin, "directory containing the gh shim")
@@ -83,26 +78,28 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	}
 
 	var doctorJSON bool
-	doctor := managementCommand("doctor", "Usage: ghok doctor [--json]\n", code, func(_ *cobra.Command, _ []string) int {
+	doctor := managementCommand("doctor", "Check installation, PATH precedence, configuration and hook permissions", code, func(_ *cobra.Command, _ []string) int {
 		return managementDoctor(doctorJSON, version)
 	})
 	doctor.Flags().BoolVar(&doctorJSON, "json", false, "print diagnostic checks as JSON")
-	versionCmd := managementCommand("version", "Usage: ghok version\n", code, func(_ *cobra.Command, _ []string) int {
+	versionCmd := managementCommand("version", "Show version, commit, Go version and platform", code, func(_ *cobra.Command, _ []string) int {
 		return managementVersion(version, commit)
 	})
 
-	hookCommands := managementCommand("hooks", "Usage: ghok hooks list [--json]\n       ghok hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>\n", code, managementGroup)
+	hookCommands := managementGroup("hooks", "List configured hooks or run them against a gh command", code)
 	var listJSON bool
-	list := managementCommand("list", "Usage: ghok hooks list [--json]\n", code, func(_ *cobra.Command, _ []string) int {
+	list := managementCommand("list", "List configured hooks", code, func(_ *cobra.Command, _ []string) int {
 		return managementHooksList(listJSON)
 	})
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	var testJSON bool
 	var exitCode int
 	phase := config.PhasePre
-	test := managementCommand("test", "Usage: ghok hooks test [--phase pre|post] [--exit-code N] [--json] -- <gh args>\n", code, func(_ *cobra.Command, args []string) int {
+	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(_ *cobra.Command, args []string) int {
 		return managementHooksTest(args, phase, exitCode, testJSON)
 	})
+	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe real gh. Post hooks receive a synthetic result (exit 0 unless --exit-code)."
+	test.Example = "  ghok hooks test -- pr merge 123 --admin -R org/repo\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
@@ -111,9 +108,14 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 
 	for _, name := range []string{"normalize", "explain"} {
 		var options managementInspectOptions
-		cmd := managementCommand(name, "Usage: ghok "+name+" [options] -- <gh args>\n", code, func(cmd *cobra.Command, args []string) int {
+		short := "Print how ghok classifies a gh command (redacted JSON)"
+		if name == "explain" {
+			short = "Explain classification, policy decision and matching hooks for a gh command"
+		}
+		cmd := managementCommand(name+" [flags] -- <gh args>", short, code, func(cmd *cobra.Command, args []string) int {
 			return managementInspect(cmd.Name(), args, options)
 		})
+		cmd.Example = "  ghok " + name + " -- pr merge 123 --squash -R org/repo\n  ghok " + name + " -- api -X PUT repos/org/repo/pulls/123/merge"
 		cmd.Args = managementInvocationArgs
 		cmd.Flags().BoolVar(&options.resolveTargets, "resolve", false, "resolve targets from local git metadata")
 		cmd.Flags().BoolVar(&options.allowAPI, "allow-api", false, "allow read-only API resolution (requires --resolve)")
@@ -125,31 +127,33 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		root.AddCommand(cmd)
 	}
 
-	configCommands := managementCommand("config", "Usage: ghok config <init|validate|path|schema>\n", code, managementGroup)
+	configCommands := managementGroup("config", "Create, validate and locate ghok configuration", code)
 	var file string
-	validate := managementCommand("validate", "Usage: ghok config validate\n", code, func(_ *cobra.Command, _ []string) int {
+	validate := managementCommand("validate", "Validate the effective configuration (all errors at once)", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfig("validate", file)
 	})
 	validate.Flags().StringVar(&file, "file", "", "global configuration file to validate")
-	path := managementCommand("path", "Usage: ghok config path\n", code, func(_ *cobra.Command, _ []string) int {
+	path := managementCommand("path", "Print the global configuration path", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfig("path", "")
 	})
 	var project bool
-	schema := managementCommand("schema", "Usage: ghok config schema [--project]\n", code, func(_ *cobra.Command, _ []string) int {
+	schema := managementCommand("schema", "Print the JSON Schema for config.yaml (or a project .ghok.yaml)", code, func(_ *cobra.Command, _ []string) int {
 		_, _ = os.Stdout.Write(config.SchemaJSON(project))
 		return 0
 	})
 	schema.Flags().BoolVar(&project, "project", false, "print the schema for a project .ghok.yaml instead of config.yaml")
 	scope := config.ScopeProject
-	initCmd := managementCommand("init", "Usage: ghok config init [--scope project|user]\n", code, func(_ *cobra.Command, _ []string) int {
+	initCmd := managementCommand("init", "Create a commented config file with a JSON Schema reference", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfigInit(scope)
 	})
+	initCmd.Example = "  ghok config init                # <repo root>/.ghok.yaml\n  ghok config init --scope user   # the global config.yaml"
 	initCmd.Flags().StringVar(&scope, "scope", config.ScopeProject, "project: <repo root>/.ghok.yaml; user: the global config.yaml")
 	configCommands.AddCommand(initCmd, validate, path, schema)
 	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands)
 	root.SetHelpCommand(&cobra.Command{
-		Use:  "help [command]",
-		Args: cobra.ArbitraryArgs,
+		Use:   "help [command]",
+		Short: "Show help for a command",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
 			cmd, rest, err := root.Find(args)
 			if err != nil {
@@ -164,40 +168,15 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	return root
 }
 
-func managementCommand(use, usage string, code *int, run func(*cobra.Command, []string) int) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  use,
-		Args: managementCommandArgs,
+func managementCommand(use, short string, code *int, run func(*cobra.Command, []string) int) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  managementCommandArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			*code = run(cmd, args)
 		},
 	}
-	cmd.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
-		if cmd.Parent() == nil && len(cmd.Flags().Args()) != 0 {
-			*code = managementUsageError("help does not accept arguments")
-			return
-		}
-		_, _ = fmt.Fprint(os.Stdout, usage)
-		// Keep the established help layout while taking all flag metadata from
-		// pflag, which is the only parser used by management commands.
-		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-			if flag.Name == "help" {
-				return
-			}
-			_, _ = fmt.Fprintf(os.Stdout, "  -%s", flag.Name)
-			if flag.Value.Type() == "string" {
-				_, _ = fmt.Fprint(os.Stdout, " string")
-			}
-			_, _ = fmt.Fprint(os.Stdout, "\n    \t"+flag.Usage)
-			if flag.Value.Type() == "string" && flag.DefValue != "" {
-				_, _ = fmt.Fprintf(os.Stdout, " (default %q)", flag.DefValue)
-			} else if flag.Value.Type() == "bool" && flag.DefValue != "false" {
-				_, _ = fmt.Fprintf(os.Stdout, " (default %s)", flag.DefValue)
-			}
-			_, _ = fmt.Fprintln(os.Stdout)
-		})
-	})
-	return cmd
 }
 
 func managementCommandArgs(cmd *cobra.Command, args []string) error {
@@ -221,27 +200,13 @@ func managementInvocationArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func managementGroup(cmd *cobra.Command, _ []string) int {
-	_ = cmd.Help()
-	return 2
-}
-
-func managementFlagError(_ *cobra.Command, err error) error {
-	// Preserve existing diagnostics using pflag's structured errors, not a
-	// second parser or string matching against library-generated messages.
-	var unknown *pflag.NotExistError
-	var required *pflag.ValueRequiredError
-	var invalid *pflag.InvalidValueError
-	switch {
-	case errors.As(err, &unknown):
-		return fmt.Errorf("flag provided but not defined: -%s", unknown.GetSpecifiedName())
-	case errors.As(err, &required):
-		return fmt.Errorf("flag needs an argument: -%s", required.GetSpecifiedName())
-	case errors.As(err, &invalid) && invalid.GetFlag().Value.Type() == "bool":
-		return fmt.Errorf("invalid boolean value %q for -%s: parse error", invalid.GetValue(), invalid.GetFlag().Name)
-	default:
-		return err
-	}
+// managementGroup is a parent command. Invoked without a subcommand it shows
+// its help and exits 2; unknown subcommands are usage errors.
+func managementGroup(use, short string, code *int) *cobra.Command {
+	return managementCommand(use, short, code, func(cmd *cobra.Command, _ []string) int {
+		_ = cmd.Help()
+		return 2
+	})
 }
 
 func managementVersion(version, commit string) int {
