@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/install"
@@ -42,7 +44,20 @@ func realGh(c *config.Config, env map[string]string) (string, error) {
 	if override == "" && c != nil {
 		override = c.Runtime.RealGh
 	}
-	real, _, err := install.FindRealGh(install.DiscoverOptions{Self: self, PathEnv: env["PATH"], Override: override})
+	real, candidates, err := install.FindRealGh(install.DiscoverOptions{Self: self, PathEnv: env["PATH"], Override: override})
+	if err != nil && override == "" && len(candidates) > 0 {
+		var skipped []string
+		for _, candidate := range candidates {
+			if candidate.Skipped == "ghok shim" {
+				skipped = append(skipped, candidate.Path)
+			}
+		}
+		detail := "none"
+		if len(skipped) > 0 {
+			detail = strings.Join(skipped, ", ")
+		}
+		err = fmt.Errorf("real gh not found on PATH (skipped: %s). Install GitHub CLI, or set runtime.realGh / GHOK_REAL_GH. Run 'ghok doctor' for details", detail)
+	}
 	return real, err
 }
 
@@ -157,4 +172,83 @@ func signalName(sig syscall.Signal) string {
 	default:
 		return fmt.Sprintf("SIG%d", sig)
 	}
+}
+
+// Source notes identify the config being loaded when validation failed.
+func configFailurePath(fallback string, notes []string) string {
+	for i := len(notes) - 1; i >= 0; i-- {
+		for _, prefix := range []string{"Project config: ", "Global config: "} {
+			if path, ok := strings.CutPrefix(notes[i], prefix); ok {
+				if end := strings.LastIndex(path, " ("); end >= 0 {
+					return path[:end]
+				}
+			}
+		}
+	}
+	return fallback
+}
+
+// State is best-effort: any filesystem failure leaves the warning visible.
+// A per-pair flock makes the ten-minute window apply across wrapper processes.
+func warnInvalidConfig(dir, path string, configErr error, now time.Time) (warn bool) {
+	state := filepath.Join(dir, "state")
+	if err := os.MkdirAll(state, 0700); err != nil {
+		return true
+	}
+	info, err := os.Lstat(state)
+	if err != nil || !info.IsDir() {
+		return true
+	}
+	if err := os.Chmod(state, 0700); err != nil {
+		return true
+	}
+	digest := sha256.Sum256([]byte(path + "\x00" + configErr.Error()))
+	name := filepath.Join(state, fmt.Sprintf("invalid-config-%x.warning", digest))
+	fd, err := syscall.Open(name, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
+	if err != nil {
+		return true
+	}
+	file := os.NewFile(uintptr(fd), name)
+	defer func() {
+		if err := file.Close(); err != nil {
+			warn = true
+		}
+	}()
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return true
+	}
+	if err := file.Chmod(0600); err != nil {
+		return true
+	}
+	for {
+		err = syscall.Flock(fd, syscall.LOCK_EX)
+		if err != syscall.EINTR {
+			break
+		}
+	}
+	if err != nil {
+		return true
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 128))
+	if err != nil {
+		return true
+	}
+	if len(data) != 0 {
+		last, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data)))
+		if err != nil {
+			return true
+		}
+		if elapsed := now.Sub(last); elapsed >= 0 && elapsed < 10*time.Minute {
+			return false
+		}
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return true
+	}
+	if err := file.Truncate(0); err != nil {
+		return true
+	}
+	_, _ = file.WriteString(now.UTC().Format(time.RFC3339Nano) + "\n")
+	return true
 }

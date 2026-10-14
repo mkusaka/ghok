@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -444,8 +445,8 @@ func TestNestedRecursionProbeAndInvalidConfig(t *testing.T) {
 		if bytes.Count(result.stderr, []byte("\n")) != 1 || !bytes.HasPrefix(result.stderr, []byte("ghok: invalid config")) {
 			t.Fatalf("invalid config warning=%q", result.stderr)
 		}
-		if _, err := os.Stat(filepath.Join(filepath.Dir(s.cfg), "logs", "ghok.jsonl")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatal("invalid config wrote logs")
+		if logs := s.logs(); len(logs) != 1 || logs[0].Decision != "passthrough-invalid-config" || len(logs[0].Diagnostics) == 0 {
+			t.Fatalf("invalid config fallback log=%+v", logs)
 		}
 	})
 }
@@ -515,6 +516,251 @@ func TestLogsAndHookInputRedactSecrets(t *testing.T) {
 	if records[0].Exec.Stdout != nil || records[0].Exec.Stderr != nil {
 		t.Fatal("logs retained captured output")
 	}
+}
+
+func TestLogsMaskContentWithoutChangingHookInput(t *testing.T) {
+	token := "ghp_" + strings.Repeat("p", 36)
+	comment := "private GraphQL comment " + token
+	query := `mutation { addComment(input: {subjectId: "ISSUE_private_node", body: "` + comment + `"}) { clientMutationId } }`
+	for _, tc := range []struct {
+		name, content, key, action, node string
+		args                             []string
+	}{
+		{name: "issue-body", content: "privatebody", action: "issue.edit", args: []string{"issue", "edit", "7", "-R", "acme/project", "--body", "privatebody"}},
+		{name: "pr-title", content: "A private PR title", key: "title", action: "pr.edit", args: []string{"pr", "edit", "7", "-R", "acme/project", "--title", "A private PR title"}},
+		{name: "rest-body", content: "private REST body " + token, key: "body", action: "issue.comment.create", args: []string{"api", "repos/acme/project/issues/7/comments", "-f", "body=private REST body " + token}},
+		{name: "graphql-comment", content: comment, key: "body", action: "comment.create", node: "ISSUE_private_node", args: []string{"api", "graphql", "-f", "query=" + query}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSandbox(t)
+			s.env["GH_TOKEN"] = token
+			s.configure(func(c *config.Config) {
+				yes := true
+				c.Logging.Enabled = &yes
+				c.Hooks = []config.Hook{s.hook("pre", "pre")}
+			})
+			result := s.gh(nil, tc.args...)
+			result.code(t, 0)
+			s.onlyRecord(tc.args, nil)
+			input := s.hookInput("pre")
+			if len(input.Operations) != 1 || input.Operations[0].Action != tc.action {
+				t.Fatalf("hook operation=%+v", input.Operations)
+			}
+			wantContent := strings.ReplaceAll(tc.content, token, "[REDACTED]")
+			if !strings.Contains(strings.Join(input.Invocation.Argv, "\n"), wantContent) {
+				t.Fatalf("trusted hook lost ordinary content: %q", input.Invocation.Argv)
+			}
+			if tc.key != "" && input.Operations[0].Parameters[tc.key] != wantContent {
+				t.Fatalf("trusted hook parameter=%v, want=%q", input.Operations[0].Parameters[tc.key], wantContent)
+			}
+			hookBytes, err := os.ReadFile(filepath.Join(s.root, "pre.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(hookBytes, []byte(token)) {
+				t.Fatal("trusted hook received unredacted credential")
+			}
+			logBytes, err := os.ReadFile(filepath.Join(filepath.Dir(s.cfg), "logs", "ghok.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ordinaryContent := strings.TrimSpace(strings.TrimSuffix(tc.content, token))
+			if bytes.Contains(logBytes, []byte(ordinaryContent)) || bytes.Contains(logBytes, []byte(token)) || !bytes.Contains(logBytes, []byte("[content: ")) {
+				t.Fatalf("log content masking failed: %s", logBytes)
+			}
+			records := s.logs()
+			if len(records) != 1 || len(records[0].Operations) != 1 || records[0].Operations[0].Action != tc.action || records[0].Source == nil {
+				t.Fatalf("log lost operation/source: %+v", records)
+			}
+			op := records[0].Operations[0]
+			if tc.node != "" {
+				if op.Target.NodeID != tc.node {
+					t.Fatalf("log node target=%+v", op.Target)
+				}
+				fingerprint := records[0].Source.GraphQL
+				prefix := fmt.Sprintf("[graphql document: %d bytes, sha256:", len(query))
+				if !strings.HasPrefix(fingerprint, prefix) || !strings.HasSuffix(fingerprint, "]") {
+					t.Fatalf("GraphQL source is not a fingerprint: %q", fingerprint)
+				}
+				hashPrefix := strings.TrimSuffix(strings.TrimPrefix(fingerprint, prefix), "]")
+				sum := sha256.Sum256([]byte(query))
+				if len(hashPrefix) < 8 || !strings.HasPrefix(fmt.Sprintf("%x", sum), hashPrefix) {
+					t.Fatalf("GraphQL fingerprint does not identify original document: %q", fingerprint)
+				}
+				if bytes.Contains(logBytes, []byte("addComment(input:")) {
+					t.Fatal("log retained GraphQL document")
+				}
+			} else if op.Target.Repository != "acme/project" || op.Target.Number == nil || *op.Target.Number != 7 {
+				t.Fatalf("log repository/number target=%+v", op.Target)
+			}
+		})
+	}
+}
+
+func TestRoutineConfigNotesAbsentFromLogs(t *testing.T) {
+	s := newSandbox(t)
+	s.configure(func(c *config.Config) {
+		yes := true
+		c.Logging.Enabled = &yes
+	})
+	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.cwd, ".ghok.yaml"), []byte("version: 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result := s.gh(nil, "version")
+	result.code(t, 0)
+	s.onlyRecord([]string{"version"}, nil)
+	if len(result.stderr) != 0 {
+		t.Fatalf("routine configuration emitted diagnostic: %s", result.stderr)
+	}
+	records := s.logs()
+	if len(records) != 1 {
+		t.Fatalf("logs=%+v", records)
+	}
+	for _, diagnostic := range records[0].Diagnostics {
+		if strings.Contains(diagnostic, "Global config:") || strings.Contains(diagnostic, "Project config:") {
+			t.Fatalf("routine configuration leaked into diagnostics: %q", diagnostic)
+		}
+	}
+}
+
+func TestLoggedGraphQLStdinAnalysisEligibility(t *testing.T) {
+	query := `mutation { addComment(input: {subjectId: "ISSUE_private_node", body: "private comment"}) { clientMutationId } }`
+	payload, err := json.Marshal(map[string]string{"query": query})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload, '\n')
+	for _, enforce := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enforce=%v", enforce), func(t *testing.T) {
+			s := newSandbox(t)
+			if enforce {
+				s.configure(func(c *config.Config) {
+					yes := true
+					c.Logging.Enabled = &yes
+					c.Policy.Mode = config.ModeEnforce
+					c.Policy.Rules = []config.Rule{{ID: "no-comments", Decision: "deny", Match: config.Match{Operations: config.StringList{"comment.create"}}}}
+				})
+			} else if err := os.Remove(s.cfg); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"api", "graphql", "--input", "-"}
+			result := s.gh(payload, args...)
+			if enforce {
+				result.code(t, 1)
+				s.absentRecord()
+			} else {
+				result.code(t, 0)
+				s.onlyRecord(args, payload)
+			}
+			records := s.logs()
+			if len(records) != 1 || len(records[0].Operations) != 1 {
+				t.Fatalf("logs=%+v", records)
+			}
+			record := records[0]
+			notAnalyzed := false
+			for _, diagnostic := range record.Diagnostics {
+				notAnalyzed = notAnalyzed || diagnostic == "stdin not analyzed (nothing could act on it)"
+			}
+			if enforce {
+				if record.Decision != "deny" || record.Operations[0].Action != "comment.create" || notAnalyzed {
+					t.Fatalf("enforcing stdin analysis=%+v", record)
+				}
+			} else if record.Decision != "allow" || record.Operations[0].Family != "unknown" || record.Classification.MutationFree || !notAnalyzed {
+				t.Fatalf("unneeded stdin analysis=%+v", record)
+			}
+		})
+	}
+}
+
+func TestInvalidConfigWarningThrottleAndLogging(t *testing.T) {
+	s := newSandbox(t)
+	input := []byte{0, 'a', '\n', 255}
+	args := []string{"api", "graphql", "--input", "-", "-f", "body=unchanged content"}
+	writeInvalid := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(s.cfg, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := 0
+	invoke := func(warn bool) {
+		t.Helper()
+		if err := os.Remove(s.record); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		result := s.gh(input, args...)
+		result.code(t, 0)
+		s.onlyRecord(args, input)
+		if warn {
+			if bytes.Count(result.stderr, []byte("\n")) != 1 || !bytes.HasPrefix(result.stderr, []byte("ghok: invalid config")) {
+				t.Fatalf("invalid config warning=%q", result.stderr)
+			}
+		} else if len(result.stderr) != 0 {
+			t.Fatalf("warning was not throttled: %q", result.stderr)
+		}
+		count++
+		records := s.logs()
+		if len(records) != count {
+			t.Fatalf("invalid config events=%d, want=%d", len(records), count)
+		}
+		record := records[count-1]
+		if record.Decision != "passthrough-invalid-config" || !strings.Contains(strings.Join(record.Diagnostics, "\n"), "unknownField") {
+			t.Fatalf("invalid config event lacks error diagnostics: %+v", record)
+		}
+	}
+	writeInvalid("version: 1\nunknownField: true\n")
+	invoke(true)
+	invoke(false)
+	stateDir := filepath.Join(filepath.Dir(s.cfg), "state")
+	warnings, err := filepath.Glob(filepath.Join(stateDir, "invalid-config-*.warning"))
+	if err != nil || len(warnings) != 1 {
+		t.Fatalf("warning state=%v, err=%v", warnings, err)
+	}
+	for path, want := range map[string]os.FileMode{stateDir: 0700, warnings[0]: 0600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode=%#o, want=%#o", path, info.Mode().Perm(), want)
+		}
+	}
+	timestamp, err := os.ReadFile(warnings[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(timestamp)))
+	if err != nil || time.Since(stamp) > time.Minute {
+		t.Fatalf("warning timestamp=%q, err=%v", timestamp, err)
+	}
+	old := time.Now().Add(-11*time.Minute).UTC().Format(time.RFC3339Nano) + "\n"
+	if err := os.WriteFile(warnings[0], []byte(old), 0600); err != nil {
+		t.Fatal(err)
+	}
+	invoke(true)
+	invoke(false)
+	writeInvalid("version: 1\nunknownFieldChanged: true\n")
+	invoke(true)
+	invoke(false)
+	changed, err := filepath.Glob(filepath.Join(stateDir, "invalid-config-*.warning"))
+	if err != nil || len(changed) != 2 {
+		t.Fatalf("changed-error warning state=%v, err=%v", changed, err)
+	}
+	// Returning to the original error reuses that pair's independent throttle.
+	writeInvalid("version: 1\nunknownField: true\n")
+	invoke(false)
+	// A state I/O failure must never hide the warning or prevent execution.
+	if err := os.Remove(warnings[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(warnings[0], 0700); err != nil {
+		t.Fatal(err)
+	}
+	invoke(true)
+	invoke(true)
 }
 
 func TestNoConfigDefaultsAndLoggingFailures(t *testing.T) {

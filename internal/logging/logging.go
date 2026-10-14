@@ -1,4 +1,4 @@
-// Package logging writes credential-redacted invocation records as JSONL.
+// Package logging writes credential-redacted, content-minimized records as JSONL.
 package logging
 
 import (
@@ -22,6 +22,7 @@ type Record struct {
 	Alias          string                `json:"alias,omitempty"`
 	Classification model.Classification  `json:"classification"`
 	Operations     []model.Operation     `json:"operations"`
+	Source         *model.Source         `json:"source,omitempty"`
 	Errors         []string              `json:"errors,omitempty"`
 	Policy         *protocol.PolicyInfo  `json:"policy,omitempty"`
 	Hooks          []protocol.HookResult `json:"hooks,omitempty"`
@@ -46,14 +47,32 @@ func redactRecord(r *redact.Redactor, record Record) Record {
 		Errors:         record.Errors,
 	})
 	record.Classification = res.Classification
-	record.Operations = res.Operations
 	record.Errors = res.Errors
+	for i := range record.Operations {
+		if record.Operations[i].Parameters != nil {
+			res.Operations[i].Parameters = minimizeValue(r, record.Operations[i].Parameters, res.Operations[i].Parameters, "").(map[string]any)
+		}
+	}
+	record.Operations = res.Operations
 	record.InvocationID = r.String(record.InvocationID)
 	record.Mode = r.String(record.Mode)
-	record.Argv = r.Argv(record.Argv)
+	record.Argv = minimizeArgv(r, record.Argv)
 	record.Alias = r.String(record.Alias)
 	record.Decision = r.String(record.Decision)
 	record.Diagnostics = redactStrings(r, record.Diagnostics)
+	if record.Source != nil {
+		source := *record.Source
+		source.Kind = r.String(minimizeString(source.Kind, "kind"))
+		source.Argv = minimizeArgv(r, source.Argv)
+		source.Alias = r.String(minimizeString(source.Alias, "alias"))
+		source.Method = r.String(minimizeString(source.Method, "method"))
+		source.Path = r.String(source.Path)
+		source.Host = r.String(source.Host)
+		if source.GraphQL != "" {
+			source.GraphQL = r.String(graphQLSummary(source.GraphQL))
+		}
+		record.Source = &source
+	}
 	if record.Policy != nil {
 		policy := *record.Policy
 		policy.Mode = r.String(policy.Mode)

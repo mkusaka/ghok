@@ -9,7 +9,8 @@ is an independently installed `gh`.
 paths, `curl`, other clients, extensions, and credential helpers can bypass it.
 Use GitHub branch protection and rulesets for authoritative enforcement.
 Hooks are trusted programs running as your user. Invalid configuration warns
-and runs real `gh` **without hooks**, even if you intended enforce mode.
+and runs real `gh` **without hooks**, even if you intended enforce mode; repeated
+warnings for the same config error are limited to once per ten minutes.
 
 ## How it works
 
@@ -333,9 +334,10 @@ heuristic confidence; do not treat a retained read effect alone as safe.
 Plain aliases are expanded for inspection. API stdin is captured only for a
 potentially enforcing policy or potentially matching enabled pre-hook, then
 byte-exactly replayed; interactive stdin is never pre-read. Default observe
-logging and post-hooks alone leave stdin untouched, recording `stdin not captured`
-rather than delaying gh until EOF. `ghok normalize`/`explain` may still read
-non-TTY stdin. Registry tables, input rules, and limitations:
+logging and post-hooks alone leave stdin untouched. Logs record `allow` with
+`stdin not analyzed (nothing could act on it)` while retaining the unknown
+operation, rather than delaying gh until EOF. `ghok normalize`/`explain` may
+still read non-TTY stdin. Registry tables, input rules, and limitations:
 [normalization](docs/normalization.md).
 
 ## Management commands
@@ -416,6 +418,15 @@ measured; startup allocations describe the parent, not the child. Methodology:
   take precedence over PATH; `command gh` skips functions, not the PATH shim.
 - `GHOK_DEBUG=1 gh ...` exposes redacted logging/wait diagnostics on stderr;
   normal logging errors do not change execution.
+- Logs omit known prose (bodies, titles, comments, messages) and summarize other
+  whitespace-containing or over-64-byte values. GraphQL documents become
+  byte-count/SHA256 fingerprints; repository/action/target metadata stays
+  readable. Hook input retains ordinary content; see [logging rules](docs/security.md#files-permissions-and-logging).
+- Invalid config still runs gh without hooks and logs each failure at the
+  default log path. Warning throttling uses private `<config-dir>/state/`
+  files; state I/O failures print the warning instead of suppressing it.
+- Real gh missing: install GitHub CLI or set `runtime.realGh` / `GHOK_REAL_GH`.
+  The wrapper exits 127 with a short diagnostic; doctor retains PATH details.
 - `GHOK_REAL_GH=/absolute/path/to/gh` overrides `runtime.realGh`; invalid
   overrides fail rather than falling back. Avoid a shim path and shim-valued
   `GH_PATH`; ghok preserves `GH_PATH` and doctor warns about recursion risks.

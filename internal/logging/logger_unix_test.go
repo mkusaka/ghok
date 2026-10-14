@@ -248,7 +248,7 @@ func TestDecisionFiltering(t *testing.T) {
 }
 
 func TestRedactionDoesNotMutateRecord(t *testing.T) {
-	secret := "fake-learned-secret-123456789"
+	secret := "fake-learned-" + "secret-123456789"
 	body := "captured output must never be logged"
 	path := filepath.Join(t.TempDir(), "log")
 	logger, err := OpenWithRedactor(path, "info", redact.New(map[string]string{"GH_TOKEN": secret}))
@@ -315,7 +315,7 @@ func TestRedactionDoesNotMutateRecord(t *testing.T) {
 }
 
 func TestOpenLearnsProcessEnvironment(t *testing.T) {
-	secret := "fake-environment-token-987654321"
+	secret := "fake-environment-" + "token-987654321"
 	t.Setenv("GH_TOKEN", secret)
 	for _, injectedNil := range []bool{false, true} {
 		path := filepath.Join(t.TempDir(), "log")
@@ -656,5 +656,50 @@ func TestEncodingFailureDoesNotAppend(t *testing.T) {
 	records := readRecords(t, path)
 	if len(records) != 1 || records[0].InvocationID != "valid" {
 		t.Fatal("encoding failure left partial data")
+	}
+}
+
+func TestWriteWithholdsOrdinaryContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "log")
+	logger := testLogger(t, path, "info")
+	prose := "ordinary private prose"
+	document := `mutation { addComment(input: {subjectId: "ISSUE_12", body: "tiny"}) { id } }`
+	argv := []string{"api", "graphql", "-fquery=" + document, "-finput[body]=tiny"}
+	record := Record{
+		Argv:   argv,
+		Source: &model.Source{Kind: "graphql", GraphQL: document, Argv: argv},
+		Operations: []model.Operation{{
+			Family: "pr.comment", Action: "pr.comment.create",
+			Target:     model.Target{Repository: "owner/repository", NodeID: "ISSUE_12"},
+			Parameters: map[string]any{"body": "tiny", "nested": map[string]any{"unknown": prose}},
+		}},
+	}
+	if err := logger.Write(record); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{prose, "tiny", "addComment", document} {
+		if bytes.Contains(data, []byte(forbidden)) {
+			t.Errorf("JSONL contains private content %q", forbidden)
+		}
+	}
+	logged := readRecords(t, path)[0]
+	if logged.Operations[0].Target.Repository != "owner/repository" ||
+		logged.Operations[0].Target.NodeID != "ISSUE_12" ||
+		logged.Operations[0].Action != "pr.comment.create" ||
+		logged.Source.GraphQL != graphQLSummary(document) {
+		t.Errorf("incorrect log metadata: %+v", logged)
+	}
+	if record.Operations[0].Parameters["body"] != "tiny" || record.Source.GraphQL != document {
+		t.Fatal("Write changed hook-visible input")
+	}
+	if err := logger.Write(Record{Decision: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	if logged := readRecords(t, path)[1]; logged.Source != nil {
+		t.Fatal("absent source did not remain optional")
 	}
 }

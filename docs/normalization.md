@@ -81,6 +81,12 @@ and GraphQL input values. Use the CLI's redacted output or the shared redactor;
 do not directly emit internal results to logs or untrusted consumers. See
 [security](security.md) for the trust model.
 
+JSONL logging additionally minimizes ordinary content; hook/normalize/explain
+copies retain it. Prose fields and whitespace-containing/over-64-byte values
+are summarized, structural targets remain readable, and GraphQL source becomes
+a byte-count/SHA256 fingerprint. Deliberately unexamined stdin can be logged as
+`allow` while its operation remains unknown; this does not prove mutation-free.
+
 ### Level, confidence, resolution, and execution
 
 These dimensions answer different questions:

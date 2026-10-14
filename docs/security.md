@@ -36,8 +36,13 @@ broker, or server-side enforcement.
   GitHub operation. A post exit-zero result does not prove a merge occurred.
 
 Availability takes precedence on **invalid effective configuration**: the
-wrapper prints a redacted warning and executes real gh without hooks/logging,
-including when the broken file was intended to enforce policy. Validate config
+wrapper prints a redacted warning and executes real gh without hooks,
+including when the broken file was intended to enforce policy. Each failure
+is logged using the default logging path, not settings from invalid config.
+The same `(config path, error)` warning is printed at most once per ten minutes,
+using SHA256-keyed timestamp files under `<config-dir>/state/` (0700 directory,
+0600 files, with per-pair process locking). State I/O errors print the warning;
+throttling never hides the event from the log. Validate config
 before use, and do not describe this as fail-closed installation. Runtime
 pre-hook errors default to deny only when valid config establishes enforce mode;
 observe records would-deny and still runs gh.
@@ -177,6 +182,27 @@ execution metadata when supervised. **Captured gh output bodies are omitted.**
 Exec-path logs precede execution and cannot include final gh status. Info logs
 every invocation; decision logs retain non-allow decisions/errors/hook failures,
 not every ordinary nonzero child exit.
+
+**Content minimization is log-only.** Known prose flags/keys (`body`, `title`,
+`message`, `description`, `subject`, `commitHeadline`, `commitBody`, `comment`,
+`notes`) are replaced with `[content: N bytes]`, even for short single words.
+Other argv values and nested operation/source strings containing Unicode
+whitespace or longer than 64 bytes get the same marker. Structural flag names,
+command words, repositories/owners, branches/refs, URLs/hosts, numbers,
+actions/families, and short enum-like values remain readable, subject to
+credential redaction. API field syntax retains the key, not its prose value.
+GraphQL query strings/documents become
+`[graphql document: N bytes, sha256:<16 hex digits>]`, measured and hashed before
+credential redaction; source fingerprints cover the normalizer's bounded copy.
+Byte counts/fingerprints reveal length and permit matching identical content;
+they are not encryption. Hooks and normalize/explain retain ordinary content
+with the existing credential redaction.
+
+Routine config-source notes are not log diagnostics. Deliberately unexamined
+API stdin is logged as `allow` with
+`stdin not analyzed (nothing could act on it)`, retaining the unknown operation
+and analysis errors; this is passthrough, not a classification as safe/read.
+An applicable enforcing policy/pre-hook still triggers the existing analysis.
 
 A mutex and persistent-file flock serialize cooperating writers; the append
 file is reopened under lock after rotation. Logs rotate once an existing file

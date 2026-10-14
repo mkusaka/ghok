@@ -497,3 +497,40 @@ func TestStartErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingRealGhConciseWrapperAndDetailedDoctor(t *testing.T) {
+	s := newSandbox(t)
+	missingDir := filepath.Join(s.root, "missing-bin")
+	shim := filepath.Join(s.bin, "gh")
+	missing := filepath.Join(missingDir, "gh")
+	s.env["PATH"] = missingDir + string(os.PathListSeparator) + s.bin
+	result := s.gh(nil, "version")
+	result.code(t, 127)
+	s.absentRecord()
+	if !bytes.HasPrefix(result.stderr, []byte("ghok:")) || !bytes.Contains(result.stderr, []byte(shim)) || bytes.Count(result.stderr, []byte("\n")) != 1 {
+		t.Fatalf("missing-gh diagnostic=%q", result.stderr)
+	}
+	for _, noisy := range []string{missingDir, "lstat", "no such file or directory"} {
+		if bytes.Contains(result.stderr, []byte(noisy)) {
+			t.Fatalf("wrapper dumped PATH discovery detail %q: %s", noisy, result.stderr)
+		}
+	}
+	result = s.management(nil, "doctor", "--json")
+	result.code(t, 1)
+	var checks []struct {
+		Name   string
+		Detail string
+	}
+	if err := json.Unmarshal(result.stdout, &checks); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range checks {
+		if check.Name == "real-gh" {
+			if !strings.Contains(check.Detail, missing) || !strings.Contains(check.Detail, shim) || !strings.Contains(check.Detail, "no such file or directory") {
+				t.Fatalf("doctor lost candidate diagnostics: %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatalf("doctor omitted real-gh check: %+v", checks)
+}

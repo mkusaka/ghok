@@ -54,7 +54,8 @@ func Wrapper(args []string) int {
 	cfg, notes, configErr := config.LoadEffective(config.DefaultPath(env), cwd, env)
 	real, err := realGh(cfg, env)
 	if err != nil {
-		return fatal(err, 127)
+		fmt.Fprintf(os.Stderr, "ghok: %s.\n", redactor.String(err.Error()))
+		return 127
 	}
 	childEnv, _, err := install.NextDepth(os.Environ())
 	if err != nil {
@@ -62,17 +63,16 @@ func Wrapper(args []string) int {
 	}
 	opts := process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv}
 	if configErr != nil {
-		warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
-		fmt.Fprintf(os.Stderr, "ghok: invalid config (%s); running gh without hooks — run 'ghok config validate'\n", warning)
-		err = process.Exec(opts)
-		return fatal(err, process.StartErrorExitCode(err))
+		// An invalid effective config cannot be trusted, including its log path.
+		cfg = &config.Config{Dir: config.Dir(env)}
+		cfg.ApplyDefaults()
 	}
-	if cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
+	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		err = process.Exec(opts)
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	eventID := logging.NewInvocationID()
-	record := logging.Record{InvocationID: eventID, Time: started.UTC(), Mode: cfg.Policy.Mode, Argv: args, Diagnostics: notes, Decision: "allow"}
+	record := logging.Record{InvocationID: eventID, Time: started.UTC(), Mode: cfg.Policy.Mode, Argv: args, Decision: "allow"}
 	var logger *logging.Logger
 	debug := func(err error) {
 		if err != nil && env["GHOK_DEBUG"] == "1" {
@@ -95,6 +95,18 @@ func Wrapper(args []string) int {
 		}
 	}
 	defer closeLog()
+	if configErr != nil {
+		if warnInvalidConfig(config.Dir(env), configFailurePath(config.DefaultPath(env), notes), configErr, started) {
+			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
+			fmt.Fprintf(os.Stderr, "ghok: invalid config (%s); running gh without hooks — run 'ghok config validate'\n", warning)
+		}
+		record.Decision = "passthrough-invalid-config"
+		record.Diagnostics = []string{"invalid config: " + configErr.Error()}
+		logRecord()
+		closeLog()
+		err = process.Exec(opts)
+		return fatal(err, process.StartErrorExitCode(err))
+	}
 	if env["GHOK_NESTED"] == "1" {
 		record.Decision = "passthrough-nested"
 		logRecord()
@@ -102,7 +114,8 @@ func Wrapper(args []string) int {
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	inv := invocation(cfg, args, env, cwd, model.StdinData{Status: model.StdinNotCaptured})
-	if shouldSpool(cfg, expandedArgv(inv)) {
+	spoolNeeded, stdinSkipped := shouldSpool(cfg, expandedArgv(inv))
+	if spoolNeeded {
 		spool, spoolErr := process.SpoolStdin(os.Stdin, cfg.Runtime.StdinMaxBytes, cfg.Runtime.StdinTimeout.D())
 		if spool == nil {
 			return fatal(spoolErr, 1)
@@ -141,6 +154,10 @@ func Wrapper(args []string) int {
 	evaluation := policy.Evaluate(cfg.Policy, subject)
 	input := hookInput(args, cwd, real, result, resolved, evaluation, eventID)
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
+	record.Source = &result.Source
+	if stdinSkipped {
+		record.Diagnostics = append(record.Diagnostics, "stdin not analyzed (nothing could act on it)")
+	}
 	record.Policy = input.Policy
 	pre := runner.Run(ctx, config.PhasePre, runner.Select(config.PhasePre, subject), redactor.Input(input))
 	post := runner.Select(config.PhasePost, subject)
@@ -201,6 +218,14 @@ func Wrapper(args []string) int {
 	} else if evaluation.Decision == protocol.DecisionAudit {
 		record.Decision = "audit"
 	}
+	if stdinSkipped && len(evaluation.Rules) == 0 && pre.Decision != protocol.DecisionDeny {
+		// This is deliberate passthrough, not an audit of unavailable input.
+		// Keep the unknown operation and original analysis for transparency.
+		record.Decision = "allow"
+		logPolicy := *record.Policy
+		logPolicy.Decision = protocol.DecisionAllow
+		record.Policy = &logPolicy
+	}
 	if len(post) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
 		logRecord()
 		err = process.Exec(opts)
@@ -236,13 +261,13 @@ func Wrapper(args []string) int {
 
 // Body-dependent actions/effects/targets cannot exclude a match before capture.
 // Only the parsed API level and command prefix can prove it irrelevant.
-func shouldSpool(c *config.Config, argv []string) bool {
+func shouldSpool(c *config.Config, argv []string) (spool, skipped bool) {
 	if len(argv) == 0 || argv[0] != "api" {
-		return false
+		return false, false
 	}
 	req, err := apiargs.Parse(argv[1:])
 	if err != nil || !apiargs.NeedsStdin(req) {
-		return false
+		return false, false
 	}
 	level := model.LevelL2
 	if apiargs.IsGraphQL(req) {
@@ -260,20 +285,20 @@ func shouldSpool(c *config.Config, argv []string) bool {
 	if c.Policy.Mode == config.ModeEnforce {
 		if c.Policy.UnknownMutation == config.UnknownDeny ||
 			len(c.Policy.ProtectedRepositories) > 0 && c.Policy.ProtectedUnknown == config.UnknownDeny {
-			return true
+			return true, false
 		}
 		for _, rule := range c.Policy.Rules {
 			if rule.Decision == string(protocol.DecisionDeny) && couldMatch(rule.Match) {
-				return true
+				return true, false
 			}
 		}
 	}
 	for _, h := range c.Hooks {
 		if h.Phase == config.PhasePre && (h.Enabled == nil || *h.Enabled) && couldMatch(h.Match) {
-			return true
+			return true, false
 		}
 	}
-	return false
+	return false, true
 }
 
 func needsLocal(c *config.Config, s policy.Subject) bool {
