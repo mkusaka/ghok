@@ -24,6 +24,25 @@ archives:
       - README.md
       - LICENSE
 
+nfpms:
+  - package_name: ghok
+    file_name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    vendor: mkusaka
+    homepage: https://github.com/mkusaka/ghok
+    maintainer: mkusaka <https://github.com/mkusaka>
+    description: Transparent wrapper for the GitHub CLI (gh) with pre/post hooks and policies.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    # Not a hard dependency: gh is often installed from GitHub's own apt/rpm
+    # repository or another channel under a different package name.
+    recommends: [gh]
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/ghok/README.md
+      - src: LICENSE
+        dst: /usr/share/doc/ghok/LICENSE
+
 checksum:
   name_template: checksums.txt
 

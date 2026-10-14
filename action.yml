@@ -1,0 +1,109 @@
+name: "Setup ghok"
+description: "Install ghok (gh wrapper with pre/post hooks and policies) and route `gh` through it for later steps"
+author: "mkusaka"
+
+branding:
+  icon: "shield"
+  color: "gray-dark"
+
+inputs:
+  version:
+    description: >-
+      ghok release to install (e.g. v0.1.0, or "latest"). Default: the release that
+      matches this action's ref, so pinning the action pins the binary.
+    required: false
+    default: ""
+  shim:
+    description: "Put a gh -> ghok shim first on PATH so later steps' `gh` goes through ghok"
+    required: false
+    default: "true"
+  token:
+    description: "Token used to download and verify the release"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: "Installed ghok release tag"
+    value: ${{ steps.resolve.outputs.tag }}
+  path:
+    description: "Absolute path of the installed ghok binary"
+    value: ${{ steps.install.outputs.path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve ghok release
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ACTION_REPO: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        repo="${ACTION_REPO:-mkusaka/ghok}"
+        tag="${INPUT_VERSION}"
+        if [[ "${tag}" == "latest" ]]; then
+          tag="$(gh release view --repo "${repo}" --json tagName --jq .tagName)"
+        elif [[ -z "${tag}" ]]; then
+          if [[ "${ACTION_REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tag="${ACTION_REF}"
+          elif [[ "${ACTION_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            # Pinned by commit SHA (e.g. by pinact): use the release tag on that commit.
+            tag="$(gh api --paginate "repos/${repo}/tags" --jq ".[] | select(.commit.sha == \"${ACTION_REF}\") | .name" \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+          fi
+        fi
+        if [[ -z "${tag}" ]]; then
+          echo "::error::Cannot derive a ghok release from action ref '${ACTION_REF}'. Pin the action to a release tag (or its SHA), or set 'version'."
+          exit 1
+        fi
+        echo "repo=${repo}" >> "${GITHUB_OUTPUT}"
+        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+    - name: Install ghok
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ steps.resolve.outputs.repo }}
+        TAG: ${{ steps.resolve.outputs.tag }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS_VALUE}" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          *) echo "::error::ghok supports Linux and macOS runners only (got ${RUNNER_OS_VALUE})"; exit 1 ;;
+        esac
+        case "${RUNNER_ARCH_VALUE}" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::Unsupported architecture: ${RUNNER_ARCH_VALUE}"; exit 1 ;;
+        esac
+        asset="ghok_${os}_${arch}.tar.gz"
+        dir="${RUNNER_TEMP}/ghok"
+        rm -rf "${dir}" && mkdir -p "${dir}/bin"
+        gh release download "${TAG}" --repo "${REPO}" --pattern "${asset}" --pattern checksums.txt --dir "${dir}"
+        # Immutable release attestation: the asset is exactly what the release published.
+        gh release verify-asset "${TAG}" "${dir}/${asset}" --repo "${REPO}"
+        (cd "${dir}" && grep -E "  ${asset}\$" checksums.txt | { sha256sum -c - 2>/dev/null || shasum -a 256 -c -; })
+        tar -xzf "${dir}/${asset}" -C "${dir}/bin" ghok
+        "${dir}/bin/ghok" version
+        echo "${dir}/bin" >> "${GITHUB_PATH}"
+        echo "path=${dir}/bin/ghok" >> "${GITHUB_OUTPUT}"
+
+    - name: Route gh through ghok
+      if: inputs.shim == 'true'
+      shell: bash
+      env:
+        GHOK: ${{ steps.install.outputs.path }}
+      run: |
+        set -euo pipefail
+        shim_dir="${RUNNER_TEMP}/ghok/shim"
+        "${GHOK}" shim install --bin-dir "${shim_dir}"
+        # GITHUB_PATH entries are prepended, so later steps resolve `gh` to the shim.
+        echo "${shim_dir}" >> "${GITHUB_PATH}"

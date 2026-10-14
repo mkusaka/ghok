@@ -49,6 +49,38 @@ The formula installs a prebuilt binary and depends on Homebrew's `gh`. Keep
 the shim working because it points at the stable `opt/ghok` path, not a Cellar
 version directory.
 
+### Linux / WSL
+
+Homebrew on Linux uses the same formula: `brew install mkusaka/tap/ghok`.
+Without Homebrew:
+
+```sh
+# mise (no plugin or registry needed; installs from GitHub releases)
+mise use -g github:mkusaka/ghok
+
+# Debian/Ubuntu (incl. WSL) or Fedora/RHEL packages attached to each release
+gh release download --repo mkusaka/ghok --pattern 'ghok_linux_amd64.deb'   # or arm64 / .rpm
+sudo apt install ./ghok_linux_amd64.deb                                     # or: sudo dnf install ./ghok_linux_amd64.rpm
+```
+
+The `.deb`/`.rpm` files are not an apt/dnf repository, so upgrade by installing
+a newer package; Homebrew and mise upgrade in place.
+
+### GitHub Actions
+
+```yaml
+- uses: mkusaka/ghok@<commit SHA> # vX.Y.Z
+- run: gh pr merge 123 --squash   # now goes through ghok (pre/post hooks, policy)
+```
+
+The action installs the ghok release that matches its own ref (a release tag,
+or the SHA of one), verifies it against the immutable release attestation and
+checksums, and puts a `gh -> ghok` shim first on PATH (`shim: false` installs
+only). Inputs: `version` (`vX.Y.Z` or `latest`, overrides the ref), `shim`,
+`token`; outputs: `version`, `path`. Configure it like anywhere else, e.g. with a
+`config.yaml` under `GHOK_CONFIG_DIR` or a trusted project `.ghok.yaml`.
+Linux and macOS runners only.
+
 ### Go install
 
 ```sh

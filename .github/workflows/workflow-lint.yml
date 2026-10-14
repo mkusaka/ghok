@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths: &workflow-paths
+      - "action.yml"
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/scripts/**"
@@ -82,7 +83,7 @@ jobs:
       - name: Run zizmor security check
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
-          inputs: .github/workflows/
+          inputs: action.yml .github/workflows/
           min-severity: medium
           token: ${{ github.token }}
           advanced-security: false
