@@ -225,7 +225,9 @@ func Parse(args []string) (model.APIRequest, error) {
 // gh decides it: the endpoint is literally "graphql", or an absolute URL
 // whose path is /graphql or /api/graphql (GHES).
 func IsGraphQL(req model.APIRequest) bool {
-	if req.Endpoint == "graphql" {
+	// gh only groups variables for the literal "graphql", but "/graphql" and
+	// "graphql/" still reach https://api.github.com/graphql on github.com.
+	if strings.Trim(req.Endpoint, "/") == "graphql" {
 		return true
 	}
 	if i := strings.Index(req.Endpoint, "://"); i >= 0 {

@@ -77,7 +77,7 @@ func TestBuildParams(t *testing.T) {
 
 func TestIsGraphQL(t *testing.T) {
 	for ep, want := range map[string]bool{
-		"graphql": true, "/graphql": false, "https://api.github.com/graphql": true,
+		"graphql": true, "/graphql": true, "graphql/": true, "https://api.github.com/graphql": true,
 		"https://ghe.example.com/api/graphql?x=1": true, "repos/o/r/graphql": false, "https://api.github.com/repos/o/graphql": false,
 	} {
 		if got := IsGraphQL(model.APIRequest{Endpoint: ep}); got != want {
