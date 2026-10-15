@@ -80,11 +80,19 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		store, trustNotes := readTrustStore(env)
 		notes = append(notes, trustNotes...)
 		current := currentTrustEntry(project, canonical, p, files, env)
-		previous := store[contentHash([]byte(canonical))]
+		// A hook is trusted when its exact content was granted anywhere on this
+		// machine; "changed" compares with this repository's last grant.
+		trusted := trustedDigests(store)
+		previous, exists := store[trustKey(current)]
+		if !exists {
+			if found := previousTrustEntry(current, store); found != nil {
+				previous = *found
+			}
+		}
 		active := 0
 		for _, h := range p.Hooks {
 			digest := current.HookDigests[h.ID]
-			if previous.HookDigests[h.ID] == digest {
+			if trusted[digest] {
 				if h.Enabled == nil || *h.Enabled {
 					active++
 				}
@@ -122,7 +130,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 			ignored = &IgnoredProject{Path: canonical, Digest: contentHash(state)}
 			ignored.ChangedFiles = changedTrustFiles(files, previous.Files)
 			if len(previous.HookDigests) != 0 {
-				comparison, _ := trustComparisonNotes(current, map[string]trustEntry{contentHash([]byte(canonical)): previous})
+				comparison, _ := trustComparisonNotes(current, map[string]trustEntry{trustKey(current): previous})
 				notes = append(notes, comparison...)
 			}
 		}

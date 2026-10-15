@@ -133,7 +133,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	if err := os.Mkdir(second, 0700); err != nil {
 		t.Fatal(err)
 	}
-	// Identical content in another checkout still requires explicit approval.
+	// Identical content in another worktree is trusted without re-approval.
 	for _, worktree := range []string{s.cwd, second} {
 		if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+sharedGit+"\n"), 0600); err != nil {
 			t.Fatal(err)
@@ -163,10 +163,6 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	}
 	s.cwd = second
 	s.gh(nil, "version").code(t, 0)
-	assertNoProjectHook(t, s)
-	assertIgnoredProjectHook(t, s, "untrusted")
-	s.management(nil, "config", "trust").code(t, 0)
-	s.gh(nil, "version").code(t, 0)
 	s.hookInput("project")
 	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
 		t.Fatal(err)
@@ -180,7 +176,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	assertNoProjectHook(t, s)
 	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	assertNoProjectHook(t, s)
-	if len(s.records()) != 4 {
+	if len(s.records()) != 3 { // three version runs; the denied merge never reached gh
 		t.Fatal("changed executable bypassed project deny rule")
 	}
 }

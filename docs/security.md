@@ -190,12 +190,16 @@ still run on cache hits. Warm hits do not rewrite cache state.
 Like the trust store, this is not protection against malicious same-user state
 changes or concurrent filesystem replacement.
 
-`<config-dir>/trust.json` holds **one record per canonical project path**,
+`<config-dir>/trust.json` holds **one record per repository** (keyed by the
+resolved Git common directory; outside Git, the canonical project path),
 containing hook ID → digest and canonical definitions, plus `firstPath`,
 `configPath`, `trustedAt`, hook IDs and per-file executable bits/hashes/missing
 markers. HEAD `commit`, resolved Git `commonDir` and normalized credential-free
-origin `remoteUrl` are diagnostic provenance, never digest inputs. Another
-checkout needs its own trust; comparison heuristics never authorize hooks.
+origin `remoteUrl` are diagnostic provenance, never digest inputs. A hook is
+trusted when its digest appears in any record (current or `digests`, the last 128
+earlier grants of that repository), so identical worktrees and clones share
+trust; comparison heuristics never authorize hooks. A changed gate is judged
+against the repository's last grant in every worktree.
 Selective trust retains old file snapshots/blobs for unselected hooks, even when
 a shared path now has different trusted bytes for different hooks.
 Old manifest records are ignored safely and require re-trust after upgrading.
@@ -203,7 +207,7 @@ The store uses a 0700 config directory and atomic 0600 temporary-file replacemen
 Malformed entries are skipped individually with a named note; valid entries stay
 trusted. Invalid/unreadable top-level stores grant no trust. Policy still applies.
 
-Review first uses this checkout's record; otherwise it selects the newest record
+Review first uses this repository's record; otherwise it selects the newest record
 in the first matching tier: resolved Git common directory, `firstPath`, normalized origin URL, then at least
 two distinct shared file-content SHA256s, independent of filenames. One common
 include such as `.gitleaks.toml` is insufficient. These heuristics choose review

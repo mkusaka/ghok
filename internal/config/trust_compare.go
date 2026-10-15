@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -105,6 +106,58 @@ func normalizeTrustRemote(raw, root string) string {
 		return ""
 	}
 	return host + "/" + path
+}
+
+// trustKey names a repository's trust record. Every worktree of a repository
+// (same git common dir) shares it; outside git the project path does.
+func trustKey(entry trustEntry) string {
+	if entry.CommonDir != "" {
+		return contentHash([]byte("repo\x00" + entry.CommonDir))
+	}
+	return contentHash([]byte(entry.FirstPath))
+}
+
+// trustedDigests is every hook digest granted on this machine: trust follows
+// content, so any checkout or clone with an identical hook is trusted.
+func trustedDigests(store map[string]trustEntry) map[string]bool {
+	trusted := make(map[string]bool)
+	for _, entry := range store {
+		for _, digest := range entry.HookDigests {
+			trusted[digest] = true
+		}
+		for _, digest := range entry.Digests {
+			trusted[digest] = true
+		}
+	}
+	return trusted
+}
+
+// maxGrantHistory bounds the digests a record keeps from earlier grants.
+const maxGrantHistory = 128
+
+// grantHistory keeps the record's earlier grants, newest last, minus the ones
+// the new record grants directly.
+func grantHistory(prior, next trustEntry) []string {
+	current := make(map[string]bool, len(next.HookDigests))
+	for _, digest := range next.HookDigests {
+		current[digest] = true
+	}
+	var history []string
+	add := func(digest string) {
+		if !current[digest] && !slices.Contains(history, digest) {
+			history = append(history, digest)
+		}
+	}
+	for _, digest := range prior.Digests {
+		add(digest)
+	}
+	for _, id := range prior.HookIDs {
+		add(prior.HookDigests[id])
+	}
+	if len(history) > maxGrantHistory {
+		history = history[len(history)-maxGrantHistory:]
+	}
+	return history
 }
 
 func previousTrustEntry(current trustEntry, store map[string]trustEntry) *trustEntry {

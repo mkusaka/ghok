@@ -90,7 +90,7 @@ func TestTrustStorePersistence(t *testing.T) {
 	}
 }
 
-func TestTrustDoesNotAuthorizeOtherCheckouts(t *testing.T) {
+func TestContentTrustAcrossWorktrees(t *testing.T) {
 	root := t.TempDir()
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	body := "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: {pre: [{id: local, command: [./scripts/check]}]}\n"
@@ -104,8 +104,8 @@ func TestTrustDoesNotAuthorizeOtherCheckouts(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _, err := LoadEffective("", second, env)
-	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
-		t.Fatalf("identical checkout inherited trust: %+v, %v", c, err)
+	if err != nil || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 0 {
+		t.Fatalf("identical worktree lost trust: %+v, %v", c, err)
 	}
 	writeFixture(t, filepath.Join(second, "scripts", "check"), "#!/bin/sh\nexit 1\n")
 	c, _, err = LoadEffective("", second, env)

@@ -86,8 +86,9 @@ Never overwrite an existing config; edit it instead.
   mode a changed gate denies matching invocations with `config <id>` / exit 78.
   A new untrusted gate also denies when another project hook is trusted/enabled.
   Observe records would-deny; a never-trusted project only ignores hooks/warns.
-  One record per checkout keeps per-hook digests/definitions and file baselines.
-  Other checkouts need their own trust; old manifest records require re-trust.
+  Trust follows content: a hook digest trusted anywhere is trusted in every
+  worktree/clone. One record per repository (Git common dir) keeps the latest
+  per-hook digests/definitions/file baselines plus earlier grants.
   `ghok config trust --hook ID` is repeatable; unselected hooks keep their old
   trust and review baselines. Omitting `--hook` trusts all project hooks.
   Trust output lists every hashed file, hook IDs, resolved commands and coverage
@@ -98,7 +99,7 @@ Never overwrite an existing config; edit it instead.
   validates and prints the proposed trust without writing trust/blob/cache state.
   Trust groups definition/file changes per hook, showing shared files once;
   validate/doctor/explain/hooks list identify per-hook reasons and inactive gates.
-  Review uses the checkout's own record first, otherwise provenance-based hints
+  Review uses the repository's own record first, otherwise provenance-based hints
   (common directory, first path, normalized origin, then two distinct shared
   hashes). Hints never authorize hooks. Review the previous timestamp/path and,
   only in trust/dry-run, the diff against exact stored bytes, including dirty files.

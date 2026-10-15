@@ -16,9 +16,15 @@ func hookTrustRecord(t *testing.T, repo string, env map[string]string) trustEntr
 		t.Fatal(err)
 	}
 	store, notes := readTrustStore(env)
-	entry, ok := store[contentHash([]byte(canonical))]
+	var entry trustEntry
+	ok := false
+	for _, e := range store {
+		if e.FirstPath == canonical {
+			entry, ok = e, true
+		}
+	}
 	if !ok || entry.ManifestVersion != 2 {
-		t.Fatalf("missing v2 checkout record: %+v, %v", store, notes)
+		t.Fatalf("missing v2 repository record: %+v, %v", store, notes)
 	}
 	return entry
 }

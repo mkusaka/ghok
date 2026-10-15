@@ -109,7 +109,8 @@ func TestTrustComparisonWorktreeCloneAndShallow(t *testing.T) {
 				trustGit(t, repo, "clone", "--depth=1", "file://"+repo, other)
 			}
 			c, notes, err := LoadEffective("", other, env)
-			if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" || c.Policy.Mode != ModeEnforce {
+			if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || !c.IgnoredHooks[0].GateBlocked || c.Policy.Mode != ModeEnforce {
+				// Same repository: judged against its last grant, like the trusted checkout.
 				t.Fatalf("comparison must not authorize changed hooks or discard policy: %+v, %v, %v", c, notes, err)
 			}
 			_, _, _, diff, err := TrustProject("", other, env, true, false)
@@ -242,5 +243,55 @@ func TestTrustDryRunWritesNothing(t *testing.T) {
 	c, _, err := LoadEffective("", repo, env)
 	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 {
 		t.Fatalf("dry-run granted trust: %+v, %v", c, err)
+	}
+}
+
+// Worktrees of one repository share trust, and a changed gate is judged the
+// same way in every worktree; earlier grants stay valid for other branches.
+func TestTrustSharedAcrossGitWorktrees(t *testing.T) {
+	root := t.TempDir()
+	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
+	repo, wt := filepath.Join(root, "repo"), filepath.Join(root, "wt")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce}\nhooks: {pre: [{id: gate, command: [./hook]}, {id: audit, onError: ignore, command: [./audit]}]}\n")
+	writeFixture(t, filepath.Join(repo, "hook"), "v1\n")
+	writeFixture(t, filepath.Join(repo, "audit"), "audit\n")
+	trustGit(t, repo, "init", "-q")
+	trustGit(t, repo, "add", ".")
+	trustGit(t, repo, "commit", "-qm", "init")
+	if _, _, _, _, err := TrustProject("", repo, env, false, true); err != nil {
+		t.Fatal(err)
+	}
+	trustGit(t, repo, "worktree", "add", "-q", wt)
+	load := func(dir string) *Config {
+		t.Helper()
+		c, notes, err := LoadEffective("", dir, env)
+		if err != nil {
+			t.Fatalf("%v %v", err, notes)
+		}
+		return c
+	}
+	if c := load(wt); len(c.Hooks) != 2 || len(c.IgnoredHooks) != 0 {
+		t.Fatalf("new worktree lost trust: %+v", c.IgnoredHooks)
+	}
+	for _, dir := range []string{repo, wt} {
+		writeFixture(t, filepath.Join(dir, "hook"), "v2\n")
+		if c := load(dir); len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || !c.IgnoredHooks[0].GateBlocked {
+			t.Fatalf("%s: changed gate must be blocked: %+v", dir, c.IgnoredHooks)
+		}
+	}
+	if _, _, _, _, err := TrustProject("", repo, env, false, true); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(wt, "hook"), "v1\n")
+	for _, dir := range []string{repo, wt} {
+		if c := load(dir); len(c.Hooks) != 2 || len(c.IgnoredHooks) != 0 {
+			t.Fatalf("%s: both granted versions must stay trusted: %+v", dir, c.IgnoredHooks)
+		}
+	}
+	if _, _, err := UntrustProject("", wt, env); err != nil {
+		t.Fatal(err)
+	}
+	if c := load(repo); len(c.Hooks) != 0 {
+		t.Fatalf("untrust from a worktree must revoke the repository: %+v", c.Hooks)
 	}
 }

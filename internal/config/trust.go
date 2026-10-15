@@ -36,17 +36,20 @@ type trustedFile struct {
 }
 
 type trustEntry struct {
-	ManifestVersion int                        `json:"manifestVersion"`
-	FirstPath       string                     `json:"firstPath"`
-	ConfigPath      string                     `json:"configPath"`
-	Commit          string                     `json:"commit,omitempty"`
-	CommonDir       string                     `json:"commonDir,omitempty"`
-	RemoteURL       string                     `json:"remoteUrl,omitempty"`
-	TrustedAt       time.Time                  `json:"trustedAt"`
-	HookIDs         []string                   `json:"hookIds"`
-	HookDigests     map[string]string          `json:"hookDigests"`
-	Definitions     map[string]json.RawMessage `json:"definitions"`
-	Files           []trustedFile              `json:"files"`
+	ManifestVersion int               `json:"manifestVersion"`
+	FirstPath       string            `json:"firstPath"`
+	ConfigPath      string            `json:"configPath"`
+	Commit          string            `json:"commit,omitempty"`
+	CommonDir       string            `json:"commonDir,omitempty"`
+	RemoteURL       string            `json:"remoteUrl,omitempty"`
+	TrustedAt       time.Time         `json:"trustedAt"`
+	HookIDs         []string          `json:"hookIds"`
+	HookDigests     map[string]string `json:"hookDigests"`
+	// Digests are earlier grants kept so that worktrees on other branches
+	// stay trusted after a newer version of a hook is trusted.
+	Digests     []string                   `json:"digests,omitempty"`
+	Definitions map[string]json.RawMessage `json:"definitions"`
+	Files       []trustedFile              `json:"files"`
 }
 
 func contentHash(data []byte) string {
@@ -319,12 +322,17 @@ func parseTrustStore(data []byte) (map[string]trustEntry, []string, error) {
 }
 
 func validateTrustEntry(key string, entry trustEntry) error {
-	if !validDigest(key) || key != contentHash([]byte(entry.FirstPath)) || entry.ManifestVersion != 2 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.HookDigests) == 0 {
+	if !validDigest(key) || (key != trustKey(entry) && key != contentHash([]byte(entry.FirstPath))) || entry.ManifestVersion != 2 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.HookDigests) == 0 {
 		return errors.New("invalid trust entry")
 	}
 	for _, file := range entry.Files {
 		if !filepath.IsLocal(file.Path) || filepath.ToSlash(filepath.Clean(file.Path)) != file.Path || (file.Missing && (file.SHA256 != "" || file.Executable)) || (!file.Missing && !validDigest(file.SHA256)) {
 			return errors.New("invalid trusted file")
+		}
+	}
+	for _, digest := range entry.Digests {
+		if !validDigest(digest) {
+			return errors.New("invalid trusted digest")
 		}
 	}
 	for id, digest := range entry.HookDigests {
@@ -475,7 +483,7 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	}
 	store, storeNotes := readTrustStore(env)
 	notes = append(notes, storeNotes...)
-	key := contentHash([]byte(canonical))
+	key := trustKey(current)
 	previous := previousTrustEntry(current, store)
 	if exact, exists := store[key]; exists {
 		previous = &exact
@@ -483,11 +491,12 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	review, diff := hookTrustReview(project, current, previous, selected, env, noDiff)
 	notes = append(notes, review...)
 	if !dryRun {
+		prior := store[key]
 		trusted := current
 		if len(hookIDs) != 0 {
-			prior := store[key]
 			trusted = mergeSelectedTrust(current, prior, selected)
 		}
+		trusted.Digests = grantHistory(prior, trusted)
 		trusted.TrustedAt = time.Now().UTC()
 		store[key] = trusted
 		blobNotes, err := saveTrustContents(project, selectedTrustFiles(files, selected), env, store)
@@ -534,16 +543,17 @@ func UntrustProject(path, cwd string, env map[string]string) (string, []string, 
 	if err != nil {
 		return "", nil, err
 	}
-	if _, _, err := parseProject(data, project); err != nil {
+	p, _, err := parseProject(data, project)
+	if err != nil {
 		return "", nil, err
 	}
 	store, notes := readTrustStore(env)
-	digest := contentHash([]byte(canonical))
-	if _, exists := store[digest]; !exists {
+	key := trustKey(currentTrustEntry(project, canonical, p, nil, env))
+	if _, exists := store[key]; !exists {
 		_, err := prepareTrustBlobs(env, store)
 		return canonical, notes, err
 	}
-	delete(store, digest)
+	delete(store, key)
 	if err := writeTrustStore(env, store); err != nil {
 		return "", notes, err
 	}

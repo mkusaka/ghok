@@ -296,7 +296,10 @@ ghok config untrust                 # remove this project's hook trust; policy r
 ghok config untrust --all            # remove every project trust record
 ```
 
-Trust is **per hook**, with one record for each checkout's canonical project path.
+Trust is **per hook** and follows content: a hook is active when its exact digest
+was trusted anywhere on this machine, so identical worktrees and clones share
+trust. All worktrees of a repository (same Git common directory) share one record;
+earlier grants stay valid, so worktrees on older branches keep working.
 Each digest covers the canonical, defaulted hook definition, its repository-local
 executable, its `files`, and project `trust.include` files. YAML comments,
 formatting, policy changes and unrelated hook edits/reordering do not revoke trust.
@@ -356,14 +359,14 @@ trust, blob or cache state. `config trust`, and `config validate`/`doctor` when
 hooks are ignored, show changed/added/removed manifest files, executable-bit
 changes (`mode 0644 → 0755`) and the previous record's timestamp/path. Modes
 describe the manifest's executable bit, not every filesystem permission bit.
-Review uses this checkout's record first; otherwise it selects a record by resolved Git
+Review and `changed since trust` use this repository's record first; otherwise they select a record by resolved Git
 common directory, same `firstPath`, same normalized origin, then at least two
 distinct shared file-content SHA256s (paths may differ). Sharing only
 `.gitleaks.toml` does not select an unrelated repository. Origins normalize
 scp-like/SSH/HTTPS spelling, lowercase hosts, remove userinfo, ports 22/443 and
 trailing `/`/`.git`; repository path case is retained and `insteadOf` is ignored.
 No match is reported as `no previous trust record for this repository`.
-These hints never grant trust.
+Trust itself comes only from matching digests.
 
 Only `config trust` and `config trust --dry-run` show unified diffs against
 **the exact bytes previously trusted**, including uncommitted files, not HEAD.
@@ -382,7 +385,8 @@ purges all stored copies. See [security](docs/security.md#project-configuration-
 
 Trust and untrust reject missing configs and paths other than a repository-root
 `.ghok.yaml`. Untrust is idempotent and removes the whole project's authorization;
-`--all` clears every project record. Other checkouts require their own trust.
+`--all` clears every project record. Untrust removes the repository record from any
+of its worktrees; an identical hook trusted for another repository stays trusted.
 This is not a security boundary against concurrent replacement or malicious users.
 Validate, doctor, explain and hooks list report per-hook reasons, explicitly naming
 inactive gates. Ignored-hook warnings are throttled for ten minutes per canonical
@@ -754,8 +758,8 @@ report the global source (exists or not found/defaults) and merged project polic
 `hooks list` and explain show ignored project hooks with `untrusted` or
 `changed since trust` reasons and guidance to run `ghok config trust`.
 `changed since trust` (with the changed files and when it was trusted) is reported
-only when this same checkout path was trusted before; a checkout that was never
-trusted from its own path is simply `untrusted`.
+when the same repository trusted another version of that hook ID; otherwise the
+hook is simply `untrusted`. Every worktree of a repository gets the same answer.
 Hook listings include each hook's source config path in text and JSON;
 source is not a YAML setting.
 

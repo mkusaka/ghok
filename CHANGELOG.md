@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Fixed
+
+- Trust follows content again: a hook trusted in one worktree or clone is trusted in every checkout with identical content (0.0.8 made trust per checkout path). Worktrees of a repository share one record that keeps earlier grants, so older branches stay trusted, and a changed gate is blocked the same way in every worktree instead of only in the one that trusted it.
+
 ## [v0.0.9] - 2026-10-15
 
 ### Breaking
