@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.6] - 2026-10-15
+
 ### Breaking
 
 - Enforce denial stderr now has a stable `ghok: denied by <source>` header and ordered per-denial entries, preferring multiline messages over reasons. Content denials exit 77 (`EX_NOPERM`); hook-`onError`-only and fail-closed config denials exit 78 (`EX_CONFIG`), replacing exit 1. Content wins over errors; observe and `hooks test` mismatch statuses are unchanged.
@@ -107,7 +109,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.6...HEAD
+[v0.0.6]: https://github.com/mkusaka/ghok/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/mkusaka/ghok/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/mkusaka/ghok/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/mkusaka/ghok/compare/v0.0.2...v0.0.3
