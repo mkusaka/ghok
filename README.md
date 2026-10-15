@@ -874,7 +874,8 @@ facilities, not only cross-compilation. CI runs native tests, race checks, five
 
 Record user-visible changes in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`
 (changes that require users to update config, hooks or scripts go under
-**Breaking**). Then, from an up-to-date, clean `main`:
+**Breaking**). Then, from an up-to-date, clean `main` whose CI run has succeeded
+(the script checks with `gh` and refuses a running, failed or cancelled run):
 
 ```sh
 scripts/release.sh patch        # or minor | major | vX.Y.Z

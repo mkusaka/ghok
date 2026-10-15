@@ -37,13 +37,27 @@ if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git ls-remote --exit
   echo "Error: tag '$tag' already exists"; exit 1
 fi
 
+# The full CI matrix (lint, race, every OS/arch) must have passed on this
+# commit; the release workflow's own verify job runs only go test on Linux.
+sha=$(git rev-parse HEAD)
+ci=$(gh run list --workflow CI --branch main --commit "$sha" --limit 1 --json status,conclusion,url \
+  --jq '.[0] // empty | "\(.status)|\(.conclusion)|\(.url)"')
+IFS='|' read -r ci_status ci_conclusion ci_url <<<"$ci"
+if [[ -z "$ci" ]]; then
+  echo "Error: no CI run for ${sha:0:7}; push and wait for CI first"; exit 1
+elif [[ "$ci_status" != completed ]]; then
+  echo "Error: CI for ${sha:0:7} is $ci_status; wait for it: gh run watch ${ci_url##*/}"; exit 1
+elif [[ "$ci_conclusion" != success ]]; then
+  echo "Error: CI for ${sha:0:7} concluded $ci_conclusion: $ci_url"; exit 1
+fi
+
 notes=$(scripts/changelog-section.sh Unreleased)
 if ! grep -q '[^[:space:]#]' <<<"$notes"; then
   echo "Error: CHANGELOG.md [Unreleased] is empty; describe the changes first"; exit 1
 fi
 
 echo "$latest -> $tag"
-echo "Commit: $(git log --oneline -1)"
+echo "Commit: $(git log --oneline -1) (CI passed: $ci_url)"
 echo "----- release notes -----"
 echo "$notes"
 echo "-------------------------"
