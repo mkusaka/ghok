@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.7] - 2026-10-15
+
 ### Added
 
 - `ghok shell-init zsh|bash|fish` prints an eval-able `gh` shell function that runs `ghok exec --`, for adopting ghok without a PATH shim; the output carries a comment that gh started by scripts or other programs is not covered.
@@ -114,7 +116,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.6...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.7...HEAD
+[v0.0.7]: https://github.com/mkusaka/ghok/compare/v0.0.6...v0.0.7
 [v0.0.6]: https://github.com/mkusaka/ghok/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/mkusaka/ghok/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/mkusaka/ghok/compare/v0.0.3...v0.0.4
