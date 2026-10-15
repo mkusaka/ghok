@@ -28,10 +28,10 @@ func writeTrustProject(t *testing.T, s *sandbox, command ...string) (string, []b
 	defaults.ApplyDefaults()
 	h = defaults.Hooks[0]
 	body, err := yaml.Marshal(struct {
-		Version int           `yaml:"version"`
-		Policy  config.Policy `yaml:"policy"`
-		Hooks   []config.Hook `yaml:"hooks"`
-	}{Version: 1, Policy: config.Policy{Mode: config.ModeEnforce, UnknownMutation: "audit", ProtectedUnknown: "deny", Rules: []config.Rule{{ID: "project-deny", Decision: "deny", Match: config.Match{Commands: []string{"pr merge"}}}}}, Hooks: []config.Hook{h}})
+		Version int             `yaml:"version"`
+		Policy  config.Policy   `yaml:"policy"`
+		Hooks   config.HookList `yaml:"hooks"`
+	}{Version: 1, Policy: config.Policy{Mode: config.ModeEnforce, UnknownMutation: "audit", ProtectedUnknown: "deny", Rules: []config.Rule{{ID: "project-deny", Decision: "deny", Match: config.Match{Commands: []string{"pr merge"}}}}}, Hooks: config.HookList{h}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestProjectTrustCommandRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := "version: 1\nhooks: [{id: project, phase: pre, command: " + string(command) + "}]\n"
+	body := "version: 1\nhooks: {pre: [{id: project, command: " + string(command) + "}]}\n"
 	if err := os.WriteFile(project, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}

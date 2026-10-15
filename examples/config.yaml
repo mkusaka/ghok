@@ -28,18 +28,18 @@ version: 1
 policy:
   mode: enforce # observe would record denials without blocking gh.
 hooks:
-  - id: deny-admin-merge
-    phase: pre
-    match:
-      operation: "pr.merge.*"
-    command: ["./hooks/deny-admin-merge"]
-    timeout: 5s
-    onError: deny
-  - id: audit-merge
-    phase: post
-    match:
-      operation: "pr.merge.*"
-    command: ["./hooks/audit-merge"]
-    timeout: 5s
-    onError: ignore
-    # No captureOutput: preserve gh's inherited stdio/TTY behavior.
+  pre:
+    - id: deny-admin-merge
+      match:
+        operation: "pr.merge.*"
+      command: ["./hooks/deny-admin-merge"]
+      timeout: 5s
+      onError: deny
+  post:
+    - id: audit-merge
+      match:
+        operation: "pr.merge.*"
+      command: ["./hooks/audit-merge"]
+      timeout: 5s
+      onError: ignore
+      # No captureOutput: preserve gh's inherited stdio/TTY behavior.

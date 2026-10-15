@@ -219,19 +219,22 @@ func unknownKeys(n *yaml.Node) []unknownKey {
 			return
 		}
 		seen[n] = true
+		if t == reflect.TypeFor[HookList]() {
+			t = reflect.TypeFor[hookPhases]()
+		}
 		switch n.Kind {
 		case yaml.AliasNode:
 			visit(n.Alias, t, path)
 		case yaml.SequenceNode:
 			for i, child := range n.Content {
-				if t == reflect.TypeFor[HookList]() {
+				if t == reflect.TypeFor[hookItems]() {
 					item := child
 					if item.Kind == yaml.AliasNode {
 						item = item.Alias
 					}
 					switch controlKey(item) {
 					case "":
-						visit(child, t.Elem(), fmt.Sprintf("%s[%d]", path, i))
+						visit(child, reflect.TypeFor[Hook](), fmt.Sprintf("%s[%d]", path, i))
 					case "parallel":
 						visit(field(item, "parallel"), t, fmt.Sprintf("%s[%d].parallel", path, i))
 					}
@@ -278,10 +281,9 @@ func unknownKeys(n *yaml.Node) []unknownKey {
 func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, notes *[]string) error {
 	// Each config file ends with an implicit wait-all: project hooks never
 	// overlap user background hooks.
-	userBackground := c.Hooks.backgroundIDs()
 	for i := range p.Hooks {
 		h := &p.Hooks[i]
-		h.Wait = append(slices.Clone(userBackground), h.Wait...)
+		h.Wait = append(c.Hooks.backgroundIDs(h.Phase), h.Wait...)
 		h.Source = project
 		h.Command[0] = p.HookCommandPath(*h)
 		warnWritable(hookPermissionPath(h.Command[0], cwd, env), notes)

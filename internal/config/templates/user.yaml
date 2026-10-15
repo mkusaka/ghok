@@ -53,38 +53,44 @@ policy:
 # JSON document on stdin and pre-hooks answer {"decision":"allow|deny|abstain"}
 # on stdout. Hooks are trusted code that runs as you. Protocol:
 # https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md
-hooks: []
-#  - id: check-pr-policy
-#    phase: pre                      # pre | post
-#    match:
-#      operation: "pr.merge.*"
-#    command: ["./hooks/check-pr-policy"]   # relative to this file's directory
-#    timeout: 10s                    # default 10s
-#    onError: deny                   # deny (pre default) | allow | ignore (post default)
-#    # priority: 0                   # lower runs first
-#    # dependsOn: [other-hook-id]    # same phase
-#    # optional: false               # skip if the command is missing
-#    # env: {KEY: value}
-#    # enabled: true
-#  - id: audit-merge
-#    phase: post
-#    match:
-#      operation: "pr.merge.*"
-#    command: ["./hooks/audit-merge"]
-#    timeout: 5s
-#    onError: ignore
-#    # captureOutput: false          # post only: pass gh stdout/stderr to the hook
-#  - id: on-gh-failure
-#    phase: post
-#    match:
-#      command: "pr merge"
-#      result: failure               # post only: success | failure (non-zero exit, signal, start error)
-#      # exitCode: [1]               # post only: specific gh exit codes
-#    command: ["./hooks/notify-failure"]
+# Each phase is a list run in order; GitHub Actions-style items run hooks
+# concurrently: `- parallel: [hooks]`, `background: true` on a hook, and
+# `- wait: id` / `- wait-all:` to join background hooks.
+hooks: {}
+#  pre:
+#    - id: check-pr-policy
+#      match:
+#        operation: "pr.merge.*"
+#      command: ["./hooks/check-pr-policy"]   # relative to this file's directory
+#      timeout: 10s                  # default 10s
+#      onError: deny                 # deny (pre default) | allow | ignore (post default)
+#      # dependsOn: [other-hook-id]  # earlier hook of the same list
+#      # optional: false             # skip if the command is missing
+#      # env: {KEY: value}
+#      # enabled: true
+#    - parallel:                     # run concurrently, then continue
+#        - id: check-ci
+#          command: ["./hooks/check-ci"]
+#        - id: check-reviews
+#          command: ["./hooks/check-reviews"]
+#  post:
+#    - id: audit-merge
+#      match:
+#        operation: "pr.merge.*"
+#      command: ["./hooks/audit-merge"]
+#      timeout: 5s
+#      onError: ignore
+#      # captureOutput: false        # post only: pass gh stdout/stderr to the hook
+#    - id: on-gh-failure
+#      match:
+#        command: "pr merge"
+#        result: failure             # post only: success | failure (non-zero exit, signal, start error)
+#        # exitCode: [1]             # post only: specific gh exit codes
+#      command: ["./hooks/notify-failure"]
 
 # Defaults shown; uncomment to change.
 runtime: {}
-#  hookConcurrency: 1                # hooks run in parallel up to this many
+#  hookConcurrency: 4                # max hooks running at once (parallel/background)
 #  stdinMaxBytes: 8388608            # stdin analysed for `gh api --input -` (8 MiB)
 #  stdinTimeout: 3s
 #  fileMaxBytes: 8388608             # --input FILE / -F k=@FILE read limit

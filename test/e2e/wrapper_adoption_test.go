@@ -90,9 +90,9 @@ func warningProject(t *testing.T, s *sandbox, change func(*config.Config)) (stri
 	}
 	c.ApplyDefaults()
 	data, err := yaml.Marshal(struct {
-		Version int           `yaml:"version"`
-		Hooks   []config.Hook `yaml:"hooks,omitempty"`
-		Trust   config.Trust  `yaml:"trust,omitempty"`
+		Version int             `yaml:"version"`
+		Hooks   config.HookList `yaml:"hooks,omitempty"`
+		Trust   config.Trust    `yaml:"trust,omitempty"`
 	}{Version: c.Version, Hooks: c.Hooks, Trust: c.Trust})
 	if err != nil {
 		t.Fatal(err)

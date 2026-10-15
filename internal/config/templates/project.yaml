@@ -6,28 +6,18 @@
 # Declarative tightening, rules and protected repositories apply automatically;
 # they can never weaken the user policy. runtime/logging are not allowed here.
 # Hooks run only after each user inspects them and runs `ghok config trust`.
-# Trust retains content digests across versions/worktrees/clones. The v1 manifest
-# sorts relative paths with NUL-separated executable bits and SHA256/missing
-# markers, covering exact YAML bytes, root-contained hooks and trust.include.
-# Any covered byte/exec-bit change requires re-trust; notes name changed files.
-# Manifest files/symlink targets must stay under the root and be regular files:
-# at most 256 files, with total bytes bounded by effective runtime.fileMaxBytes.
-# Absolute external executables, interpreters, PATH tools and unlisted imports,
-# dependencies/data are not hashed. Add repository files with trust.include below.
-# Policy-only configs skip manifest computation. Trust output lists hashed files,
-# hook IDs and coverage limits; `ghok config trust --list` lists all digests with
-# first paths, timestamps, hook IDs, exec bits, hashes/missing markers and notes.
-# `ghok config untrust` removes only the current digest, leaving policy active;
-# `ghok config untrust --all` clears every digest. Invalid/old stores grant no trust.
-# Content trust is not repository identity or a concurrent-replacement boundary.
+# Trust is per hook: its definition, command file, `files` and trust.include.
+# Changing one hook untrusts only that hook; a changed gate (pre hook with
+# onError deny) denies matching commands in enforce mode until re-trusted.
+# Interpreters, PATH tools and unlisted imports/data are not hashed: list them in
+# the hook's `files` or, for every hook, in trust.include.
 # Docs: https://github.com/mkusaka/ghok
 
 version: 1
 
-# Project-only: include imported scripts, dependencies or data in content trust.
+# Project-only: files every hook depends on (hashed into each hook's trust).
 # trust:
 #   include:
-#     - .github/scripts/check-pr-description.ts
 #     - .gitleaks.toml
 
 policy:
@@ -52,11 +42,12 @@ policy:
 # Hook IDs must not collide with hooks in the user config. Project commands must
 # use ./relative or absolute paths (user hooks may use bare PATH names).
 # Relative paths resolve under the repo root. Hooks are trusted code run as you.
-hooks: []
-#  - id: project-pre-merge
-#    phase: pre                      # pre | post
-#    match:
-#      operation: "pr.merge.*"
-#    command: ["./scripts/ghok/pre-merge"]
-#    timeout: 10s
-#    onError: deny                   # deny | allow | ignore
+hooks: {}
+#  pre:
+#    - id: project-pre-merge
+#      match:
+#        operation: "pr.merge.*"
+#      command: ["./scripts/ghok/pre-merge"]
+#      files: [scripts/ghok/lib.ts]  # this hook's dependencies (trust)
+#      timeout: 10s
+#      onError: deny                 # deny | allow | ignore

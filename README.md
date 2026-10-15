@@ -306,10 +306,10 @@ affect every hook that uses them, and `trust.include` applies to **every hook**:
 
 ```yaml
 hooks:
-  - id: check
-    phase: pre
-    command: ["./hooks/check"]
-    files: [".github/scripts/check-pr-description.ts"]
+  pre:
+    - id: check
+      command: ["./hooks/check"]
+      files: [".github/scripts/check-pr-description.ts"]
 trust:
   include: [".gitleaks.toml"]
 ```
@@ -399,21 +399,24 @@ policy:
   protectedRepositories: ["org/repo"]
   protectedUnknown: deny
 hooks:
-  - id: deny-admin-merge
-    phase: pre
-    match:
-      operation: "pr.merge.*"
-    command: ["./hooks/deny-admin-merge"]
-    timeout: 5s
-    onError: deny
-  - id: audit-merge
-    phase: post
-    match:
-      operation: "pr.merge.*"
-    command: ["./hooks/audit-merge"]
-    timeout: 5s
-    onError: ignore
+  pre:                     # run before gh; may deny
+    - id: deny-admin-merge
+      match:
+        operation: "pr.merge.*"
+      command: ["./hooks/deny-admin-merge"]
+      timeout: 5s
+      onError: deny
+  post:                    # run after gh; never change its result
+    - id: audit-merge
+      match:
+        operation: "pr.merge.*"
+      command: ["./hooks/audit-merge"]
+      timeout: 5s
+      onError: ignore
 ```
+
+A hook's phase is the `hooks.pre` / `hooks.post` list that holds it; hooks have
+no `phase:` key. Hook IDs are unique across both lists.
 
 Use the compiled Go examples in [examples/hooks](examples/hooks) and follow
 [examples/config.yaml](examples/config.yaml) to install them. The pre-hook
@@ -422,31 +425,27 @@ not validate every GitHub operation. The audit hook records command outcomes,
 not confirmed server-side merge events. A Python equivalent is optional;
 Python is not a ghok runtime requirement.
 
-Hooks run one after another in config order (user config first, then project).
+Each list runs in order, user config hooks first, then project hooks.
 Concurrency follows GitHub Actions'
 [parallel steps](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax):
 
 ```yaml
 hooks:
-  - id: lint-title                # runs first
-    phase: pre
-    command: ["./hooks/lint-title"]
-  - parallel:                     # members overlap; the next item waits for all
-      - id: check-ci
-        phase: pre
-        command: ["./hooks/check-ci"]
-      - id: check-reviews
-        phase: pre
-        command: ["./hooks/check-reviews"]
-  - id: scan-secrets              # starts, and later hooks do not wait for it
-    phase: pre
-    background: true
-    command: ["./hooks/scan-secrets"]
-  - id: require-green
-    phase: pre
-    dependsOn: [check-ci]         # skipped unless check-ci succeeded
-    command: ["./hooks/require-green"]
-  - wait: scan-secrets            # or [id, ...]; `- wait-all:` joins every background hook
+  pre:
+    - id: lint-title              # runs first
+      command: ["./hooks/lint-title"]
+    - parallel:                   # members overlap; the next item waits for all
+        - id: check-ci
+          command: ["./hooks/check-ci"]
+        - id: check-reviews
+          command: ["./hooks/check-reviews"]
+    - id: scan-secrets            # starts, and later hooks do not wait for it
+      background: true
+      command: ["./hooks/scan-secrets"]
+    - id: require-green
+      dependsOn: [check-ci]       # skipped unless check-ci succeeded
+      command: ["./hooks/require-green"]
+    - wait: scan-secrets          # or [id, ...]; `- wait-all:` joins every background hook
 ```
 
 - `background: true` starts a hook without waiting for it; `- wait: id` or
@@ -462,8 +461,9 @@ hooks:
   list position, when a hook must run only after a gate allowed.
 - `cancel` is not supported: hooks are short-lived and have a `timeout`.
 - `ghok config validate` rejects empty or nested `parallel` blocks, extra keys
-  beside `parallel`/`wait`/`wait-all`, and waits for IDs that are not earlier
-  background hooks. `ghok hooks list` shows each hook's `background` flag and the
+  beside `parallel`/`wait`/`wait-all`, waits for IDs that are not earlier
+  background hooks of the same list, `phase:` inside a hook, and the old
+  single-list `hooks:` form. `ghok hooks list` shows each hook's `background` flag and the
   hooks it waits for.
 
 A hook reads one schema-version-1 JSON document from stdin and writes one

@@ -19,7 +19,7 @@ func TestProjectFailurePreservesUserEnforcement(t *testing.T) {
 	}{
 		{"junk", "version: [", "ignored"},
 		{"invalid", "version: 1\npolicy: {mode: broken}\n", "ignored"},
-		{"unknown", "version: 1\nfuture: true\npolicy: {futurePolicy: true, rules: [{id: project, decision: audit, futureRule: true, match: {futureMatch: true}}]}\nhooks: [{id: project-hook, phase: pre, command: [./check], futureHook: true}]\ntrust: {futureTrust: true}\n", "unknown"},
+		{"unknown", "version: 1\nfuture: true\npolicy: {futurePolicy: true, rules: [{id: project, decision: audit, futureRule: true, match: {futureMatch: true}}]}\nhooks: {pre: [{id: project-hook, command: [./check], futureHook: true}]}\ntrust: {futureTrust: true}\n", "unknown"},
 		{"collision", "version: 1\npolicy: {rules: [{id: user-deny, decision: audit}]}\n", "ignored"},
 	} {
 		t.Run(project.name, func(t *testing.T) {

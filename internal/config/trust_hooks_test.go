@@ -44,9 +44,9 @@ func assertHookTrust(t *testing.T, repo string, env map[string]string, active, i
 
 func TestHookTrustIgnoresNonExecutableYAMLChanges(t *testing.T) {
 	for _, replacement := range []string{
-		"# new comment\nversion: 1\nhooks:\n  - id: review\n    phase: pre\n    command:\n      - ./hook\npolicy:\n  mode: enforce\n",
-		"hooks: [{command: [./hook], phase: pre, id: review}]\npolicy: {mode: enforce}\nversion: 1\n",
-		"version: 1\npolicy: {mode: observe, unknownMutation: deny, rules: [{id: block, decision: deny}]}\nhooks: [{id: review, phase: pre, command: [./hook]}]\n",
+		"# new comment\nversion: 1\nhooks:\n  pre:\n    - id: review\n      command:\n        - ./hook\npolicy:\n  mode: enforce\n",
+		"hooks: {pre: [{command: [./hook], id: review}]}\npolicy: {mode: enforce}\nversion: 1\n",
+		"version: 1\npolicy: {mode: observe, unknownMutation: deny, rules: [{id: block, decision: deny}]}\nhooks: {pre: [{id: review, command: [./hook]}]}\n",
 	} {
 		t.Run(replacement, func(t *testing.T) {
 			repo, env, _ := trustRepositoryFixture(t)
@@ -68,7 +68,7 @@ func TestHookTrustIgnoresNonExecutableYAMLChanges(t *testing.T) {
 }
 
 func TestHookTrustDependencyIsolation(t *testing.T) {
-	const body = "version: 1\nhooks:\n- {id: a, phase: pre, command: [./a], files: [own-a, shared]}\n- {id: b, phase: pre, command: [./b], files: [own-b, shared]}\n- {id: c, phase: pre, command: [./c]}\ntrust: {include: [global]}\n"
+	const body = "version: 1\nhooks:\n  pre:\n  - {id: a, command: [./a], files: [own-a, shared]}\n  - {id: b, command: [./b], files: [own-b, shared]}\n  - {id: c, command: [./c]}\ntrust: {include: [global]}\n"
 	for _, tc := range []struct {
 		name            string
 		active, ignored []string
@@ -116,7 +116,7 @@ func TestHookTrustDependencyIsolation(t *testing.T) {
 func TestHookTrustDefinitionFields(t *testing.T) {
 	for _, tc := range []struct{ name, base, change string }{
 		{"id", "id: a", "id: renamed"},
-		{"phase", "phase: pre", "phase: post"},
+		{"phase", "pre", "post"},
 		{"command", "command: [./hook]", "command: [./hook, arg]"},
 		{"env", "", "env: {SETTING: changed}"},
 		{"timeout", "", "timeout: 3s"},
@@ -134,29 +134,37 @@ func TestHookTrustDefinitionFields(t *testing.T) {
 		{"level", "", "match: {level: L1}"},
 		{"token", "", "match: {token: app}"},
 		{"match env", "", "match: {env: {CI: '*'}}"},
-		{"captureOutput", "phase: post", "captureOutput: true"},
-		{"result", "phase: post", "match: {result: success}"},
-		{"exitCode", "phase: post", "match: {exitCode: [1]}"},
+		{"captureOutput", "post", "captureOutput: true"},
+		{"result", "post", "match: {result: success}"},
+		{"exitCode", "post", "match: {exitCode: [1]}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo, env, _ := trustRepositoryFixture(t)
 			project := filepath.Join(repo, ".ghok.yaml")
-			hook := "id: a, phase: pre, command: [./hook]"
-			if tc.base == "phase: post" {
-				hook = strings.Replace(hook, "phase: pre", "phase: post", 1)
+			hook := "id: a, command: [./hook]"
+			phase := "pre"
+			if tc.base == "post" {
+				phase = "post"
 			}
-			body := "version: 1\nhooks: [{" + hook + "}, {id: sibling, phase: pre, command: [./hook]}]\n"
-			writeFixture(t, project, body)
+			body := func() string {
+				if phase == "post" {
+					return "version: 1\nhooks: {pre: [{id: sibling, command: [./hook]}], post: [{" + hook + "}]}\n"
+				}
+				return "version: 1\nhooks: {pre: [{" + hook + "}, {id: sibling, command: [./hook]}]}\n"
+			}
+			writeFixture(t, project, body())
 			if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 				t.Fatal(err)
 			}
 			before := hookTrustRecord(t, repo, env)
-			if tc.base != "" && tc.base != "phase: post" {
+			if tc.name == "phase" {
+				phase = tc.change
+			} else if tc.base != "" && tc.base != "post" {
 				hook = strings.Replace(hook, tc.base, tc.change, 1)
 			} else {
 				hook += ", " + tc.change
 			}
-			writeFixture(t, project, "version: 1\nhooks: [{"+hook+"}, {id: sibling, phase: pre, command: [./hook]}]\n")
+			writeFixture(t, project, body())
 			if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +182,7 @@ func TestHookTrustDefinitionFields(t *testing.T) {
 
 func TestHookTrustFileDeduplication(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks:\n- {id: a, phase: pre, command: [./hook], files: [hook, ./hook, data, data]}\n- {id: b, phase: pre, command: [./hook], files: [data]}\ntrust: {include: [hook, data, ./data]}\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks:\n  pre:\n  - {id: a, command: [./hook], files: [hook, ./hook, data, data]}\n  - {id: b, command: [./hook], files: [data]}\ntrust: {include: [hook, data, ./data]}\n")
 	writeFixture(t, filepath.Join(repo, "data"), "shared data")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
@@ -192,13 +200,13 @@ func TestHookTrustFileDeduplication(t *testing.T) {
 
 func TestSelectiveHookTrustPreservesSiblingBaseline(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: a, phase: pre, command: [./hook]}, {id: b, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: a, command: [./hook]}, {id: b, command: [./hook]}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	before := hookTrustRecord(t, repo, env)
 	writeFixture(t, filepath.Join(repo, "hook"), "selectively reviewed code\n")
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: a, phase: pre, command: [./hook]}, {id: b, phase: pre, command: [./hook], timeout: 3s}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: a, command: [./hook]}, {id: b, command: [./hook], timeout: 3s}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false, "a"); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +249,7 @@ func TestProjectHookFilesValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: review, phase: pre, command: [./hook], files: ["+string(quoted)+"]}]\n")
+			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: review, command: [./hook], files: ["+string(quoted)+"]}]}\n")
 			if _, _, _, _, err := TrustProject("", repo, env, false, false); err == nil {
 				t.Fatalf("unsafe dependency %q accepted", path)
 			}
@@ -255,7 +263,7 @@ func TestProjectHookFilesValidation(t *testing.T) {
 
 func TestMissingProjectHookFilesTracked(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: a, phase: pre, command: [./hook], files: [missing]}, {id: b, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: a, command: [./hook], files: [missing]}, {id: b, command: [./hook]}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +274,7 @@ func TestMissingProjectHookFilesTracked(t *testing.T) {
 
 func TestUserHookFilesRejected(t *testing.T) {
 	for _, files := range []string{"[data]", "[]"} {
-		body := []byte("version: 1\nhooks: [{id: first, phase: pre, command: [hook]}, {id: second, phase: pre, command: [hook], files: " + files + "}]\n")
+		body := []byte("version: 1\nhooks: {pre: [{id: first, command: [hook]}, {id: second, command: [hook], files: " + files + "}]}\n")
 		if _, err := parse(body, "", true); err == nil || !strings.Contains(err.Error(), "hook second: files:") {
 			t.Fatalf("user files must fail for hook second: %v", err)
 		}
@@ -298,12 +306,12 @@ func TestLegacyTrustRecordsNeverAuthorize(t *testing.T) {
 func TestHookTrustStableAcrossUnrelatedHookAndMapOrder(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
 	project := filepath.Join(repo, ".ghok.yaml")
-	writeFixture(t, project, "version: 1\nhooks:\n- {id: a, phase: pre, command: [./hook], env: {A: one, B: two}, files: [x, y]}\n- {id: b, phase: pre, command: [./hook]}\n")
+	writeFixture(t, project, "version: 1\nhooks:\n  pre:\n  - {id: a, command: [./hook], env: {A: one, B: two}, files: [x, y]}\n  - {id: b, command: [./hook]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	before := hookTrustRecord(t, repo, env)
-	writeFixture(t, project, "version: 1\nhooks:\n- {id: b, phase: pre, command: [./hook]}\n- {id: a, phase: pre, command: [./hook], env: {B: two, A: one}, files: [x, y]}\n")
+	writeFixture(t, project, "version: 1\nhooks:\n  pre:\n  - {id: b, command: [./hook]}\n  - {id: a, command: [./hook], env: {B: two, A: one}, files: [x, y]}\n")
 	assertHookTrust(t, repo, env, []string{"b", "a"}, nil)
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
@@ -316,7 +324,7 @@ func TestHookTrustStableAcrossUnrelatedHookAndMapOrder(t *testing.T) {
 
 func TestSelectiveInitialTrustLeavesSiblingUntrusted(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: a, phase: pre, command: [./hook]}, {id: b, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: a, command: [./hook]}, {id: b, command: [./hook]}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false, "a"); err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +344,7 @@ func TestHookFilesContainedSymlinkAndRemoval(t *testing.T) {
 	if err := os.Symlink("data", filepath.Join(repo, "link")); err != nil {
 		t.Fatal(err)
 	}
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: a, phase: pre, command: [./hook], files: [link]}, {id: b, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: a, command: [./hook], files: [link]}, {id: b, command: [./hook]}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
@@ -349,20 +357,20 @@ func TestHookFilesContainedSymlinkAndRemoval(t *testing.T) {
 
 func TestIgnoredHookGateBlocking(t *testing.T) {
 	for _, tc := range []struct {
-		name, definition string
-		trust, blocked   bool
+		name, phase, definition string
+		trust, blocked          bool
 	}{
-		{"never trusted", "phase: pre", false, false},
-		{"default deny", "phase: pre", true, true},
-		{"explicit deny", "phase: pre, onError: deny", true, true},
-		{"allow", "phase: pre, onError: allow", true, false},
-		{"ignore", "phase: pre, onError: ignore", true, false},
-		{"disabled", "phase: pre, enabled: false", true, false},
-		{"post", "phase: post", true, false},
+		{"never trusted", "pre", "", false, false},
+		{"default deny", "pre", "", true, true},
+		{"explicit deny", "pre", ", onError: deny", true, true},
+		{"allow", "pre", ", onError: allow", true, false},
+		{"ignore", "pre", ", onError: ignore", true, false},
+		{"disabled", "pre", ", enabled: false", true, false},
+		{"post", "post", "", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo, env, _ := trustRepositoryFixture(t)
-			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: review, command: [./hook], "+tc.definition+"}]\n")
+			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {"+tc.phase+": [{id: review, command: [./hook]"+tc.definition+"}]}\n")
 			if tc.trust {
 				if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 					t.Fatal(err)

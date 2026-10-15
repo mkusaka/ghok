@@ -436,10 +436,11 @@ reject these, since gh has not run yet):
   termination or a start failure).
 
 ```yaml
-- id: notify-on-gh-failure
-  phase: post
-  match: {command: "pr merge", result: failure}
-  command: ["./hooks/notify"]
+hooks:
+  post:
+    - id: notify-on-gh-failure
+      match: {command: "pr merge", result: failure}
+      command: ["./hooks/notify"]
 ```
 
 Post-hook candidates are selected before gh runs (which decides supervision and
@@ -468,7 +469,8 @@ hook execution error (nonzero exit/spawn failure, timeout, invalid response,
 cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
 usage errors exit 2.
 
-- Hooks run in config order, user config hooks before project hooks. A hook
+- Hooks are written as `hooks.pre` and `hooks.post` lists; the list sets the
+  phase. Each runs in order, user config hooks before project hooks. A hook
   starts after every earlier selected non-background hook finished and after the
   background hooks in its wait list (GitHub Actions semantics). `background: true`
   hooks do not block later hooks. `- wait: id|[ids]` and `- wait-all:` list items

@@ -36,20 +36,20 @@ policy:
   mode: enforce
   unknownMutation: deny
 hooks:
-  - id: check-pr-policy
-    phase: pre
-    match:
-      operation: "pr.merge.*"
-      repositories: ["org/repo"]
-    command: ["./hooks/check-pr-policy"]
-    timeout: 10s
-    onError: deny
-  - id: audit-merge
-    phase: post
-    match: { operation: "pr.merge.*" }
-    command: ["./hooks/audit-merge"]
-    timeout: 5s
-    onError: ignore
+  pre:
+    - id: check-pr-policy
+      match:
+        operation: "pr.merge.*"
+        repositories: ["org/repo"]
+      command: ["./hooks/check-pr-policy"]
+      timeout: 10s
+      onError: deny
+  post:
+    - id: audit-merge
+      match: { operation: "pr.merge.*" }
+      command: ["./hooks/audit-merge"]
+      timeout: 5s
+      onError: ignore
 `
 	c, err := Parse([]byte(text), "/config")
 	if err != nil {
@@ -67,7 +67,7 @@ hooks:
 			t.Errorf("%s: %s != %s", command, got, want)
 		}
 	}
-	c, err = Parse([]byte("version: 1\nhooks:\n- {id: pre, phase: pre, command: [hook]}\n- {id: post, phase: post, command: [hook], enabled: false}\nlogging: {enabled: false}"), "/config")
+	c, err = Parse([]byte("version: 1\nhooks:\n  pre:\n    - {id: pre, command: [hook]}\n  post:\n    - {id: post, command: [hook], enabled: false}\nlogging: {enabled: false}"), "/config")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestValidationPaths(t *testing.T) {
 }
 
 func TestExplicitZeroAndUnknownKeys(t *testing.T) {
-	for _, text := range []string{"runtime: {hookConcurrency: 0}", "runtime: {stdinMaxBytes: 0}", "runtime: {stdinTimeout: 0s}", "runtime: {fileMaxBytes: 0}", "runtime: {captureLimit: 0}", "runtime: {resolveTimeout: 0s}", "hooks: [{id: h, phase: pre, command: [h], timeout: 0s}]", "hooks: [{id: h, phase: pre, command: [h], maxOutputBytes: 0}]"} {
+	for _, text := range []string{"runtime: {hookConcurrency: 0}", "runtime: {stdinMaxBytes: 0}", "runtime: {stdinTimeout: 0s}", "runtime: {fileMaxBytes: 0}", "runtime: {captureLimit: 0}", "runtime: {resolveTimeout: 0s}", "hooks: {pre: [{id: h, command: [h], timeout: 0s}]}", "hooks: {pre: [{id: h, command: [h], maxOutputBytes: 0}]}"} {
 		if _, err := Parse([]byte("version: 1\n"+text), ""); err == nil {
 			t.Fatalf("explicit zero accepted: %s", text)
 		}
@@ -164,7 +164,7 @@ func TestExplicitZeroAndUnknownKeys(t *testing.T) {
 			t.Fatalf("unknown field: %v", err)
 		}
 	}
-	if _, err := Parse([]byte("version: 1\nhooks: [{id: h, phase: pre, command: [h], timeout: nope}]"), ""); err == nil || !strings.Contains(err.Error(), "line 2") {
+	if _, err := Parse([]byte("version: 1\nhooks: {pre: [{id: h, command: [h], timeout: nope}]}"), ""); err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Fatalf("duration: %v", err)
 	}
 }
@@ -236,13 +236,13 @@ func TestProjectTrust(t *testing.T) {
 	project := filepath.Join(repo, ".ghok.yaml")
 	global := filepath.Join(root, "global", "config.yaml")
 	env := map[string]string{"HOME": home, "GHOK_CONFIG_DIR": filepath.Dir(global)}
-	base := "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
+	base := "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: {pre: [{id: global, command: [./global-hook]}]}\n"
 	writeFixture(t, global, base)
 	writeFixture(t, project, "invalid: [")
 	if c, notes, err := LoadEffective(global, cwd, env); err != nil || c.Policy.Mode != ModeEnforce || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "ignored") {
 		t.Fatalf("invalid project discarded user enforcement: %+v, %v, %v", c, notes, err)
 	}
-	writeFixture(t, project, "version: 1\npolicy:\n  mode: observe\n  unknownMutation: allow\n  protectedUnknown: audit\n  protectedRepositories: [org/project]\n  rules: [{id: rule, decision: deny}]\nhooks: [{id: project, phase: post, command: [./hooks/hook]}]\n")
+	writeFixture(t, project, "version: 1\npolicy:\n  mode: observe\n  unknownMutation: allow\n  protectedUnknown: audit\n  protectedRepositories: [org/project]\n  rules: [{id: rule, decision: deny}]\nhooks: {post: [{id: project, command: [./hooks/hook]}]}\n")
 	c, notes, err := LoadEffective(global, cwd, env)
 	if err != nil {
 		t.Fatal(err)
@@ -258,13 +258,13 @@ func TestProjectTrust(t *testing.T) {
 		t.Fatalf("trusted overlay: %+v, %v", c, err)
 	}
 	writeFixture(t, global, strings.ReplaceAll(base, "policy: {mode: enforce, unknownMutation: deny}", "policy: {mode: observe, unknownMutation: allow, protectedUnknown: allow}"))
-	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}\nhooks: [{id: project, phase: pre, command: [./hook]}]")
+	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}\nhooks: {pre: [{id: project, command: [./hook]}]}")
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
 		t.Fatalf("changed policy still applies: %+v, %v", c, err)
 	}
 	// Omitted project values must not tighten an explicitly permissive global.
-	writeFixture(t, project, "version: 1\nhooks: [{id: project, phase: pre, command: [./hook]}]")
+	writeFixture(t, project, "version: 1\nhooks: {pre: [{id: project, command: [./hook]}]}")
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.Policy.UnknownMutation != UnknownAllow || c.Policy.ProtectedUnknown != UnknownAllow {
 		t.Fatalf("omitted policy: %+v, %v", c, err)
@@ -275,13 +275,13 @@ func TestProjectTrust(t *testing.T) {
 			t.Fatalf("restricted project %s affected user config: %+v, %v, %v", section, c, notes, err)
 		}
 	}
-	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [./hook]}]")
+	writeFixture(t, project, "version: 1\nhooks: {pre: [{id: global, command: [./hook]}]}")
 	if _, _, _, _, err := TrustProject("", cwd, env, false, false); err == nil {
 		t.Fatal("trust must reject an effective hook ID collision")
 	}
 	// A contained config symlink preserves repository-relative hook commands.
 	target := filepath.Join(repo, "shared.yaml")
-	writeFixture(t, target, "version: 1\nhooks: [{id: linked, phase: pre, command: [./hook]}]")
+	writeFixture(t, target, "version: 1\nhooks: {pre: [{id: linked, command: [./hook]}]}")
 	if err := os.Remove(project); err != nil {
 		t.Fatal(err)
 	}
@@ -339,8 +339,10 @@ policy:
   rules:
     - {id: r, decision: deny, match: {result: failure}}
 hooks:
-  - {id: pre, phase: pre, command: [x], match: {exitCode: [1]}}
-  - {id: post, phase: post, command: [x], match: {result: [success, crashed], exitCode: [256]}}
+  pre:
+    - {id: pre, command: [x], match: {exitCode: [1]}}
+  post:
+    - {id: post, command: [x], match: {result: [success, crashed], exitCode: [256]}}
 `), t.TempDir()) // Parse validates
 	if c != nil {
 		t.Fatal("invalid outcome criteria accepted")
@@ -350,7 +352,7 @@ hooks:
 			t.Errorf("missing %s in %v", want, err)
 		}
 	}
-	if _, err := Parse([]byte("version: 1\nhooks:\n  - {id: post, phase: post, command: [x], match: {result: failure, exitCode: [1, 2]}}\n"), t.TempDir()); err != nil {
+	if _, err := Parse([]byte("version: 1\nhooks:\n  post:\n    - {id: post, command: [x], match: {result: failure, exitCode: [1, 2]}}\n"), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 }

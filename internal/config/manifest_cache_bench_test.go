@@ -33,7 +33,7 @@ func BenchmarkLoadEffectiveManifestCache(b *testing.B) {
 				include = append(include, name)
 				write(filepath.Join(repo, name), strings.Repeat("d", 4096))
 			}
-			write(filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: local, phase: pre, command: [./hook]}]\ntrust: {include: ["+strings.Join(include, ",")+"]}\n")
+			write(filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: local, command: [./hook]}]}\ntrust: {include: ["+strings.Join(include, ",")+"]}\n")
 			if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 				b.Fatal(err)
 			}

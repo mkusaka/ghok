@@ -107,8 +107,9 @@ const (
 )
 
 type Hook struct {
-	ID      string            `yaml:"id" json:"id" required:"true"`
-	Phase   string            `yaml:"phase" json:"phase" enum:"pre,post" required:"true"` // pre|post
+	ID string `yaml:"id" json:"id" required:"true"`
+	// Phase comes from the hooks.pre/hooks.post list holding the hook.
+	Phase   string            `yaml:"-" json:"phase" enum:"pre,post"`
 	Match   Match             `yaml:"match" json:"match"`
 	Command []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
 	Env     map[string]string `yaml:"env" json:"env,omitempty"`
@@ -122,7 +123,7 @@ type Hook struct {
 	// derived from wait/wait-all items and parallel blocks. Not a YAML field.
 	Wait []string `yaml:"-" json:"-"`
 	// Files are extra repository files hashed into this hook's trust digest.
-	Files []string `yaml:"files" json:"files,omitempty" doc:"Project hooks only: repository-relative regular files this hook depends on; a change untrusts only this hook."`
+	Files []string `yaml:"files,omitempty" json:"files,omitempty" doc:"Project hooks only: repository-relative regular files this hook depends on; a change untrusts only this hook."`
 	// DependsOn lists hook IDs that must complete before this hook runs.
 	DependsOn []string `yaml:"dependsOn" json:"dependsOn,omitempty" doc:"IDs of hooks (same phase) that must finish first."`
 	// Optional: if the command is missing/not executable, skip instead of error.

@@ -232,12 +232,12 @@ Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
 
 ```yaml
 hooks:
-  - id: deny-admin-merge
-    phase: pre
-    match: {operation: "pr.merge.*"}
-    command: ["./hooks/deny-admin-merge.py"]   # relative to the config file
-    timeout: 10s
-    onError: deny
+  pre:                       # or post:; the list sets the phase (no phase: key)
+    - id: deny-admin-merge
+      match: {operation: "pr.merge.*"}
+      command: ["./hooks/deny-admin-merge.py"]   # relative to the config file
+      timeout: 10s
+      onError: deny
 ```
 
 Worked examples (Go and Python): <https://github.com/mkusaka/ghok/tree/main/examples>.

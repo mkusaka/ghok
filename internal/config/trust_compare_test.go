@@ -35,7 +35,7 @@ func trustRepositoryFixture(t *testing.T) (string, map[string]string, string) {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(root, "repo")
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce}\nhooks: [{id: review, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce}\nhooks: {pre: [{id: review, command: [./hook]}]}\n")
 	writeFixture(t, filepath.Join(repo, "hook"), "reviewed code\n")
 	trustGit(t, repo, "init", "-b", "main")
 	trustGit(t, repo, "add", ".")

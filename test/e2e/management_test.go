@@ -394,7 +394,7 @@ func TestManagementHookSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: post, command: "+string(command)+"}]\n"), 0600); err != nil {
+	if err := os.WriteFile(project, []byte("version: 1\nhooks: {post: [{id: project, command: "+string(command)+"}]}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	project, err = filepath.EvalSymlinks(project)
@@ -603,13 +603,13 @@ func TestManagementEnableDisableOwnership(t *testing.T) {
 func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 	s := newSandbox(t)
 	selected := filepath.Join(s.cwd, "selected.yaml")
-	body := []byte("version: 1\npolicy:\n  mode: invalid\n  unknownMutation: invalid\nhooks:\n  - id: bad\n    phase: invalid\n    command: []\nruntime:\n  stdinMaxBytes: -1\n")
+	body := []byte("version: 1\npolicy:\n  mode: invalid\n  unknownMutation: invalid\nhooks:\n  pre:\n    - id: bad\n      onError: invalid\n      command: []\nruntime:\n  stdinMaxBytes: -1\n")
 	if err := os.WriteFile(selected, body, 0600); err != nil {
 		t.Fatal(err)
 	}
 	result := s.management(nil, "config", "validate", "--file", "selected.yaml")
 	result.code(t, 1)
-	for _, field := range []string{"policy.mode", "policy.unknownMutation", "hooks[0].phase", "hooks[0].command", "runtime.stdinMaxBytes"} {
+	for _, field := range []string{"policy.mode", "policy.unknownMutation", "hooks[0].onError", "hooks[0].command", "runtime.stdinMaxBytes"} {
 		if !bytes.Contains(result.stderr, []byte(field)) {
 			t.Fatalf("validation omitted independent error %q: %s", field, result.stderr)
 		}
@@ -631,7 +631,7 @@ func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := filepath.Join(s.cwd, ".ghok.yaml")
-	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: pre, command: [./missing-hook]}]\n"), 0600); err != nil {
+	if err := os.WriteFile(project, []byte("version: 1\nhooks: {pre: [{id: project, command: [./missing-hook]}]}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result = s.management(nil, "config", "validate")

@@ -20,7 +20,7 @@ func TestTrustStorePersistence(t *testing.T) {
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	repo := filepath.Join(root, "repo")
 	project := filepath.Join(repo, ".ghok.yaml")
-	body := "version: 1\nhooks: [{id: active, phase: pre, command: [./check]}, {id: disabled, phase: pre, command: [./check], enabled: false}]\n"
+	body := "version: 1\nhooks: {pre: [{id: active, command: [./check]}, {id: disabled, command: [./check], enabled: false}]}\n"
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 	writeFixture(t, project, body)
 	alias := filepath.Join(root, "repo-link")
@@ -68,7 +68,7 @@ func TestTrustStorePersistence(t *testing.T) {
 	// Trusting and untrusting another repository must preserve this grant.
 	other := filepath.Join(root, "other")
 	writeFixture(t, filepath.Join(other, ".git"), "gitdir: elsewhere\n")
-	writeFixture(t, filepath.Join(other, ".ghok.yaml"), "version: 1\nhooks: [{id: other, phase: pre, command: [./other]}]\n")
+	writeFixture(t, filepath.Join(other, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: other, command: [./other]}]}\n")
 	if _, _, _, _, err := TrustProject("", other, env, false, false); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestTrustStorePersistence(t *testing.T) {
 func TestTrustDoesNotAuthorizeOtherCheckouts(t *testing.T) {
 	root := t.TempDir()
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
-	body := "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: [{id: local, phase: pre, command: [./scripts/check]}]\n"
+	body := "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: {pre: [{id: local, command: [./scripts/check]}]}\n"
 	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
 	for _, repo := range []string{first, second} {
 		writeFixture(t, filepath.Join(repo, ".git"), "gitdir: ../shared/worktrees/example\n")
@@ -124,7 +124,7 @@ func TestCorruptTrustStore(t *testing.T) {
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	repo := filepath.Join(root, "repo")
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: [{id: project, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: {pre: [{id: project, command: [./hook]}]}\n")
 	storePath := filepath.Join(env["GHOK_CONFIG_DIR"], "trust.json")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestTrustStoreIsolatesMalformedEntries(t *testing.T) {
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	repo := filepath.Join(root, "repo")
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: project, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: project, command: [./hook]}]}\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestTrustExecutableSelection(t *testing.T) {
 	project := filepath.Join(repo, ".ghok.yaml")
 	external := filepath.Join(root, "external")
 	writeFixture(t, external, "external code")
-	body := "version: 1\nhooks:\n- {id: absolute, phase: pre, command: [" + external + "]}\n- {id: missing, phase: pre, command: [./scripts/missing]}\n"
+	body := "version: 1\nhooks:\n  pre:\n  - {id: absolute, command: [" + external + "]}\n  - {id: missing, command: [./scripts/missing]}\n"
 	writeFixture(t, project, body)
 	writeFixture(t, filepath.Join(repo, "check"), "not the PATH executable")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
@@ -260,7 +260,7 @@ func TestTrustRejectsEscapingExecutables(t *testing.T) {
 					command += "/missing"
 				}
 			}
-			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: escape, phase: pre, command: ["+command+"]}]\n")
+			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: escape, command: ["+command+"]}]}\n")
 			if _, _, _, _, err := TrustProject("", repo, env, false, false); err == nil || !strings.Contains(err.Error(), "escapes repository root") {
 				t.Fatalf("escaped executable accepted: %v", err)
 			}
@@ -273,7 +273,7 @@ func TestTrustRejectsEscapingExecutables(t *testing.T) {
 
 func TestProjectCommandAndIncludeRestrictions(t *testing.T) {
 	for _, command := range []string{"hook", "scripts/hook", "../hook"} {
-		body := []byte("version: 1\nhooks: [{id: h, phase: pre, command: [" + command + "]}]\n")
+		body := []byte("version: 1\nhooks: {pre: [{id: h, command: [" + command + "]}]}\n")
 		if _, err := Parse(body, ""); err != nil {
 			t.Fatalf("user hook %q rejected: %v", command, err)
 		}
@@ -301,7 +301,7 @@ func TestTrustManifestIncludesAndExecutableBits(t *testing.T) {
 	repo := filepath.Join(root, "repo")
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 	project := filepath.Join(repo, ".ghok.yaml")
-	body := "version: 1\nhooks: [{id: h, phase: pre, command: [./hook]}]\ntrust: {include: [data, optional, ./hook]}\n"
+	body := "version: 1\nhooks: {pre: [{id: h, command: [./hook]}]}\ntrust: {include: [data, optional, ./hook]}\n"
 	writeFixture(t, project, body)
 	writeFixture(t, filepath.Join(repo, "hook"), "#!/bin/sh\nexit 0\n")
 	writeFixture(t, filepath.Join(repo, "data"), "reviewed data")
@@ -350,7 +350,7 @@ func TestTrustManifestLimits(t *testing.T) {
 			env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 			writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 			project := filepath.Join(repo, ".ghok.yaml")
-			body := "version: 1\nhooks: [{id: h, phase: pre, command: [./hook]}]\n"
+			body := "version: 1\nhooks: {pre: [{id: h, command: [./hook]}]}\n"
 			want := "regular file"
 			switch kind {
 			case "count":

@@ -14,13 +14,13 @@ import (
 func TestHookConcurrencyItems(t *testing.T) {
 	s := newSandbox(t)
 	hook := func(id string) string {
-		return fmt.Sprintf("{id: %s, phase: pre, command: [%q], env: {FAKEGH_MODE: hook, FAKEGH_HOOK_RECORD: %q}}", id, fakeBinary, filepath.Join(s.root, id+".json"))
+		return fmt.Sprintf("{id: %s, command: [%q], env: {FAKEGH_MODE: hook, FAKEGH_HOOK_RECORD: %q}}", id, fakeBinary, filepath.Join(s.root, id+".json"))
 	}
-	config := "version: 1\nlogging: {enabled: false}\nhooks:\n" +
-		"  - " + hook("first") + "\n" +
-		"  - parallel:\n      - " + hook("b") + "\n      - " + hook("c") + "\n" +
-		"  - wait-all:\n" +
-		"  - " + hook("last") + "\n"
+	config := "version: 1\nlogging: {enabled: false}\nhooks:\n  pre:\n" +
+		"    - " + hook("first") + "\n" +
+		"    - parallel:\n        - " + hook("b") + "\n        - " + hook("c") + "\n" +
+		"    - wait-all:\n" +
+		"    - " + hook("last") + "\n"
 	if err := os.WriteFile(s.cfg, []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,13 +42,13 @@ func TestHookConcurrencyItems(t *testing.T) {
 		t.Fatalf("hooks list: %+v", listed)
 	}
 
-	bad := "version: 1\nhooks:\n  - " + hook("first") + "\n  - wait: first\n"
+	bad := "version: 1\nhooks:\n  pre:\n    - " + hook("first") + "\n    - wait: first\n"
 	if err := os.WriteFile(s.cfg, []byte(bad), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result = s.management(nil, "config", "validate")
 	result.code(t, 1)
-	if !bytes.Contains(result.stderr, []byte("first is not an earlier background hook")) {
+	if !bytes.Contains(result.stderr, []byte("first is not an earlier background hook in this phase list")) {
 		t.Fatalf("validate: %s", result.stderr)
 	}
 }

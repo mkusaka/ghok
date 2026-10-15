@@ -35,7 +35,8 @@ func Generate(name string) (map[string]any, error) {
 			s["title"] = "ghok config.yaml"
 			delete(props, "trust")
 			// The hook schema map is shared by hook and parallel items.
-			hook := props["hooks"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
+			pre := props["hooks"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)
+			hook := pre["items"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
 			delete(hook["properties"].(map[string]any), "files")
 		}
 	case "hook-input":
@@ -89,12 +90,15 @@ func schemaFor(t reflect.Type, tag reflect.StructTag, names string) map[string]a
 		item := func(key, doc string, value any) map[string]any {
 			return map[string]any{"type": "object", "description": doc, "properties": map[string]any{key: value}, "required": []string{key}, "additionalProperties": false}
 		}
-		return map[string]any{"type": "array", "items": map[string]any{"oneOf": []any{
-			hook,
-			item("parallel", "Run these hooks concurrently as background hooks, then wait for all of them (GitHub Actions steps parallel).", map[string]any{"type": "array", "minItems": 1, "items": hook}),
-			item("wait", "Wait for earlier background hooks by ID.", ids),
-			item("wait-all", "Wait for every earlier background hook; takes no value.", map[string]any{"type": "null"}),
-		}}}
+		list := func(phase string) map[string]any {
+			return map[string]any{"type": "array", "description": "Hooks and control items of the " + phase + " phase, run in order.", "items": map[string]any{"oneOf": []any{
+				hook,
+				item("parallel", "Run these hooks concurrently as background hooks, then wait for all of them (GitHub Actions steps parallel).", map[string]any{"type": "array", "minItems": 1, "items": hook}),
+				item("wait", "Wait for earlier background hooks of this list by ID.", ids),
+				item("wait-all", "Wait for every earlier background hook of this list; takes no value.", map[string]any{"type": "null"}),
+			}}}
+		}
+		return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"pre": list("pre"), "post": list("post")}}
 	case reflect.TypeFor[config.Duration]():
 		return map[string]any{"type": "string", "pattern": `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`}
 	case reflect.TypeFor[map[string]any]():

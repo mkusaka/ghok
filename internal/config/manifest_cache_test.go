@@ -16,7 +16,7 @@ func manifestCacheFixture(t *testing.T) (string, map[string]string, string) {
 	repo := filepath.Join(root, "repo")
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
-	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: observe}\nhooks: [{id: project, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: observe}\nhooks: {pre: [{id: project, command: [./hook]}]}\n")
 	writeFixture(t, filepath.Join(repo, "hook"), "reviewed hook\n")
 	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestManifestCacheRetainsOtherProjects(t *testing.T) {
 	repo, env, _ := manifestCacheFixture(t)
 	other := filepath.Join(filepath.Dir(repo), "other")
 	writeFixture(t, filepath.Join(other, ".git"), "gitdir: elsewhere\n")
-	writeFixture(t, filepath.Join(other, ".ghok.yaml"), "version: 1\nhooks: [{id: other, phase: pre, command: [./hook]}]\n")
+	writeFixture(t, filepath.Join(other, ".ghok.yaml"), "version: 1\nhooks: {pre: [{id: other, command: [./hook]}]}\n")
 	writeFixture(t, filepath.Join(other, "hook"), "other hook\n")
 	if _, _, err := LoadEffective("", other, env); err != nil {
 		t.Fatal(err)

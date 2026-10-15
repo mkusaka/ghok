@@ -22,7 +22,7 @@ func TestProjectFailureRetainsWholeUserConfig(t *testing.T) {
 			repo := filepath.Join(root, "repo")
 			writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 			global := DefaultPath(env)
-			writeFixture(t, global, "version: 1\npolicy: {mode: observe, rules: [{id: user, decision: deny}]}\nhooks: [{id: user, phase: pre, command: [./user]}]\n")
+			writeFixture(t, global, "version: 1\npolicy: {mode: observe, rules: [{id: user, decision: deny}]}\nhooks: {pre: [{id: user, command: [./user]}]}\n")
 			want, err := Load(global)
 			if err != nil {
 				t.Fatal(err)
@@ -70,11 +70,11 @@ policy:
       futureRule: true
       match: {command: pr merge, futureMatch: true, env: {ANY_NAME: "*"}}
 hooks:
-  - id: project
-    phase: pre
-    command: [./check]
-    futureHook: true
-    env: {ANY_NAME: value}
+  pre:
+    - id: project
+      command: [./check]
+      futureHook: true
+      env: {ANY_NAME: value}
 trust: {futureTrust: true}
 `
 	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), body)
@@ -86,7 +86,7 @@ trust: {futureTrust: true}
 		t.Fatalf("unknown keys dropped known project settings: %+v", c)
 	}
 	text := strings.Join(notes, "\n")
-	for _, key := range []string{"future", "policy.futurePolicy", "policy.rules[0].futureRule", "policy.rules[0].match.futureMatch", "hooks[0].futureHook", "trust.futureTrust"} {
+	for _, key := range []string{"future", "policy.futurePolicy", "policy.rules[0].futureRule", "policy.rules[0].match.futureMatch", "hooks.pre[0].futureHook", "trust.futureTrust"} {
 		if !strings.Contains(text, "unknown key "+key+" ignored") {
 			t.Errorf("missing %s: %s", key, text)
 		}
@@ -106,7 +106,7 @@ func TestInvalidUserRawMode(t *testing.T) {
 	}{
 		{"strict-field", "version: 1\npolicy: {mode: enforce}\nfuture: true", true},
 		{"bad-version", "version: wrong\npolicy: {mode: enforce}", true},
-		{"validation", "version: 1\npolicy: {mode: enforce}\nhooks: [{id: bad}]", true},
+		{"validation", "version: 1\npolicy: {mode: enforce}\nhooks: {pre: [{id: bad}]}", true},
 		{"merge", "version: 1\n<<: {policy: {mode: enforce}}\nfuture: true", true},
 		{"alias", "version: 1\nfuture: &mode enforce\npolicy: {mode: *mode}", true},
 		{"observe", "version: 1\npolicy: {mode: observe}\nfuture: true", false},
