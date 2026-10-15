@@ -65,6 +65,9 @@ func (r *Runner) environment(h config.Hook, in protocol.Input) []string {
 	}
 	set("GHOK_EVENT", in.Event)
 	set("GHOK_EVENT_ID", in.EventID)
+	if r.Source != "" {
+		set("GHOK_EVENT_SOURCE", r.Source)
+	}
 	set("GHOK_HOOK_ID", h.ID)
 	set("GHOK_NESTED", "1")
 	set("GHOK_NESTED_TOKEN", nestedToken)

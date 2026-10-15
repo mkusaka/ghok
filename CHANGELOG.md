@@ -17,6 +17,9 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Added
 
+- Deny output for a malfunctioning hook (onError, exit 78) includes the last two non-empty lines of its stderr (redacted, sanitised, 200 bytes each; withheld for `redactInput` hooks), so causes like `env: bun: No such file or directory` are visible without the log.
+- Hooks receive `GHOK_EVENT_SOURCE` (`shim`, `exec`, `test`) for skipping side effects in tests; the input JSON stays identical (`invocation.via` is never `test`). `hooks test --print-input` keeps stdout pure JSON and prints its source note on stderr.
+
 - `ghok hooks test --print-input [--phase pre|post] [--hook ID]` previews hook JSON without starting hooks or gh, with synthetic post results, credential masking notices, and `--show-secrets` that still honors hook `redactInput`.
 - `ghok exec -- <gh args>` runs the shim's exact pipeline without a PATH shim, preserving discovery/recursion checks, policy, hooks, logs, argv, streams, statuses and signals. Hook input and JSONL records include `invocation.via: "exec"|"shim"`; the hook-input schema is regenerated.
 - Generated hook input/response JSON Schemas, closed-value enums and documentation from Go tags, `schemaVersion: {const: 1}`, and TypeScript generation instructions. Regenerate all four contracts with `go generate ./internal/schema`.

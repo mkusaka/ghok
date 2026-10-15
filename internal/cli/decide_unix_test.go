@@ -85,3 +85,37 @@ func TestDenialRedactionPreservesGrammar(t *testing.T) {
 		})
 	}
 }
+
+func TestErrorDenialShowsStderrTail(t *testing.T) {
+	pre := hooks.Aggregate{Decision: protocol.DecisionDeny, Results: []protocol.HookResult{
+		{HookID: "gate", Outcome: protocol.OutcomeError, Effective: protocol.DecisionDeny, ExitCode: 127, Started: true, Error: "exit status 127", Stderr: "starting\n\nloading config\nenv: bun: No such file or directory\n"},
+		{HookID: "secretive", Outcome: protocol.OutcomeTimeout, Effective: protocol.DecisionDeny, Error: "context deadline exceeded", Stderr: "token leaked here\n"},
+	}}
+	got := decide(config.ModeEnforce, policy.Evaluation{}, pre, false)
+	attachHookStderr(got.Denials, pre, []config.Hook{{ID: "gate"}, {ID: "secretive", RedactInput: true}})
+	var stderr bytes.Buffer
+	printDenials(&stderr, got.Denials, func(s string) string { return s })
+	out := stderr.String()
+	for _, want := range []string{
+		"ghok: denied by hook gate (error: exit 127) (+1 more)",
+		"      stderr: loading config\n      stderr: env: bun: No such file or directory",
+		"      stderr: (withheld; redactInput)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "starting") || strings.Contains(out, "token leaked") {
+		t.Fatalf("only the last 2 lines, and nothing for redactInput hooks:\n%s", out)
+	}
+	if got.ExitCode != 78 {
+		t.Fatalf("hook malfunction exit = %d, want 78", got.ExitCode)
+	}
+}
+
+func TestStderrTailCapsLineLength(t *testing.T) {
+	got := stderrTail(strings.Repeat("x", 500), 2, 200)
+	if len(got) != 1 || len(got[0]) != 200+len("…") {
+		t.Fatalf("got %q", got)
+	}
+}

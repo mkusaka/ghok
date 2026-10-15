@@ -18,6 +18,54 @@ type denial struct {
 	ID        string
 	Message   string
 	ErrorKind string
+	// Stderr is the tail of a malfunctioning hook's stderr (error denials only).
+	Stderr []string
+}
+
+// attachHookStderr adds the last lines of each malfunctioning hook's stderr to
+// its denial so the cause (e.g. "env: bun: No such file or directory") is
+// visible without opening the log. Hooks with redactInput handle sensitive
+// data, so their stderr is withheld.
+func attachHookStderr(denials []denial, pre hooks.Aggregate, configured []config.Hook) {
+	redactInput := map[string]bool{}
+	for _, h := range configured {
+		redactInput[h.ID] = h.RedactInput
+	}
+	stderr := map[string]string{}
+	for _, r := range pre.Results {
+		stderr[r.HookID] = r.Stderr
+	}
+	for i := range denials {
+		d := &denials[i]
+		if d.Source != "hook" || d.ErrorKind == "" {
+			continue
+		}
+		if redactInput[d.ID] {
+			d.Stderr = []string{"(withheld; redactInput)"}
+			continue
+		}
+		d.Stderr = stderrTail(stderr[d.ID], 2, 200)
+	}
+}
+
+// stderrTail returns the last n non-empty lines, each cut to max bytes:
+// interpreters print the actual failure last.
+func stderrTail(s string, n, max int) []string {
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimRight(line, "\r \t"); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	for i, line := range lines {
+		if len(line) > max {
+			lines[i] = line[:max] + "…"
+		}
+	}
+	return lines
 }
 
 type wrapperDecision struct {
@@ -114,6 +162,9 @@ func printDenials(w io.Writer, denials []denial, redact func(string) string) {
 	_, _ = fmt.Fprintln(w, header)
 	for _, d := range denials {
 		entry := "  - " + source(d) + ": " + strings.ReplaceAll(redact(d.Message), "\n", "\n    ")
+		for _, line := range d.Stderr {
+			entry += "\n      stderr: " + redact(line)
+		}
 		_, _ = fmt.Fprintln(w, terminalText(entry))
 	}
 }

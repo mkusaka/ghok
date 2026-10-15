@@ -101,8 +101,11 @@ func TestHooksTestPrintInput(t *testing.T) {
 			if !tc.showSecrets && !tc.redactInput {
 				wantStderr = "6 values masked; use --show-secrets for the bytes the hook receives\n"
 			}
-			if string(result.stderr) != wantStderr {
-				t.Fatalf("masking notice=%q, want %q", result.stderr, wantStderr)
+			// stderr: the source note first, then the masking notice (if any);
+			// stdout stays the pure input JSON.
+			note, rest, _ := strings.Cut(string(result.stderr), "\n")
+			if !strings.HasPrefix(note, "ghok: ") || !strings.Contains(note, "(source: test;") || rest != wantStderr {
+				t.Fatalf("stderr=%q, want source note then %q", result.stderr, wantStderr)
 			}
 			if bytes.Contains(result.stdout, []byte(secret)) != (tc.showSecrets && !tc.redactInput) {
 				t.Fatalf("incorrect preview secret visibility: %s", result.stdout)

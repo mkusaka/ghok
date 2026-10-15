@@ -208,6 +208,10 @@ Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
 - Post hooks can be limited to gh's outcome: `match: {result: failure}` (non-zero exit,
   signal or start failure) or `match: {exitCode: [1]}`; test with
   `ghok hooks test --phase post --exit-code 1 -- <gh args>`.
+- Exit 78 with `(error: ...)` means the hook itself failed (missing tool, timeout): read the
+  `stderr:` lines under the entry and fix the environment; don't edit the PR/issue text.
+  Exit 77 means a rule/hook rejected the content: fix the content.
+- `GHOK_EVENT_SOURCE` (`shim|exec|test`) may only be used to skip side effects in tests.
 - Post hooks never change gh's exit status. Hooks run as the user with the user's
   environment (credentials included) — treat them as trusted code; keep stdout for the
   JSON response and write diagnostics to stderr.

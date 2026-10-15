@@ -191,7 +191,7 @@ func wrapper(args []string, argv0, via string) int {
 		hookEnv = append(childEnv, "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
 	}
 	defer releaseNested()
-	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String}
+	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String, Source: via}
 	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never")
 	if localNeeded {
 		resolver := &resolve.Resolver{Env: helperEnv, Cwd: cwd, RealGh: real, Timeout: cfg.Runtime.ResolveTimeout.D()}
@@ -241,6 +241,7 @@ func wrapper(args []string, argv0, via string) int {
 		process.Result{ExitCode: -1, Signal: caught}.Exit()
 	}
 	decision := decide(cfg.Policy.Mode, evaluation, pre, stdinSkipped)
+	attachHookStderr(decision.Denials, pre, cfg.Hooks)
 	record.Decision = decision.Decision
 	if decision.Decision == "deny" {
 		printDenials(os.Stderr, decision.Denials, redactor.String)

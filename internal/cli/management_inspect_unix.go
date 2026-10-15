@@ -191,7 +191,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	// hook test remains usable on machines without gh. No original gh is started.
 	a.real, _ = realGh(a.config, a.env)
 	r := redact.New(a.env)
-	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: os.Environ(), RealGh: a.real, Redact: r.String}
+	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: os.Environ(), RealGh: a.real, Redact: r.String, Source: "test"}
 	if exitCode < 0 || exitCode > 255 {
 		return managementUsageError("--exit-code must be 0-255")
 	}
@@ -219,6 +219,12 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			}
 		}
 		input = hooks.PrepareInput(phase, h, input, r)
+		// stdout stays pure JSON (pipe to jq / save as a fixture); notes go to stderr.
+		target := "any matching hook"
+		if options.hookID != "" {
+			target = "hook " + options.hookID
+		}
+		fmt.Fprintf(os.Stderr, "ghok: %s input for %s (source: test; hooks and gh not executed; invocation.via shows the real entry point)\n", phase, target)
 		if !options.showSecrets {
 			masked := r.WithCount(func(display *redact.Redactor) {
 				input = display.HookInput(input)

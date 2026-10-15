@@ -32,6 +32,10 @@ type Runner struct {
 	RealGh      string
 	Now         func() time.Time
 	Redact      func(string) string
+	// Source is exported to hooks as GHOK_EVENT_SOURCE (shim, exec or test).
+	// Hooks may use it only to skip side effects (notifications) in tests,
+	// never to change their decision.
+	Source string
 }
 
 type Aggregate struct {

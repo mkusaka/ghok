@@ -500,6 +500,7 @@ overrides both:
 | --- | --- |
 | GHOK_EVENT | pre/post |
 | GHOK_EVENT_ID | Input.eventId |
+| GHOK_EVENT_SOURCE | Entry point: `shim`, `exec` or `test` (`ghok hooks test`). Use it **only** to skip side effects such as Slack notifications during tests — never to change the decision; the input JSON is identical in every source so tests exercise the real path. |
 | GHOK_HOOK_ID | Configured ID |
 | GHOK_NESTED | 1; recursive passthrough only with a valid GHOK_NESTED_TOKEN |
 | GHOK_NESTED_TOKEN | Random invocation token, verified by a private hash-named file under the user config directory's state/nested/; hook env cannot override it |
