@@ -165,6 +165,6 @@ func TestStdinAnalysisCanRevealMatchingDenyRule(t *testing.T) {
 	})
 	input := []byte(`{"query":"mutation { mergePullRequest(input:{pullRequestId:\"PR_test_node\"}) { clientMutationId } }"}`)
 	result := s.gh(input, "api", "graphql", "--input", "-")
-	result.code(t, 1)
+	result.code(t, 77)
 	s.absentRecord()
 }

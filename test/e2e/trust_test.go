@@ -78,7 +78,7 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	result := s.gh(nil, "version")
 	result.code(t, 0)
 	assertNoProjectHook(t, s)
-	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	if len(s.records()) != 1 {
 		t.Fatal("untrusted project policy did not prevent gh")
 	}
@@ -99,7 +99,7 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	assertIgnoredProjectHook(t, s, "changed since trust")
 	s.gh(nil, "version").code(t, 0)
 	assertNoProjectHook(t, s)
-	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	if len(s.records()) != 3 {
 		t.Fatal("edited project policy did not prevent gh")
 	}
@@ -177,7 +177,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	result = s.gh(nil, "version")
 	result.code(t, 0)
 	assertNoProjectHook(t, s)
-	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	assertNoProjectHook(t, s)
 	if len(s.records()) != 3 {
 		t.Fatal("changed executable bypassed project deny rule")
@@ -196,7 +196,7 @@ func TestProjectTrustCorruption(t *testing.T) {
 	result := s.gh(nil, "version")
 	result.code(t, 0)
 	assertNoProjectHook(t, s)
-	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	if len(s.records()) != 2 {
 		t.Fatal("corrupt trust store bypassed project policy")
 	}
@@ -368,7 +368,7 @@ func TestProjectTrustIncludeEditRetainsRules(t *testing.T) {
 	s.gh(nil, "version").code(t, 0)
 	assertNoProjectHook(t, s)
 	before := len(s.records())
-	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	if len(s.records()) != before {
 		t.Fatal("included-file edit bypassed project deny rule")
 	}

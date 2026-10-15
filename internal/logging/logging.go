@@ -14,12 +14,15 @@ import (
 // Record describes one invocation. Write redacts a copy; callers retain their
 // original data. Exec output bodies are never serialized, even when supplied.
 type Record struct {
-	Time           time.Time             `json:"time"`
-	InvocationID   string                `json:"invocationId"`
-	Mode           string                `json:"mode"`
-	DurationMs     int64                 `json:"durationMs"`
-	Redactions     int                   `json:"redactions"`
-	Argv           []string              `json:"argv"`
+	Time         time.Time `json:"time"`
+	InvocationID string    `json:"invocationId"`
+	Mode         string    `json:"mode"`
+	DurationMs   int64     `json:"durationMs"`
+	Redactions   int       `json:"redactions"`
+	Argv         []string  `json:"argv"`
+	Invocation   struct {
+		Via string `json:"via"`
+	} `json:"invocation"`
 	Alias          string                `json:"alias,omitempty"`
 	Classification model.Classification  `json:"classification"`
 	Operations     []model.Operation     `json:"operations"`

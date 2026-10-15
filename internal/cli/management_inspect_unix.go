@@ -102,6 +102,8 @@ type managementInspectOptions struct {
 	noResolve   bool
 	allowAPI    bool
 	showSecrets bool
+	printInput  bool
+	hookID      string
 }
 
 func managementInspect(command string, args []string, options managementInspectOptions) int {
@@ -151,19 +153,19 @@ func managementHooksList(asJSON bool) int {
 	}
 	for _, h := range display {
 		enabled := h.Enabled == nil || *h.Enabled
-		_, _ = fmt.Fprintf(os.Stdout, "%s\n", r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput)))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput))))
 		if h.Ignored != "" {
-			_, _ = fmt.Fprintln(os.Stdout, r.String("  ignored ("+h.Ignored+")"))
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  ignored ("+h.Ignored+")")))
 		}
-		_, _ = fmt.Fprintln(os.Stdout, r.String("  source: "+h.Source))
-		_, _ = fmt.Fprintln(os.Stdout, r.String("  command: "+managementCompact(h.Command)))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  source: "+h.Source)))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  command: "+managementCompact(h.Command))))
 		managementPrintMatch(os.Stdout, "  ", h.Match, r)
 		if len(h.DependsOn) != 0 {
-			_, _ = fmt.Fprintln(os.Stdout, r.String("  dependsOn: "+strings.Join(h.DependsOn, ", ")))
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  dependsOn: "+strings.Join(h.DependsOn, ", "))))
 		}
 	}
 	for _, note := range notes {
-		_, _ = fmt.Fprintln(os.Stdout, r.String("Note: "+note))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("Note: "+note)))
 	}
 	return 0
 }
@@ -174,6 +176,12 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	}
 	if options.allowAPI && options.noResolve {
 		return managementUsageError("--allow-api cannot be combined with --no-resolve")
+	}
+	if options.printInput && options.allowAPI {
+		return managementUsageError("--allow-api cannot be combined with --print-input")
+	}
+	if options.hookID != "" && !options.printInput {
+		return managementUsageError("--hook requires --print-input")
 	}
 	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI)
 	if err != nil {
@@ -196,6 +204,31 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		subject.Outcome = input.Result
 	}
 	selected := runner.Select(phase, subject)
+	if options.printInput {
+		h := config.Hook{}
+		if options.hookID != "" {
+			found := false
+			for _, selectedHook := range selected {
+				if selectedHook.ID == options.hookID {
+					h, found = selectedHook, true
+					break
+				}
+			}
+			if !found {
+				return managementUsageError(fmt.Sprintf("unknown or non-matching hook ID %q for phase %s", options.hookID, phase))
+			}
+		}
+		input = hooks.PrepareInput(phase, h, input, r)
+		if !options.showSecrets {
+			masked := r.WithCount(func(display *redact.Redactor) {
+				input = display.HookInput(input)
+			})
+			if masked > 0 {
+				fmt.Fprintf(os.Stderr, "%d values masked; use --show-secrets for the bytes the hook receives\n", masked)
+			}
+		}
+		return managementJSON(input, nil)
+	}
 	if len(selected) > 0 {
 		helperEnv, cleanup, err := nestedEnvironment(a.env)
 		if err != nil {
@@ -246,11 +279,11 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			_, _ = fmt.Fprintf(os.Stdout, "Post hooks receive a synthetic result (exitCode=%d).\n", exitCode)
 		}
 		for _, result := range results {
-			_, _ = fmt.Fprintln(os.Stdout, r.String(managementCompact(result)))
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(managementCompact(result))))
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Hooks: %s\nPolicy: %s\nFINAL: %s (mode=%s, would-deny=%t)\n", aggregate.Decision, a.evaluation.Decision, decision, a.config.Policy.Mode, wouldDeny)
 		if aggregate.Message != "" {
-			_, _ = fmt.Fprintln(os.Stdout, r.String("Message: "+aggregate.Message))
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("Message: "+aggregate.Message)))
 		}
 	}
 	if expect != "" || expectHooks != "" || expectPolicy != "" {

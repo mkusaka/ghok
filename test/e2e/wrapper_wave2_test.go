@@ -171,7 +171,7 @@ func TestWrapperNestedCredentials(t *testing.T) {
 			args := []string{"pr", "merge", "1", "-R", "acme/project"}
 			got := s.gh(nil, args...)
 			if credentials != "valid-token" {
-				got.code(t, 1)
+				got.code(t, 77)
 				s.absentRecord()
 				s.hookInput("pre")
 				return

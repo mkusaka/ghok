@@ -161,9 +161,18 @@
             "none"
           ],
           "type": "string"
+        },
+        "via": {
+          "description": "Wrapper entry point: shim or explicit ghok exec; both enforce the same policy.",
+          "enum": [
+            "shim",
+            "exec"
+          ],
+          "type": "string"
         }
       },
       "required": [
+        "via",
         "cwd",
         "isTTY",
         "stdinTTY"

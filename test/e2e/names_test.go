@@ -79,7 +79,7 @@ func TestNamesMatchingCommentsSafely(t *testing.T) {
 					Match: config.Match{Operations: config.StringList{"comment.*", "pr.comment.*", "issue.comment.*"}, Effects: config.StringList{"write"}},
 				}}
 			})
-			s.gh(nil, tc.args...).code(t, 1)
+			s.gh(nil, tc.args...).code(t, 77)
 			s.absentRecord()
 		})
 	}

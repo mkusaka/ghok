@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -326,6 +327,42 @@ func TestOutcomeMatches(t *testing.T) {
 	} {
 		if got := outcomeMatches(tc.m, tc.o); got != tc.want {
 			t.Errorf("match=%+v outcome=%+v: got %v", tc.m, tc.o, got)
+		}
+	}
+}
+
+func TestDenialProvenance(t *testing.T) {
+	op := operation("api.post.unknown", "org/repo", model.EffectUnknown)
+	p := config.Policy{
+		Mode: config.ModeEnforce, UnknownMutation: config.UnknownDeny,
+		ProtectedRepositories: []string{"org/*"},
+		Rules: []config.Rule{
+			{ID: "z-first", Decision: "deny", Reason: "first"},
+			{ID: "a-second", Decision: "deny", Reason: "second"},
+		},
+	}
+	for _, mode := range []string{config.ModeEnforce, config.ModeObserve} {
+		p.Mode = mode
+		got := Evaluate(p, subject(op))
+		want := []Denial{
+			{Kind: DenialRule, ID: "z-first", Reason: "first (api.post.unknown)"},
+			{Kind: DenialRule, ID: "a-second", Reason: "second (api.post.unknown)"},
+			{Kind: DenialPolicy, ID: "unknownMutation", Reason: "unclassified-write: unknownMutation policy (api.post.unknown)"},
+			{Kind: DenialPolicy, ID: "protectedRepositories", Reason: "unclassified-write targets protected repository org/repo (api.post.unknown)"},
+		}
+		if !reflect.DeepEqual(got.Denials, want) {
+			t.Fatalf("%s denials=%+v, want=%+v", mode, got.Denials, want)
+		}
+		body, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(body, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if len(fields) != 7 || fields["denials"] != nil || fields["Denials"] != nil {
+			t.Fatalf("provenance changed serialized policy contract: %s", body)
 		}
 	}
 }

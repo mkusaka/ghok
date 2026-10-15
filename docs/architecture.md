@@ -9,7 +9,7 @@ operation, and ordinary commands do not require network context lookups.
 
 | Module | Responsibility | Boundary |
 | --- | --- | --- |
-| `cmd/ghok` | Dispatch by basename of argv[0]; linker version/commit | `gh` invokes wrapper; other names invoke management. |
+| `cmd/ghok` | Dispatch by basename of argv[0]; linker version/commit | `gh` invokes wrapper; management `ghok exec` explicitly enters the same pipeline. |
 | `internal/cli` | Wire config/discovery/analysis/resolution/policy/hooks/process/logging | Preserve original execution argv and bytes; enforce only in enforce mode. |
 | `internal/model` | Result, Operation, Invocation, APIRequest, ResolvedContext | Schema-version-1 shared contracts, not execution logic. |
 | `internal/protocol` | Hook Input/Response/HookResult and decisions/outcomes | JSON stdin/stdout protocol. |
@@ -45,15 +45,16 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    only the overlay and retain user enforcement, notes, and log diagnostics.
 3. Invalid user config with raw `policy.mode: enforce`, or any invalid config
    with `GHOK_FAIL_CLOSED=1`: log the failure, print an unthrottled error, and
-   exit 1 without discovering/starting gh.
+   exit 78 without discovering/starting gh.
 4. Otherwise discover real gh, excluding self/known wrappers and invalid PATH
    candidates; validate recursion depth and supply incremented `GHOK_DEPTH`.
    Invalid observe/undetermined user config logs at the default path, emits a
    throttled warning, and execs gh without hooks/policy.
-5. For valid, non-nested invocations, warn once per project path/manifest/ten
-   minutes about ignored enabled project hooks unless disabled by user logging
-   config. Observe mode with no hooks/rules and logging explicitly disabled
-   then execs immediately without analysis. Logging defaults on with any config.
+5. Observe mode with no hooks/rules and logging explicitly disabled execs
+   immediately without analysis. Before allowed execution, valid non-nested
+   invocations warn once per project path/manifest/ten minutes about ignored
+   enabled project hooks unless disabled by user logging config. Denied calls
+   lead with the denial contract instead. Logging defaults on with any config.
 6. Otherwise open best-effort logging. `GHOK_NESTED=1` plus a verified
    invocation token records passthrough and execs without analysis/policy/hooks.
 7. Load aliases only if needed. For an analyzable API stdin consumer, spool
@@ -66,7 +67,7 @@ updates are source changes; there is no runtime normalizer-plugin loader.
 9. Resolve only context relevant to potentially matching repository/host policy
    or hook constraints/protected-repository handling. Evaluate policy; run
    selected pre-hooks with raw input (per-hook redactInput is opt-in). Any effective deny blocks only in
-   enforce mode; observe records would-deny.
+   enforce mode; content denial exits 77, hook-error-only denial 78; observe records would-deny.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
 
@@ -101,6 +102,12 @@ Raw normalized data can contain credentials. Hooks receive raw input by default;
 the runner creates redacted copies only for `redactInput: true` hooks. The CLI
 redacts log/normalize/explain and terminal boundaries; Logger also redacts its
 own copy. Hook-input and log copies count credential substitutions independently.
+
+The shim calls the shared wrapper with its original argv[0]; management
+`ghok exec -- <gh args>` calls it once with argv[0] forced to `gh`.
+Hook inputs and log records include `invocation.via: shim|exec`; discovery,
+recursion depth/nested-token checks and every enforcement/execution path are
+shared. Explicit execution does not install or require a PATH shim.
 
 ## Fast path versus supervised path
 

@@ -65,6 +65,31 @@ func TestRedactionCounts(t *testing.T) {
 	})
 }
 
+func TestHookInputDisplayPreservesPayloadCounters(t *testing.T) {
+	secret := "display-only-" + "credential"
+	r := redact.New(map[string]string{"GH_TOKEN": secret})
+	in := protocol.Input{
+		Redactions: 7,
+		Invocation: protocol.InvocationInfo{Argv: []string{"pr", "create", "-b", secret}},
+		Operations: []model.Operation{{Texts: &model.Texts{
+			Title: &model.Text{Value: "ordinary", Redactions: 2},
+			Body:  &model.Text{Value: secret, Bytes: int64(len(secret)), Redactions: 3},
+			Notes: &model.Text{Value: secret, Redactions: 1},
+		}}},
+	}
+	var out protocol.Input
+	count := r.WithCount(func(r *redact.Redactor) { out = r.HookInput(in) })
+	if count != 3 || out.Redactions != 7 || out.Operations[0].Texts.Title.Redactions != 2 || out.Operations[0].Texts.Body.Redactions != 3 || out.Operations[0].Texts.Notes.Redactions != 1 {
+		t.Fatalf("display count=%d payload=%+v texts=%+v", count, out, out.Operations[0].Texts)
+	}
+	if out.Invocation.Argv[3] != replacement || out.Operations[0].Texts.Body.Value != replacement || out.Operations[0].Texts.Notes.Value != replacement {
+		t.Fatalf("display redaction missed credential: %+v", out)
+	}
+	if in.Invocation.Argv[3] != secret || in.Operations[0].Texts.Body.Value != secret || out.Operations[0].Texts.Body.Bytes != int64(len(secret)) {
+		t.Fatal("display masking mutated source input or original byte count")
+	}
+}
+
 func TestStringPatterns(t *testing.T) {
 	ghToken := "ghp_" + strings.Repeat("a", 36)
 	r := redact.New(map[string]string{"CUSTOM_SECRET": "learned-value", "GH_TOKEN": "tiny"})

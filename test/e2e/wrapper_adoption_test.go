@@ -181,7 +181,7 @@ func TestIgnoredHooksWarningSuppression(t *testing.T) {
 				}
 				if scenario == "fail-closed" {
 					s.env["GHOK_FAIL_CLOSED"] = "1"
-					wantCode = 1
+					wantCode = 78
 				}
 			case "invalid-project":
 				if err := os.WriteFile(project, []byte("logging: {}\n"), 0600); err != nil {

@@ -29,7 +29,7 @@ func TestAliasesExpandForPolicyButPreserveExecutedArgv(t *testing.T) {
 			args := []string{"land", "7", "-R", "acme/project"}
 			result := s.gh(nil, args...)
 			if deny {
-				result.code(t, 1)
+				result.code(t, 77)
 				s.absentRecord()
 			} else {
 				result.code(t, 0)
@@ -65,7 +65,7 @@ func TestBuiltinsDoNotLoadAliasesAndShellAliasesStayUnknown(t *testing.T) {
 				c.Hooks = []config.Hook{s.hook("pre", "pre")}
 			})
 			result := s.gh(nil, args...)
-			result.code(t, 1)
+			result.code(t, 77)
 			s.absentRecord()
 			input := s.hookInput("pre")
 			if kind == "built-in" {

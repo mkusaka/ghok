@@ -115,6 +115,26 @@ func (r *Redactor) unresolved(in []model.Unresolved) []model.Unresolved {
 	return out
 }
 
+// HookInput makes a display-only redacted copy, preserving the counters that
+// describe substitutions in the actual hook payload. Use WithCount to count
+// additional display masking independently.
+func (r *Redactor) HookInput(in protocol.Input) protocol.Input {
+	out := r.input(in)
+	for i, op := range in.Operations {
+		if op.Texts == nil {
+			continue
+		}
+		sources := [3]*model.Text{op.Texts.Title, op.Texts.Body, op.Texts.Notes}
+		targets := [3]*model.Text{out.Operations[i].Texts.Title, out.Operations[i].Texts.Body, out.Operations[i].Texts.Notes}
+		for j, source := range sources {
+			if source != nil {
+				targets[j].Redactions = source.Redactions
+			}
+		}
+	}
+	return out
+}
+
 // Input makes a redacted deep copy of an entire hook payload. Captured output
 // is decoded, redacted (including JSON keys/GraphQL literals), then re-encoded;
 // original byte counts and truncation metadata continue to describe execution.

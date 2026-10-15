@@ -24,15 +24,16 @@ import (
 
 const managementLong = `Manage ghok, a transparent wrapper for the GitHub CLI (gh) that runs
 pre/post hooks and enforces policies on gh commands, gh api REST calls and
-GraphQL mutations. When invoked as "gh" (through the shim) the same binary is
-the wrapper and passes every argument to the real gh untouched.
+GraphQL mutations. The shim ("gh") and "ghok exec -- <gh args>" use the same
+wrapper pipeline and pass every argument to the real gh untouched.
 
 Resolution uses local git metadata and GH_REPO/GH_HOST by default; --no-resolve
 disables it. Read-only API resolution requires explicit --allow-api.
 Explain never executes hooks or the original gh command and exits 0 even on deny.
-Exit status: 0 success, 1 failure/denial, 2 usage error.`
+Management exit status: 0 success, 1 failure/denial, 2 usage error.
+Exec preserves gh status/signals; denials use 77 (content) or 78 (hook/config error).`
 
-// Management runs the management CLI. It never executes the user's gh command.
+// Management runs the CLI, including explicit wrapper execution through exec.
 func Management(args []string, version, commit string) int {
 	code := 0
 	root := managementRoot(&code, version, commit)
@@ -65,6 +66,17 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 		}
 		defaultHelp(cmd, args)
 	})
+
+	execCmd := managementCommand("exec -- <gh args>", "Run gh through the wrapper pipeline without installing a shim", code, func(_ *cobra.Command, args []string) int {
+		return wrapper(args, "gh", "exec")
+	})
+	execCmd.Args = managementInvocationArgs
+	execCmd.Long = `Run exactly the same discovery, recursion checks, policy, hooks, execution and
+logging as the gh shim. Intended for tests, CI and scripts without a shim on PATH.
+This is not a policy bypass. The real gh receives argv[0]="gh" and untouched args.
+Exit status and signals match the shim: content denial 77, hook/config error denial
+78, internal error 1, missing real gh 127; otherwise gh's original status/signal.`
+	root.AddCommand(execCmd)
 
 	shim := managementGroup("shim", "Install or remove the gh shim (gh -> ghok)", code)
 	defaultBin := filepath.Join(environment()["HOME"], ".local", "bin")
@@ -102,6 +114,9 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	var expect, expectHooks, expectPolicy string
 	phase := config.PhasePre
 	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(cmd *cobra.Command, args []string) int {
+		if cmd.Flags().Changed("hook") && testOptions.hookID == "" {
+			return managementUsageError("--hook requires a nonempty hook ID")
+		}
 		if cmd.Flags().Changed("expect") {
 			switch protocol.Decision(expect) {
 			case protocol.DecisionAllow, protocol.DecisionDeny, protocol.DecisionAbstain, protocol.DecisionAudit:
@@ -128,6 +143,11 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	test.Long = `Run matching trusted hooks for real, but never start the original gh command.
 Local context is resolved by default; --allow-api permits read-only API resolution.
 Post hooks receive a synthetic result (exit 0 unless --exit-code).
+--print-input prints one hook input JSON envelope without running hooks or gh,
+including API resolution; it cannot be combined with --allow-api.
+It masks credentials for display by default;
+--show-secrets shows the bytes the hook receives, still honoring redactInput.
+Use --hook ID to preview a matching configured hook; omit it for a generic input.
 
 Print the hook aggregate (allow/deny/abstain), policy decision (allow/audit/deny),
 and FINAL decision separately. No matching hooks or all abstaining means hooks=abstain.
@@ -145,6 +165,9 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 	test.Example = "  ghok hooks test -- pr merge 123 --admin\n  ghok hooks test --no-resolve -- pr merge 123\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
+	test.Flags().BoolVar(&testOptions.printInput, "print-input", false, "print one hook input JSON envelope without executing hooks or gh")
+	test.Flags().StringVar(&testOptions.hookID, "hook", "", "preview the input for a matching configured hook (requires --print-input)")
+	test.Flags().BoolVar(&testOptions.showSecrets, "show-secrets", false, "show the bytes the hook receives in --print-input output; still honors redactInput")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
 	test.Flags().IntVar(&exitCode, "exit-code", 0, "post phase: synthetic gh exit code (selects match.result/exitCode hooks)")
 	test.Flags().StringVar(&expect, "expect", "", "expect the FINAL decision: allow, deny, abstain or audit (observe would-deny is audit)")
@@ -324,13 +347,13 @@ func managementVersion(version, commit string) int {
 }
 
 func managementUsageError(message string) int {
-	fmt.Fprintln(os.Stderr, "ghok:", redact.New(environment()).String(message))
+	fmt.Fprintln(os.Stderr, "ghok:", terminalText(redact.New(environment()).String(message)))
 	fmt.Fprintln(os.Stderr, "Run 'ghok help' for usage.")
 	return 2
 }
 
 func managementFailure(err error) int {
-	fmt.Fprintln(os.Stderr, "ghok:", redact.New(environment()).String(err.Error()))
+	fmt.Fprintln(os.Stderr, "ghok:", terminalText(redact.New(environment()).String(err.Error())))
 	return 1
 }
 
@@ -429,7 +452,7 @@ func managementConfig(command, file string) int {
 	c, notes, err := config.LoadEffective(path, cwd, env)
 	notes = append(notes, operationPatternWarnings(c)...)
 	for _, note := range notes {
-		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(note)))
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stdout, configFailureBehavior(err, env))
@@ -542,9 +565,9 @@ func managementDoctor(asJSON bool, version string) int {
 		}
 	} else {
 		for _, check := range checks {
-			_, _ = fmt.Fprintf(os.Stdout, "%s %s: %s\n", check.Status, check.Name, check.Detail)
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(fmt.Sprintf("%s %s: %s", check.Status, check.Name, check.Detail)))
 			if check.Fix != "" {
-				_, _ = fmt.Fprintln(os.Stdout, "  Fix:", check.Fix)
+				_, _ = fmt.Fprintln(os.Stdout, terminalText("  Fix: "+check.Fix))
 			}
 		}
 	}

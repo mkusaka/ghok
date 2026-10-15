@@ -52,7 +52,7 @@ func TestResolveWave2UnknownInputPolicy(t *testing.T) {
 			})
 			result := s.gh(nil, "api", "graphql", "--input", "absent.json")
 			if behavior == "deny" {
-				result.code(t, 1)
+				result.code(t, 77)
 				if len(s.records()) != 0 || !bytes.Contains(result.stderr, []byte("input-unavailable")) || !bytes.Contains(result.stderr, []byte("absent.json")) {
 					t.Fatalf("missing denial cause: %s", result.stderr)
 				}
@@ -85,7 +85,7 @@ func TestResolveWave2DefaultStdinTimeoutCause(t *testing.T) {
 	cmd.Stderr = &stderr
 	start := time.Now()
 	result := outcome{err: cmd.Run(), stderr: stderr.Bytes()}
-	result.code(t, 1)
+	result.code(t, 77)
 	elapsed := time.Since(start)
 	if elapsed < 2500*time.Millisecond || elapsed > 7*time.Second || !bytes.Contains(result.stderr, []byte("timeout")) || !bytes.Contains(result.stderr, []byte("unknownInput")) || len(s.records()) != 0 {
 		t.Fatalf("stdin denial after %v: %s", elapsed, result.stderr)

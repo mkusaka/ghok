@@ -183,6 +183,7 @@ func (r *Runner) execute(parent context.Context, phase string, h config.Hook, in
 		fail(err)
 		return
 	}
+	result.Started = true
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
 	canceled := false

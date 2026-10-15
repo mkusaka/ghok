@@ -117,7 +117,7 @@ func expandedArgv(inv model.Invocation) []string {
 func hookInput(args []string, cwd, real string, result model.Result, ctx *model.ResolvedContext, evaluation policy.Evaluation, eventID string) protocol.Input {
 	return protocol.Input{
 		SchemaVersion: model.SchemaVersion, EventID: eventID,
-		Invocation:     protocol.InvocationInfo{Argv: args, Alias: result.Source.Alias, Expanded: result.Source.Argv, Cwd: cwd, RealGh: real, IsTTY: install.IsTTY(os.Stdout), StdinTTY: install.IsTTY(os.Stdin), TokenKind: policy.TokenKind(environment())},
+		Invocation:     protocol.InvocationInfo{Via: "shim", Argv: args, Alias: result.Source.Alias, Expanded: result.Source.Argv, Cwd: cwd, RealGh: real, IsTTY: install.IsTTY(os.Stdout), StdinTTY: install.IsTTY(os.Stdin), TokenKind: policy.TokenKind(environment())},
 		Classification: result.Classification, Operations: result.Operations, Errors: result.Errors, Context: ctx,
 		Policy: &protocol.PolicyInfo{Mode: evaluation.Mode, Decision: evaluation.Decision, Reasons: evaluation.Reasons, Rules: evaluation.Rules},
 	}

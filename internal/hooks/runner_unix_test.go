@@ -250,7 +250,9 @@ func TestDependenciesAndPrevious(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(decoded.Previous, got.Results[:1]) {
+	if len(decoded.Previous) != 1 || decoded.Previous[0].HookID != first.ID ||
+		decoded.Previous[0].Outcome != protocol.OutcomeOK || decoded.Previous[0].Decision != protocol.DecisionAllow ||
+		decoded.Previous[0].Effective != protocol.DecisionAllow || decoded.Previous[0].Reason != "first reason" {
 		t.Fatalf("previous: %+v", decoded.Previous)
 	}
 	first.Command = []string{script(t, "exit 4")}

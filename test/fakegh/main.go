@@ -22,6 +22,7 @@ import (
 )
 
 type record struct {
+	Argv0       string   `json:"argv0"`
 	Argv        []string `json:"argv"`
 	Env         []string `json:"env"`
 	Cwd         string   `json:"cwd"`
@@ -83,7 +84,7 @@ func writeRecord(input []byte) {
 	must(err)
 	sum := sha256.Sum256(input)
 	if path := os.Getenv("FAKEGH_RECORD"); path != "" {
-		body, err := json.Marshal(record{os.Args[1:], os.Environ(), cwd, base64.StdEncoding.EncodeToString(input), hex.EncodeToString(sum[:]), len(input), os.Getpid()})
+		body, err := json.Marshal(record{Argv0: os.Args[0], Argv: os.Args[1:], Env: os.Environ(), Cwd: cwd, StdinBase64: base64.StdEncoding.EncodeToString(input), StdinSHA256: hex.EncodeToString(sum[:]), StdinLength: len(input), PID: os.Getpid()})
 		must(err)
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		must(err)

@@ -19,6 +19,12 @@ import (
 func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	var output bytes.Buffer
 	r := redact.New(a.env)
+	display := func(text string) string {
+		if !showSecrets {
+			text = r.String(text)
+		}
+		return terminalText(text)
+	}
 	result := a.result
 	if !showSecrets {
 		result = r.Result(result)
@@ -28,7 +34,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	seenReasons := make(map[string]bool)
 	for _, reason := range evaluation.DenyReasons {
 		if !seenReasons[reason] {
-			fmt.Fprintln(&output, "  Deny reason:", reason)
+			fmt.Fprintln(&output, display("  Deny reason: "+reason))
 			seenReasons[reason] = true
 		}
 	}
@@ -47,20 +53,20 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 		}
 		for i, h := range selected {
 			yes, _ := policy.Matches(h.Match, a.subject(phase))
-			fmt.Fprintf(&output, "    %s: order=%d", h.ID, i+1)
+			fmt.Fprintf(&output, "    %s: order=%d", display(h.ID), i+1)
 			if !yes {
 				fmt.Fprint(&output, " (maybe-match: repository or host unresolved)")
 			}
 			for _, dependency := range h.DependsOn {
 				if !present[dependency] {
-					fmt.Fprintf(&output, " (skipped: dependency %s not selected)", dependency)
+					fmt.Fprintf(&output, " (skipped: dependency %s not selected)", display(dependency))
 				}
 			}
 			fmt.Fprintln(&output)
 		}
 	}
 	for _, h := range a.config.IgnoredHooks {
-		fmt.Fprintf(&output, "  %s: ignored (%s)\n", h.ID, h.Reason)
+		fmt.Fprintln(&output, display(fmt.Sprintf("  %s: ignored (%s)", h.ID, h.Reason)))
 	}
 	if showSecrets {
 		fmt.Fprintln(&output, "WARNING: --show-secrets is enabled; this output may contain credentials.")
@@ -68,30 +74,30 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	fmt.Fprintln(&output, "\nOperations:")
 	classification := result.Classification
 	fmt.Fprintf(&output, "  Classification: level=%s confidence=%s resolution=%s mutation-free=%t\n", classification.Level, classification.Confidence, classification.Resolution, classification.MutationFree)
-	fmt.Fprintln(&output, "  Source:", managementCompact(result.Source))
+	fmt.Fprintln(&output, display("  Source: "+managementCompact(result.Source)))
 	for i, op := range result.Operations {
-		fmt.Fprintf(&output, "  Operation %d: %s (family=%s effect=%s execution=%s)\n", i, op.Action, op.Family, op.Effect, op.Execution)
-		fmt.Fprintln(&output, "    Target:", managementCompact(op.Target))
+		fmt.Fprintln(&output, display(fmt.Sprintf("  Operation %d: %s (family=%s effect=%s execution=%s)", i, op.Action, op.Family, op.Effect, op.Execution)))
+		fmt.Fprintln(&output, display("    Target: "+managementCompact(op.Target)))
 		if len(op.Parameters) != 0 {
-			fmt.Fprintln(&output, "    Parameters:", managementCompact(op.Parameters))
+			fmt.Fprintln(&output, display("    Parameters: "+managementCompact(op.Parameters)))
 		}
 		if op.Detail != "" {
-			fmt.Fprintln(&output, "    Detail:", op.Detail)
+			fmt.Fprintln(&output, display("    Detail: "+op.Detail))
 		}
 		if op.UnknownReason != "" {
-			fmt.Fprintln(&output, "    Unknown reason:", op.UnknownReason)
+			fmt.Fprintln(&output, display("    Unknown reason: "+string(op.UnknownReason)))
 		}
 		if op.Evidence != "" {
-			fmt.Fprintln(&output, "    Evidence:", op.Evidence)
+			fmt.Fprintln(&output, display("    Evidence: "+op.Evidence))
 		}
 		managementUnresolved(&output, "    ", op.Unresolved)
 	}
 	for _, err := range result.Errors {
-		fmt.Fprintln(&output, "  Normalization error:", err)
+		fmt.Fprintln(&output, display("  Normalization error: "+err))
 		seenReasons[err] = true
 	}
 	for _, diagnostic := range a.diagnostics {
-		fmt.Fprintln(&output, "  Resolution diagnostic:", diagnostic)
+		fmt.Fprintln(&output, display("  Resolution diagnostic: "+diagnostic))
 	}
 	fmt.Fprintln(&output, "\nPolicy:")
 	if len(evaluation.Rules) == 0 {
@@ -102,7 +108,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 			yes, indexes := policy.Matches(rule.Match, a.subject(""))
 			maybe, candidates := policy.MatchMaybe(rule.Match, a.subject(""))
 			if yes || maybe {
-				fmt.Fprintf(&output, "    %s: decision=%s match=%t operations=%v maybe-match=%t maybe-operations=%v\n", rule.ID, rule.Decision, yes, indexes, maybe, candidates)
+				fmt.Fprintln(&output, display(fmt.Sprintf("    %s: decision=%s match=%t operations=%v maybe-match=%t maybe-operations=%v", rule.ID, rule.Decision, yes, indexes, maybe, candidates)))
 			}
 		}
 	}
@@ -114,7 +120,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 			}
 			key := fmt.Sprintf("operation %d: %s", opEvaluation.Index, reason)
 			if !seenReasons[key] {
-				fmt.Fprintln(&output, "  Reason:", key)
+				fmt.Fprintln(&output, display("  Reason: "+key))
 				seenReasons[key] = true
 			}
 		}
@@ -123,11 +129,11 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 		if seenReasons[reason] || strings.HasPrefix(reason, "operation ") || strings.HasPrefix(reason, "normalization ") {
 			continue
 		}
-		fmt.Fprintln(&output, "  Reason:", reason)
+		fmt.Fprintln(&output, display("  Reason: "+reason))
 		seenReasons[reason] = true
 	}
 	for _, note := range a.notes {
-		fmt.Fprintln(&output, "Config note:", note)
+		fmt.Fprintln(&output, display("Config note: "+note))
 	}
 	fmt.Fprintln(&output, "\nPolicy only; hook outcomes and gh results are unknown. No hooks or original gh command were executed.")
 	if evaluation.Mode == config.ModeObserve {
@@ -137,9 +143,6 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	}
 	fmt.Fprintln(&output, "Explain exits 0. ghok is not a security boundary; direct gh/API calls bypass it.")
 	text := output.String()
-	if !showSecrets {
-		text = r.String(text)
-	}
 	if _, err := io.WriteString(os.Stdout, text); err != nil {
 		return managementFailure(err)
 	}
@@ -159,11 +162,11 @@ func managementUnresolved(w io.Writer, indent string, values []model.Unresolved)
 		if duplicate {
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "%sUnresolved %s: %s", indent, value.Field, value.Reason)
+		text := fmt.Sprintf("%sUnresolved %s: %s", indent, value.Field, value.Reason)
 		if value.Source != "" {
-			_, _ = fmt.Fprintf(w, " (source=%s)", value.Source)
+			text += " (source=" + value.Source + ")"
 		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, terminalText(text))
 	}
 }
 
@@ -172,7 +175,7 @@ func managementPrintMatch(w io.Writer, indent string, match config.Match, r *red
 	if r != nil {
 		text = r.String(text)
 	}
-	_, _ = fmt.Fprintln(w, indent+"criteria: "+text)
+	_, _ = fmt.Fprintln(w, terminalText(indent+"criteria: "+text))
 }
 
 // Policy includes operation diagnostics as prose; the operation section already

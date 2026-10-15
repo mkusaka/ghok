@@ -30,6 +30,7 @@ type Input struct {
 }
 
 type InvocationInfo struct {
+	Via      string   `json:"via" enum:"shim,exec" doc:"Wrapper entry point: shim or explicit ghok exec; both enforce the same policy."`
 	Argv     []string `json:"argv,omitempty" doc:"Original arguments after argv[0]; absent means empty."`
 	Alias    string   `json:"alias,omitempty"`
 	Expanded []string `json:"expanded,omitempty"` // alias-expanded analysis argv
@@ -112,4 +113,6 @@ type HookResult struct {
 	DurationMs int64    `json:"durationMs"`
 	Error      string   `json:"error,omitempty"`
 	Stderr     string   `json:"stderr,omitempty"` // truncated, redacted
+	// Started distinguishes launch failure from a signaled hook (both exit -1).
+	Started bool `json:"-"`
 }

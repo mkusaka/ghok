@@ -52,7 +52,7 @@ unknown keys remain errors.
 
 An invalid **user config** fails closed when its raw YAML declares
 `policy.mode: enforce`: the wrapper prints a redacted error on **every**
-invocation, exits 1, and never starts gh. This mode is read independently of
+invocation, exits 78, and never starts gh. This mode is read independently of
 strict decoding/validation. Unparseable YAML, unreadable files, or an absent or
 indeterminate mode cannot establish enforce intent; those cases and explicit
 observe mode fail open, running real gh without hooks or policy.
@@ -68,6 +68,13 @@ using SHA256-keyed timestamp files under `<config-dir>/state/` (0700 directory,
 throttling never hides the event from the log. Fail-closed errors are never
 throttled. Runtime pre-hook errors default to deny only when valid config
 establishes enforce mode; observe records would-deny and still runs gh.
+
+Enforce content denials (rules, policy handling, or hook-returned deny) use
+77 (`EX_NOPERM`); hook-`onError`-only denials use 78 (`EX_CONFIG`).
+Content denial wins when both occur. `ghok exec -- <gh args>` uses exactly
+the shim pipeline, including discovery's shim rejection and the depth/token
+checks; it is not a bypass. Hook input and logs identify the entry point in
+`invocation.via`.
 
 ### GraphQL schema-known writes and unknown handling
 
@@ -99,6 +106,14 @@ names search the hook's effective PATH. Timeout/cancellation kills ordinary
 members of the hook process group (TERM then KILL after 500 ms), not descendants
 that deliberately leave it. Interactive hooks and escaped-process cleanup are
 unsupported. Hook stderr/response diagnostics are redacted before display/logs.
+
+Hook-authored terminal diagnostics are sanitized **after** credential redaction:
+controls other than newline/tab, including ESC, BEL, CR, C1 and DEL, and invalid
+UTF-8 bytes become visible `\xNN` escapes. Denial entries and other text
+diagnostics are bounded to 40 lines/4 KiB, with at most 500 Unicode characters
+per line and visible truncation markers. `--show-secrets` does not disable this.
+JSON output, hook payloads, logs and real-gh streams are not changed by the
+terminal sanitizer. See the [display contract](hook-protocol.md#stable-stderr-denial-contract).
 
 SIGINT/SIGTERM/SIGHUP during resolver/pre-hook execution cancel helper groups
 and re-raise the signal after reaping; during post-hooks they cancel/reap hooks
@@ -212,7 +227,7 @@ or changed since trust. The wrapper emits one actionable stderr line for enabled
 ignored hooks, at most once per canonical project path/current manifest digest
 per ten minutes, using the same private, locked warning mechanism as invalid
 config. Only three changed-file names are shown, followed by a remaining count.
-Set user `logging.ignoredHooksWarning: false` to opt out. Invalid-config,
+Set user `logging.ignoredHooksWarning: false` to opt out. Denied, invalid-config,
 verified nested-token, disabled-hook-only and policy-only paths do not warn.
 
 Group/world-writable configs and hook files produce notes, not a mandatory

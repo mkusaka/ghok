@@ -52,6 +52,7 @@ runtime input-validation step.
 
 | Field | Type | Optional | Meaning |
 | --- | --- | --- | --- |
+| via | string | no | `shim` for the gh shim, `exec` for `ghok exec -- <gh args>`; identical enforcement pipeline. |
 | argv | string array | yes | Original arguments after argv[0]; absent means empty; raw unless redactInput is enabled. |
 | alias | string | yes | First expanded plain alias name. |
 | expanded | string array | yes | Alias-expanded analysis argv; raw unless redactInput is enabled. Real gh still receives original argv. |
@@ -231,6 +232,7 @@ fields omitted):
   "eventId": "8e861e11111111111111111111111111",
   "hookId": "deny-admin-merge",
   "invocation": {
+    "via": "shim",
     "argv": ["pr", "merge", "123", "--admin", "-R", "org/repo"],
     "expanded": ["pr", "merge", "123", "--admin", "-R", "org/repo"],
     "cwd": "/work/repo", "isTTY": false, "stdinTTY": false,
@@ -260,7 +262,7 @@ Input envelope/schema is used):
   "schemaVersion": 1, "event": "post",
   "eventId": "8e861e11111111111111111111111111", "hookId": "audit",
   "invocation": {
-    "argv":["pr","view","123","-R","org/repo"],
+    "via":"shim", "argv":["pr","view","123","-R","org/repo"],
     "cwd":"/work/repo", "isTTY":false, "stdinTTY":false
   },
   "classification":{"level":"L1","confidence":"exact","resolution":"complete","mutationFree":true},
@@ -280,9 +282,24 @@ Input envelope/schema is used):
 
 A signaled result instead has exitCode=-1 and signal, e.g. `SIGTERM`. A
 noncapturing hook has no stdout/stderr. `hooks test --phase post` supplies a
-**synthetic** exitCode=0 result without running gh; it cannot verify a real
-post-execution result. Exit zero with `{"decision":"abstain"}` is suitable for
+**synthetic** exitCode=0 result (or `--exit-code N`) without running gh; it cannot
+verify a real post-execution result. Exit zero with `{"decision":"abstain"}` is suitable for
 an audit hook.
+
+`ghok hooks test --print-input [--phase pre|post] [--hook ID] -- <gh args>`
+previews this JSON envelope without executing hooks or gh. Post includes the
+synthetic result. `--hook ID` selects a matching configured hook, sets `hookId`
+and honors `redactInput`; without it `hookId` is empty. No dependency hooks run,
+so `previous` is absent. `invocation.via` is `shim`, representing the wrapper
+input being previewed.
+
+Display is credential-masked by default with explain's redactor. Display-only
+masking preserves the payload's `redactions` counters and emits
+`N values masked; use --show-secrets for the bytes the hook receives` on stderr
+when substitutions occur. `--show-secrets` prints the actual hook payload,
+including configured `redactInput` masking; it never overrides that setting.
+`--allow-api` cannot be combined with `--print-input`, keeping preview free of
+gh execution.
 
 ## Decisions versus outcomes and onError
 
@@ -302,11 +319,68 @@ A timeout handler exiting zero still has timeout outcome. ExitCode is diagnostic
 not a shortcut for determining outcome.
 
 Deny dominates all allows. Enforce aggregates policy and pre-hook denial before
-starting gh, returning 1 with a redacted diagnostic. Observe runs hooks and logs
-would-deny but executes gh; denial cancellation still short-circuits that hook
-batch. Normal real-gh exits/signals are reproduced after post-hooks. Management
-usage errors are 2; `hooks test` failures/denials are 1; explain displays policy
-without hook execution and exits zero even on displayed deny.
+starting gh: content denials exit **77** (`EX_NOPERM`), hook-`onError`-only denials
+exit **78** (`EX_CONFIG`). Mixed content/error denial exits 77. Invalid config
+that fails closed exits 78. ghok internal errors remain 1; missing real gh is 127.
+Observe logs would-deny but executes gh unchanged; denial cancellation still
+short-circuits that hook batch. Normal real-gh exits/signals are reproduced
+after post-hooks. Management usage errors are 2; `hooks test` failures,
+denials and expectation mismatches remain **1**, not 77/78. Explain displays
+policy without hook execution and exits zero even on displayed deny.
+
+### Stable stderr denial contract
+
+The first line has this stable machine-readable shape:
+
+```text
+ghok: denied by <source>[ (error: <kind>)][ (+N more)]
+```
+
+Sources: `hook <id>`, `rule <id>`, `policy unknownMutation`,
+`policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
+or `config`. Hook `onError` denials alone have an error kind: `timeout`,
+`exit <code>`, `invalid response`, `spawn failed`, or `canceled`.
+`exit -1` means a started hook was terminated by a signal; its entry includes
+the signal error. `spawn failed` means the hook never started.
+The optional `+N more` counts the remaining denial entries.
+
+The first entry is selected in this deterministic order, also used for all
+following entries: rules in config order, policy handling, hooks that
+**returned** deny in selection order, then hook `onError` denials in selection
+order. Parallel completion order never determines the first source.
+
+Each entry is `  - <source>: <first line of message, or reason if no message>`.
+Further message lines use four-space indentation. Message wins over reason;
+equal reason/message appears once. They are never joined with `"; "`.
+All display values are credential-redacted as before.
+
+One shared terminal sanitizer applies to denial entries, `hooks test` text,
+explain, and doctor/validate and hook-list/trust notes. It preserves `\n` and
+`\t`, but displays all other C0/C1 controls and DEL as visible `\xNN` escapes
+(for example ESC → `\x1b`, CR → `\x0d`). Invalid UTF-8 bytes are escaped the same
+way. A denial entry, including its prefix, indentation, markers and final
+newline, is at most 40 lines and 4 KiB; each line is at most 500 Unicode
+characters after escaping. Overlong lines end with `…`; line/byte overflow
+omits remaining lines with an indented `… (N more lines truncated)` marker.
+That marker counts toward the 40-line limit. Other text diagnostics use the
+same per-entry bounds; reports are not truncated as a whole.
+Sanitization still applies with `--show-secrets`. JSON (`--json`, `--print-input`)
+and JSONL logs are not terminal-sanitized or display-truncated: their existing
+structured/redacted policy and hook results retain both reason and message.
+
+```text
+ghok: denied by rule no-admin (+1 more)
+  - rule no-admin: Use the normal merge workflow. (pr.merge.direct)
+  - hook check: hook timed out
+```
+
+The example exits 77. With only the timed-out hook, the header is
+`ghok: denied by hook check (error: timeout)` and the exit code is 78.
+
+`ghok exec -- <gh args>` runs the shim's entire pipeline once, without requiring
+a shim on PATH; it is not a policy bypass. Discovery, depth/token checks,
+hook input and results, logging, real-gh status and signals are the same.
+Only `invocation.via` changes to `exec`, also recorded in JSONL logs.
 
 ## Selection, ordering, dependencies, concurrency
 
@@ -404,8 +478,8 @@ usage errors exit 2.
   delivered in previous, in dependsOn order. Denied pre dependencies still
   trigger global short-circuit, including optional dependents.
 - Any effective pre deny cancels pending/running hooks. Returned diagnostics
-  include canceled hooks, in selection order. First effective deny in that
-  order supplies message, then reason, then error; not the fastest completion.
+  include canceled hooks in selection order; terminal denial entries put
+  content denials before hook-error denials as specified above.
 - Cancellation sends TERM to each hook group, waits 500 ms, sends KILL even if
   the leader already exited, and waits the direct child. Retained inherited
   pipes after normal exit cause bounded wait error and group KILL. Descendants

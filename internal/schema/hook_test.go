@@ -25,6 +25,7 @@ func TestHookInputSchema(t *testing.T) {
 	s := mustSchema(t, "hook-input")
 	input := protocol.Input{
 		SchemaVersion: model.SchemaVersion, Event: protocol.EventPre,
+		Invocation:     protocol.InvocationInfo{Via: "shim"},
 		Classification: model.Classification{Level: model.LevelL1, Confidence: model.ConfidenceExact, Resolution: model.ResolutionComplete},
 	}
 	for _, operations := range [][]model.Operation{nil, {}} {

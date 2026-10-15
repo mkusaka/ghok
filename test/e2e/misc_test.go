@@ -34,14 +34,14 @@ func TestMiscEnvironmentRule(t *testing.T) {
 			explained.code(t, 0)
 			want, exit := "allow", 0
 			if worker == "1" {
-				want, exit = "deny", 1
+				want, exit = "deny", 77
 			}
 			if !bytes.HasPrefix(explained.stdout, []byte("Decision: "+want+" (mode=enforce)")) {
 				t.Fatalf("environment rule explanation=%s", explained.stdout)
 			}
 			result := s.gh(nil, args...)
 			result.code(t, exit)
-			if exit == 1 {
+			if exit == 77 {
 				s.absentRecord()
 				if !bytes.Contains(result.stderr, []byte("worker merges disabled")) {
 					t.Fatalf("denial omitted reason: %s", result.stderr)
@@ -109,7 +109,7 @@ func TestMiscEnvironmentStdinPolicy(t *testing.T) {
 			args := []string{"api", "graphql", "--input", "-"}
 			result := s.gh(input, args...)
 			if worker == "1" {
-				result.code(t, 1)
+				result.code(t, 77)
 				s.absentRecord()
 			} else {
 				result.code(t, 0)

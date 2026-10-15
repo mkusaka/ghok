@@ -17,12 +17,13 @@ Set `GHOK_FAIL_CLOSED=1` to reject any invalid configuration.
 ## How it works
 
 The executable name selects its role; `ghok pr merge ...` is not wrapper syntax.
+For tests, CI and scripts without a shim, use `ghok exec -- <gh args>`.
 
 ```text
 basename(argv[0])
   ghok (or any name except gh) -> management commands
   gh -> discover real gh -> classify the operation -> resolve only needed context
-     -> evaluate policy + pre-hooks -> deny (enforce mode): exit 1, no gh
+     -> evaluate policy + pre-hooks -> deny (enforce mode): exit 77/78, no gh
      -> execute original gh argv, cwd, environment, and streams
         no matching post-hook/live stdin pump: exec replaces wrapper
         otherwise: supervise gh -> post-hooks -> original exit/signal
@@ -32,6 +33,32 @@ Alias expansion is analysis-only: real gh receives the original arguments.
 Uncaptured output uses inherited descriptors, not a PTY emulation.
 Post-hooks never change gh's status. Capture is opt-in and changes gh's
 stdout/stderr to pipes; see [compatibility](docs/compatibility.md).
+
+`ghok exec -- pr view 123 -R org/repo` enters that same wrapper pipeline once,
+with real-gh `argv[0]` set to `gh`. Discovery excludes ghok itself and rejects
+shim-valued `GHOK_REAL_GH` / `runtime.realGh`; recursion depth and nested-token
+checks, policy, hooks, logging, status and signals are identical to the shim.
+It is **not a policy bypass** and does not require installing a shim on PATH.
+Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
+
+### Exit status
+
+| Origin | Code | Meaning |
+| --- | --- | --- |
+| gh | 0 | Success. |
+| gh | 1 | Command failure. |
+| gh | 2 | Command canceled. |
+| gh | 4 | Authentication required. |
+| gh | 8 | A command-specific check failed (for example, pending `gh pr checks`). |
+| ghok | 77 (`EX_NOPERM`) | Policy/rule denial or a hook **returned** deny. Content denial takes precedence over hook errors. |
+| ghok | 78 (`EX_CONFIG`) | Denied only because hooks malfunctioned under `onError: deny`, or invalid configuration failed closed. |
+| ghok | 1 | ghok internal failure. |
+| ghok | 127 | Real gh was not found. |
+
+Other gh statuses and terminating signals pass through unchanged. Observe-mode
+would-deny never changes gh's status. Post-hooks cannot change it either.
+`ghok hooks test` is a management diagnostic: expectation mismatch, denial or
+hook execution failure still exits **1**, not 77/78; usage errors exit 2.
 
 ## Install
 
@@ -227,7 +254,7 @@ does not supply project config. Project read/parse/validation failures discard
 only the project overlay and appear in validate/doctor/explain notes and log
 diagnostics. Project unknown keys (including nested keys) are ignored with notes;
 user config remains strict. An invalid user config declaring
-`policy.mode: enforce` in raw YAML prints an error every time, exits 1, and never
+`policy.mode: enforce` in raw YAML prints an error every time, exits 78, and never
 starts gh. Observe or undeterminable mode runs gh without hooks/policy with a
 warning throttled to once per ten minutes per error. `GHOK_FAIL_CLOSED=1` also
 rejects invalid project files and unreadable/unparseable user config. A missing
@@ -323,7 +350,7 @@ report trust notes. The wrapper prints one stderr line when enabled project hook
 are ignored, throttled per canonical project path and current manifest digest
 for ten minutes. Changed-file lists show at most three names. Disable only this
 warning with user config `logging.ignoredHooksWarning: false` (default true);
-nested, invalid-config, and policy-only invocations do not emit it.
+denied, nested, invalid-config, and policy-only invocations do not emit it.
 
 ```yaml
 version: 1
@@ -390,6 +417,51 @@ npx json-schema-to-typescript schema/hook-response.schema.json > hook-response.d
 
 Empty typed hook arrays are omitted, not `null`; treat absent arrays as empty.
 `schemaVersion` is fixed at 1. Additive fields do not bump it; renames/removals do.
+
+### Denial output contract
+
+In enforce mode, stderr starts with this stable machine-readable line:
+
+```text
+ghok: denied by <source>[ (error: <kind>)][ (+N more)]
+```
+
+`source` is `hook <id>`, `rule <id>`, `policy unknownMutation`,
+`policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
+or `config`. The error suffix appears only for a hook's `onError` denial:
+`timeout`, `exit <code>`, `invalid response`, `spawn failed`, or `canceled`.
+`N` counts remaining denial entries.
+
+Order is deterministic: denying rules in config order, policy handling,
+hooks that returned deny in selection order, then hook-error denials in
+selection order. Content denial therefore wins over an earlier hook error.
+Each entry follows as `  - <source>: <message>`, using the reason when there
+is no message. Only the message is displayed when both exist (equal values
+appear once); further message lines use four-space indentation. Reasons and
+messages are never joined with `"; "`. All terminal values remain
+credential-redacted.
+
+Hook-authored terminal text uses one sanitizer in denial output, `hooks test`
+text, explain, and hook/config notes in doctor/validate and hook listings/trust
+review. Newlines and tabs survive; other C0/C1 controls (including ESC, BEL, CR
+and DEL) and invalid UTF-8 bytes become visible `\xNN` escapes. Each denial entry
+is limited to 40 lines, 4 KiB and 500 Unicode characters per line, including
+formatting and truncation markers. Long lines end in `…`; omitted lines end
+with `… (N more lines truncated)` (the marker occupies one of the 40 lines).
+The same bounds apply per text diagnostic, not to the whole report.
+`--show-secrets` does not disable terminal sanitization.
+JSON (`--json`, `--print-input`) and JSONL logs retain their full structured
+values and existing redaction; terminal escaping/truncation does not alter them.
+
+```text
+ghok: denied by hook check (+1 more)
+  - hook check: Review required.
+    Ask the repository maintainer.
+  - hook scanner: hook timed out
+```
+
+This exits 77 because a hook returned deny. A timeout-only denial instead
+starts `ghok: denied by hook scanner (error: timeout)` and exits 78.
 
 ### Policy and unknown handling
 
@@ -528,6 +600,9 @@ ghok config validate --file /path/to/config.yaml
 ghok hooks list --json
 ghok hooks test -- pr merge 123 --admin
 ghok hooks test --phase post --exit-code 1 --json -- pr merge 123 -R org/repo
+ghok hooks test --print-input -- pr create -t Title -b Body -R org/repo
+ghok hooks test --print-input --phase post --exit-code 8 --hook audit -- pr checks 123
+ghok exec -- pr view 123 -R org/repo
 ghok normalize -- pr merge 123 --squash
 ghok explain -- pr merge 123 --admin
 ghok explain --no-resolve -- pr merge 123
@@ -565,9 +640,25 @@ With any expectations, exit 0 only if **all** match, even on denial/hook error;
 otherwise exit 1 with each failed expectation named on stderr. Without expectations,
 FINAL deny or any hook execution error (nonzero exit/spawn failure, timeout, invalid
 response, cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
-usage errors exit 2. Other management commands use 0 success, 1 failure/denial,
-2 usage error. `explain --show-secrets` deliberately disables display redaction;
+usage errors exit 2. Other management commands except `exec` use 0 success,
+1 failure/denial, 2 usage error. `explain --show-secrets` deliberately disables display redaction;
 do not paste that output into logs or tickets.
+
+`hooks test --print-input` prints a single hook-input JSON document without
+running hooks or gh. `--phase post` includes a synthetic `result` honoring
+`--exit-code`. `--hook ID` selects a matching hook and applies its `redactInput`;
+without it, the envelope has an empty `hookId`. Dependency results are absent
+because no hooks run. The preview is credential-masked by default, using the
+same redactor as explain. If masking replaces values, stderr reports:
+
+```text
+N values masked; use --show-secrets for the bytes the hook receives
+```
+
+`--show-secrets` shows the actual payload, but **does not override**
+`redactInput: true`. Display-only masking does not change the payload's
+`redactions` counters. Do not expose raw previews in logs or tickets.
+`--allow-api` is incompatible with `--print-input`: preview never starts gh.
 
 Explain starts with the policy decision, deny reasons and pre/post hook
 selection, then shows operations and unresolved fields once, followed by rule

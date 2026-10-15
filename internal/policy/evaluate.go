@@ -24,6 +24,20 @@ type OpEvaluation struct {
 	Reasons  []string          `json:"reasons,omitempty"`
 }
 
+type DenialKind string
+
+const (
+	DenialRule   DenialKind = "rule"
+	DenialPolicy DenialKind = "policy"
+)
+
+// Denial carries presentation provenance without changing serialized policy logs.
+type Denial struct {
+	Kind   DenialKind
+	ID     string
+	Reason string
+}
+
 type Evaluation struct {
 	Mode      string            `json:"mode"`
 	Decision  protocol.Decision `json:"decision"`
@@ -34,6 +48,7 @@ type Evaluation struct {
 	DenyReasons []string       `json:"denyReasons,omitempty"`
 	Rules       []string       `json:"rules,omitempty"`
 	PerOp       []OpEvaluation `json:"perOp,omitempty"`
+	Denials     []Denial       `json:"-"`
 }
 
 func merge(a, b protocol.Decision) protocol.Decision {
@@ -70,13 +85,17 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 	}
 	e := Evaluation{Mode: mode, Decision: protocol.DecisionAllow}
 	perIndex := make(map[int]int, len(s.Result.Operations))
-	add := func(index int, decision protocol.Decision, reason string) {
+	add := func(index int, decision protocol.Decision, reason string, kind DenialKind, id string) {
 		v := &e.PerOp[perIndex[index]]
 		v.Decision = merge(v.Decision, decision)
 		v.Reasons = append(v.Reasons, reason)
 		e.Reasons = append(e.Reasons, fmt.Sprintf("operation %d: %s", index, reason))
 		if decision == protocol.DecisionDeny {
-			e.DenyReasons = append(e.DenyReasons, fmt.Sprintf("%s (%s)", reason, s.Result.Operations[index].Action))
+			denyReason := fmt.Sprintf("%s (%s)", reason, s.Result.Operations[index].Action)
+			e.DenyReasons = append(e.DenyReasons, denyReason)
+			if kind != DenialRule {
+				e.Denials = append(e.Denials, Denial{Kind: kind, ID: id, Reason: denyReason})
+			}
 		}
 	}
 	if s.Result.Classification.MutationFree {
@@ -97,20 +116,20 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		perIndex[i] = len(e.PerOp)
 		e.PerOp = append(e.PerOp, OpEvaluation{Index: i, Decision: protocol.DecisionAllow})
 		if op.Execution == model.ExecutionMaybe {
-			add(i, protocol.DecisionAllow, "operation may execute: "+op.Evidence)
+			add(i, protocol.DecisionAllow, "operation may execute: "+op.Evidence, "", "")
 		}
 		if op.UnknownReason != model.UnknownNone {
-			add(i, protocol.DecisionAllow, "unknown classification: "+string(op.UnknownReason)+"; "+op.Detail)
+			add(i, protocol.DecisionAllow, "unknown classification: "+string(op.UnknownReason)+"; "+op.Detail, "", "")
 		}
 		if repo, _ := targetValues(op, s.Context); repo == "" && op.Effect != model.EffectRead {
-			add(i, protocol.DecisionAllow, "target repository unresolved")
+			add(i, protocol.DecisionAllow, "target repository unresolved", "", "")
 		}
 		if len(op.Unresolved) != 0 {
 			fields := make([]string, 0, len(op.Unresolved))
 			for _, u := range op.Unresolved {
 				fields = append(fields, u.Field+": "+u.Reason)
 			}
-			add(i, protocol.DecisionAllow, "unresolved: "+strings.Join(fields, "; "))
+			add(i, protocol.DecisionAllow, "unresolved: "+strings.Join(fields, "; "), "", "")
 		}
 	}
 	// Rule and operation iteration order is independent of map ordering.
@@ -127,6 +146,7 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 				e.Reasons = append(e.Reasons, "rule "+rule.ID+": "+rule.Reason)
 				if decision == protocol.DecisionDeny {
 					e.DenyReasons = append(e.DenyReasons, "rule "+rule.ID+": "+rule.Reason)
+					e.Denials = append(e.Denials, Denial{Kind: DenialRule, ID: rule.ID, Reason: rule.Reason})
 				}
 			}
 		}
@@ -137,10 +157,15 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 			}
 			matched = true
 			reason := "rule " + rule.ID + ": " + rule.Reason
+			denialReason := rule.Reason
 			if maybe {
 				reason += "; matched conservatively (target unresolved)"
+				denialReason += "; matched conservatively (target unresolved)"
 			}
-			add(i, decision, reason)
+			add(i, decision, reason, DenialRule, rule.ID)
+			if decision == protocol.DecisionDeny {
+				e.Denials = append(e.Denials, Denial{Kind: DenialRule, ID: rule.ID, Reason: fmt.Sprintf("%s (%s)", denialReason, op.Action)})
+			}
 		}
 		if matched {
 			e.Rules = append(e.Rules, rule.ID)
@@ -156,18 +181,18 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 			if op.Detail != "" {
 				cause += ": " + op.Detail
 			}
-			add(i, handling(p.UnknownInput, DefaultUnknownInput), "unknownInput policy: "+cause)
+			add(i, handling(p.UnknownInput, DefaultUnknownInput), "unknownInput policy: "+cause, DenialPolicy, "unknownInput")
 		} else if unknown {
-			add(i, handling(p.UnknownMutation, DefaultUnknownMutation), "unclassified-write: unknownMutation policy")
+			add(i, handling(p.UnknownMutation, DefaultUnknownMutation), "unclassified-write: unknownMutation policy", DenialPolicy, "unknownMutation")
 		}
 		if len(p.ProtectedRepositories) == 0 || op.Effect == model.EffectRead {
 			continue
 		}
 		repo, _ := targetValues(op, s.Context)
 		if repo == "" {
-			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "target repository unresolved; cannot prove it is not protected")
+			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "target repository unresolved; cannot prove it is not protected", DenialPolicy, "protectedUnknown")
 		} else if unknown && anyMatch(p.ProtectedRepositories, repo, MatchRepo) {
-			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "unclassified-write targets protected repository "+repo)
+			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "unclassified-write targets protected repository "+repo, DenialPolicy, "protectedRepositories")
 		}
 	}
 	for _, op := range e.PerOp {

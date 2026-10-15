@@ -31,6 +31,10 @@ import (
 // returns only on denial/error; successful Exec replaces the process, and Run
 // terminates through Result.Exit to preserve the child's exact wait status.
 func Wrapper(args []string) int {
+	return wrapper(args, os.Args[0], "shim")
+}
+
+func wrapper(args []string, argv0, via string) int {
 	if os.Getenv("GHOK_PROBE") == "1" {
 		_, _ = fmt.Fprintln(os.Stdout, "ghok-probe")
 		return 0
@@ -53,7 +57,7 @@ func Wrapper(args []string) int {
 		if err != nil {
 			return fatal(err, 1)
 		}
-		err = process.Exec(process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv})
+		err = process.Exec(process.Options{Path: real, Args: append([]string{argv0}, args...), Env: childEnv})
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	started := time.Now()
@@ -80,7 +84,7 @@ func Wrapper(args []string) int {
 		if err != nil {
 			return fatal(err, 1)
 		}
-		opts = process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv}
+		opts = process.Options{Path: real, Args: append([]string{argv0}, args...), Env: childEnv}
 	}
 	if configErr != nil {
 		// An invalid effective config cannot be trusted, including its log path.
@@ -88,28 +92,34 @@ func Wrapper(args []string) int {
 		cfg.ApplyDefaults()
 	}
 	nested := configErr == nil && install.ValidNestedToken(config.Dir(env), env)
-	if configErr == nil && !nested {
-		if warning := ignoredHooksWarning(cfg, config.Dir(env), started); warning != "" {
-			fmt.Fprintln(os.Stderr, "ghok:", strings.Join(strings.Fields(redactor.String(warning)), " "))
+	warnIgnoredHooks := func() {
+		if configErr == nil && !nested {
+			if warning := ignoredHooksWarning(cfg, config.Dir(env), started); warning != "" {
+				fmt.Fprintln(os.Stderr, "ghok:", strings.Join(strings.Fields(redactor.String(warning)), " "))
+			}
 		}
 	}
 	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
+		warnIgnoredHooks()
 		err = process.Exec(opts)
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	eventID := logging.NewInvocationID()
 	record := logging.Record{InvocationID: eventID, Time: started.UTC(), Mode: cfg.Policy.Mode, Argv: args, Decision: "allow", Diagnostics: cfg.Diagnostics}
+	record.Invocation.Via = via
 	var logger *logging.Logger
+	var logOpenErr error
 	debug := func(err error) {
 		if err != nil && env["GHOK_DEBUG"] == "1" {
 			fmt.Fprintln(os.Stderr, "ghok:", redactor.String(err.Error()))
 		}
 	}
 	if cfg.Logging.Enabled == nil || *cfg.Logging.Enabled {
-		logger, err = logging.OpenWithRedactor(cfg.Logging.Path, cfg.Logging.Level, redactor)
-		debug(err)
+		logger, logOpenErr = logging.OpenWithRedactor(cfg.Logging.Path, cfg.Logging.Level, redactor)
 	}
 	logRecord := func() {
+		debug(logOpenErr)
+		logOpenErr = nil
 		record.DurationMs = time.Since(started).Milliseconds()
 		// Config failures are errors, not routine diagnostics: retain them at
 		// decision log level even when the requested gh operation is allowed.
@@ -125,6 +135,7 @@ func Wrapper(args []string) int {
 	}
 	defer closeLog()
 	execLogged := func() int {
+		warnIgnoredHooks()
 		logRecord()
 		execStarted := time.Now()
 		execErr := process.Exec(opts)
@@ -136,12 +147,11 @@ func Wrapper(args []string) int {
 	}
 	if configErr != nil {
 		if failClosed {
-			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
-			fmt.Fprintf(os.Stderr, "ghok: invalid config (%s); fail-closed: not running gh — run 'ghok config validate'\n", warning)
+			printDenials(os.Stderr, []denial{{Source: "config", Message: configErr.Error() + "\nfail-closed: not running gh — run 'ghok config validate'"}}, redactor.String)
 			record.Decision = "deny-invalid-config"
 			record.Diagnostics = []string{"invalid config: " + configErr.Error()}
 			logRecord()
-			return 1
+			return 78
 		}
 		if warnInvalidConfig(config.Dir(env), configFailurePath(config.DefaultPath(env), notes), configErr, started) {
 			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
@@ -207,6 +217,7 @@ func Wrapper(args []string) int {
 	}
 	evaluation := policy.Evaluate(cfg.Policy, subject)
 	input := hookInput(args, cwd, real, result, resolved, evaluation, eventID)
+	input.Invocation.Via = via
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
 	record.Source = &result.Source
 	if stdinSkipped {
@@ -232,9 +243,9 @@ func Wrapper(args []string) int {
 	decision := decide(cfg.Policy.Mode, evaluation, pre, stdinSkipped)
 	record.Decision = decision.Decision
 	if decision.Decision == "deny" {
-		fmt.Fprintln(os.Stderr, decision.Prefix, redactor.String(decision.Reason))
+		printDenials(os.Stderr, decision.Denials, redactor.String)
 		logRecord()
-		return 1
+		return decision.ExitCode
 	}
 	if decision.RelabelPolicy {
 		logPolicy := *record.Policy
@@ -249,6 +260,7 @@ func Wrapper(args []string) int {
 		opts.Capture = opts.Capture || h.CaptureOutput
 	}
 	opts.CaptureLimit = cfg.Runtime.CaptureLimit
+	warnIgnoredHooks()
 	execution := process.Run(context.Background(), opts)
 	ctx, stopHelpers = watchHelpers(helperSignals, len(post) > 0)
 	if execution.StartErr != nil {

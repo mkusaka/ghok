@@ -99,6 +99,7 @@ type sandbox struct {
 }
 
 type invocationRecord struct {
+	Argv0       string   `json:"argv0"`
 	Argv        []string `json:"argv"`
 	Env         []string `json:"env"`
 	Cwd         string   `json:"cwd"`

@@ -39,8 +39,8 @@ func TestProjectFailurePreservesUserEnforcement(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := s.gh(nil, "pr", "merge", "12", "-R", "acme/repo")
-			result.code(t, 1)
-			if len(s.records()) != 0 || !bytes.Contains(result.stderr, []byte("denied by policy")) {
+			result.code(t, 77)
+			if len(s.records()) != 0 || !bytes.Contains(result.stderr, []byte("denied by rule user-deny")) {
 				t.Fatalf("project disabled user policy: records=%+v stderr=%s", s.records(), result.stderr)
 			}
 			s.hookInput("user")
@@ -95,7 +95,7 @@ func TestInvalidUserConfigFailureMode(t *testing.T) {
 			behavior := "fail-open"
 			wantCode := 0
 			if tc.closed {
-				behavior, wantCode = "fail-closed", 1
+				behavior, wantCode = "fail-closed", 78
 			}
 			for run := range 2 {
 				result := s.gh(nil, "version")
@@ -168,7 +168,7 @@ func TestFailClosedEnvironmentRejectsInvalidProject(t *testing.T) {
 	}
 	for range 2 {
 		result := s.gh(nil, "version")
-		result.code(t, 1)
+		result.code(t, 78)
 		if !bytes.Contains(result.stderr, []byte("not running gh")) || len(s.records()) != 0 {
 			t.Fatalf("CI override allowed invalid project: %s records=%+v", result.stderr, s.records())
 		}

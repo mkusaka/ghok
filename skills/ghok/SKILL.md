@@ -5,12 +5,16 @@ description: Install, configure and operate ghok, a transparent wrapper for the 
 
 # ghok
 
-ghok is one binary with two roles, chosen by the executable name:
+ghok has an executable-name-selected shim and a management CLI:
 
-- `ghok ...` — management CLI.
+- `ghok ...` — management CLI; `ghok exec -- <gh args>` explicitly runs the wrapper.
 - `gh ...` via a shim (`~/.local/bin/gh -> ghok`) — transparent wrapper: classify the
   invocation, evaluate policy and pre-hooks, then run the real gh with the original
   argv/stdin/stdout/stderr/signals/exit status, then post-hooks.
+
+`ghok exec` is useful for tests/CI/scripts without a shim on PATH. It runs the
+same pipeline once, forces real-gh argv[0] to `gh`, and is **not a policy bypass**.
+Hook input and logs record `invocation.via: "exec"` instead of `"shim"`.
 
 ghok is **not a security boundary**: the real gh by absolute path, `curl`, or any other
 API client bypasses it. Server-side branch protection/rulesets are the real control.
@@ -102,8 +106,8 @@ Never overwrite an existing config; edit it instead.
   trusted. Invalid top-level stores grant no trust; declarative policy stays.
   Validate/doctor/explain report notes. The wrapper warns about enabled ignored
   hooks once per canonical project path/manifest/ten minutes, at most three
-  changed filenames. User `logging.ignoredHooksWarning: false` opts out; nested,
-  invalid-config, disabled-hook-only and policy-only paths do not warn.
+  changed filenames. User `logging.ignoredHooksWarning: false` opts out; denied,
+  nested, invalid-config, disabled-hook-only and policy-only paths do not warn.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)
@@ -130,6 +134,9 @@ ghok explain -- pr merge 123 --admin -R org/repo      # human-readable
 ghok normalize -- api -X PUT repos/o/r/pulls/1/merge  # JSON (redacted)
 ghok hooks list
 ghok hooks test -- pr merge 123                       # runs hooks for real, never gh
+ghok hooks test --print-input -- pr create -t Title -b Body -R org/repo
+ghok hooks test --print-input --phase post --exit-code 8 --hook audit -- pr checks 123
+ghok exec -- pr view 123 -R org/repo                   # real pipeline, no shim needed
 ```
 
 `hooks test` reports **Hooks** (`aggregate.decision`: allow/deny/abstain),
@@ -144,6 +151,14 @@ mismatches exit 1 and name each failed expectation. Without expectations, FINAL 
 or hook execution error (nonzero/spawn failure, timeout, invalid response,
 cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
 usage errors exit 2.
+
+`hooks test --print-input` never runs hooks or gh; `--phase post` includes the
+synthetic result. `--hook ID` selects a matching hook and applies its `redactInput`.
+The default preview masks credentials and reports `N values masked; use
+--show-secrets for the bytes the hook receives` on stderr. Actual hook
+`redactions` counters are preserved. Do not add `--show-secrets` in an agent
+session: it exposes raw input in the transcript. That flag never overrides a
+hook's `redactInput: true`. Preview rejects `--allow-api`.
 
 `explain`/`normalize` never run gh or hooks. Use them to get the exact `action` names to
 put in `match.operation`. Classification levels (ghok's own labels):
@@ -212,14 +227,30 @@ Full protocol: <https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md>
 
 ## Troubleshooting
 
-- `ghok doctor` first. `command -v gh` must be the shim for the wrapper to apply.
-- Deny message: `ghok: denied by policy: ...` or the hook's reason/message; exit 1 and
-  the real gh was not started. Reproduce with `ghok explain -- <same args>`.
+- `ghok doctor` first. `command -v gh` must be the shim for ordinary `gh` calls;
+  `ghok exec -- <args>` uses the wrapper explicitly without a shim.
+- **Exit 77 (`EX_NOPERM`)**: policy/rule or hook-returned content denial; gh was
+  not started. Read the denial, inspect `ghok explain -- <same args>`, and fix
+  the requested operation or seek the policy owner's decision. Do not bypass
+  by switching to real gh, `curl`, nested markers or `ghok exec`.
+- **Exit 78 (`EX_CONFIG`)**: hooks malfunctioned under `onError: deny`, or invalid
+  config failed closed; gh was not started. Run `ghok config validate` / `doctor`,
+  inspect the named hook's timeout, executable/dependencies or response, and
+  repair the environment/config. Do not treat it as a content-policy rejection
+  or weaken enforcement to make the command pass.
+- Denial stderr starts `ghok: denied by <source>` with optional
+  `(error: timeout|exit <code>|invalid response|spawn failed|canceled)` and
+  `(+N more)`. Indented entries list all denials: rules, policy, hook content,
+  then hook errors. A mixture exits 77. Messages take precedence over reasons,
+  with multiline content preserved; logs retain both structured fields.
+- Observe-mode would-deny and all post-hook results preserve gh's original
+  status/signals. Internal errors remain 1, real gh missing 127. `hooks test`
+  expectation mismatches and hook failures remain 1, not 77/78.
 - Invalid project config: ignore only the project overlay; user hooks/policy remain
   active. Unknown project keys are ignored with notes. Discovery never uses HOME
   itself as a project root.
 - Invalid user config: raw `policy.mode: enforce` prints an error every time,
-  exits 1, and never starts gh; observe/undetermined mode runs gh **without**
+  exits 78, and never starts gh; observe/undetermined mode runs gh **without**
   hooks/policy with a warning throttled to once per ten minutes.
   `GHOK_FAIL_CLOSED=1` rejects any invalid config, including project files.
   Validate/doctor explain the behavior; project failures also appear in explain.

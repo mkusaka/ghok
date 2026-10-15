@@ -10,11 +10,15 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Breaking
 
+- Enforce denial stderr now has a stable `ghok: denied by <source>` header and ordered per-denial entries, preferring multiline messages over reasons. Content denials exit 77 (`EX_NOPERM`); hook-`onError`-only and fail-closed config denials exit 78 (`EX_CONFIG`), replacing exit 1. Content wins over errors; observe and `hooks test` mismatch statuses are unchanged.
+- Hook-authored terminal diagnostics now escape controls (except newline/tab) and invalid UTF-8, and bound each denial/text entry to 40 lines, 4 KiB and 500 characters per line with visible truncation markers. Denials, `hooks test` text, explain and hook/config notes share the sanitizer; JSON, `--print-input` and logs retain their structured values and existing redaction.
 - Replace `ghok config schema [--project]` with `ghok schema config|project-config|hook-input|hook-response`. Empty typed hook arrays are now omitted instead of `null`; absent means empty.
 - Without a user config or applicable project `.ghok.yaml`, the shim now execs gh directly without logging, normalization, stdin capture, resolution, or hook warnings. Logging remains default-on once either config exists; machine-wide shim installation is the recommended adoption path.
 
 ### Added
 
+- `ghok hooks test --print-input [--phase pre|post] [--hook ID]` previews hook JSON without starting hooks or gh, with synthetic post results, credential masking notices, and `--show-secrets` that still honors hook `redactInput`.
+- `ghok exec -- <gh args>` runs the shim's exact pipeline without a PATH shim, preserving discovery/recursion checks, policy, hooks, logs, argv, streams, statuses and signals. Hook input and JSONL records include `invocation.via: "exec"|"shim"`; the hook-input schema is regenerated.
 - Generated hook input/response JSON Schemas, closed-value enums and documentation from Go tags, `schemaVersion: {const: 1}`, and TypeScript generation instructions. Regenerate all four contracts with `go generate ./internal/schema`.
 - Throttled stderr reminders for enabled project hooks ignored by trust, including up to three changed filenames; user `logging.ignoredHooksWarning: false` opts out.
 - Bounded private persistent manifest hash cache under `<config-dir>/state/`, invalidated by canonical path and file metadata; project YAML is always read fresh.

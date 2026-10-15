@@ -48,9 +48,9 @@ signed/notarized. Windows and other operating systems are unsupported.
 
 | Surface | Behavior | Status / limit |
 | --- | --- | --- |
-| Original command arguments | Analysis may expand aliases; execution passes original argv including the wrapper's argv[0]. | Preserved. |
+| Original command arguments | Analysis may expand aliases; shim execution preserves argv[0]; `ghok exec` forces argv[0] to `gh`. Remaining argv is untouched. | Preserved. |
 | Environment/cwd | Original environment/cwd preserved plus incremented GHOK_DEPTH; GH_PATH is not rewritten. | Intentional metadata addition. |
-| Normal child exit | Original 0–255 status returned after post-hooks. | Preserved; deny is ghok exit 1 before launch. |
+| Normal child exit | Original 0–255 status returned after post-hooks. | Preserved; pre-launch content denial is ghok exit 77, hook/config error denial 78. |
 | Spawn failure | ENOENT -> 127; other execution failures -> 126. Discovery failure -> 127. | Shell-style convention. |
 | Uncaptured stdout/stderr; unspooled stdin | Original descriptors inherited. Binary/empty/large output unchanged. | Preserved on both paths. |
 | Interactive TTY and size | Real gh remains in shell's group; no PTY substitution. Resize reaches foreground group naturally. | Preserved without capture. |

@@ -115,7 +115,7 @@ func TestHooksRawDiagnosticsStayRedacted(t *testing.T) {
 		c.Hooks = []config.Hook{h}
 	})
 	result := s.gh(nil, "pr", "create", "-t", "T", "-b", secret)
-	result.code(t, 1)
+	result.code(t, 77)
 	s.absentRecord()
 	if bytes.Contains(result.stderr, []byte(secret)) || !bytes.Contains(result.stderr, []byte("[REDACTED]")) {
 		t.Fatalf("raw hook exposed denial diagnostic: %s", result.stderr)

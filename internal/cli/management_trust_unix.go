@@ -21,7 +21,7 @@ func managementConfigTrustStore(all bool) int {
 		lines = config.ListProjectTrust(env)
 	}
 	for _, line := range lines {
-		_, _ = fmt.Fprintln(os.Stdout, r.String(line))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(line)))
 	}
 	if err != nil {
 		return managementFailure(err)
@@ -49,7 +49,7 @@ func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets boo
 		canonical, notes, err = config.UntrustProject(path, cwd, env)
 	}
 	for _, note := range notes {
-		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(note)))
 	}
 	if len(diff) != 0 {
 		// Like explain: credentials are masked for display (agents' transcripts
@@ -75,7 +75,7 @@ func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets boo
 	}
 	_, _ = fmt.Fprintln(os.Stdout, r.String(status+canonical))
 	for _, h := range enabled {
-		_, _ = fmt.Fprintln(os.Stdout, r.String(h.ID+" command: "+managementCompact(r.Argv(h.Command))))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(h.ID+" command: "+managementCompact(r.Argv(h.Command)))))
 	}
 	if len(enabled) == 0 {
 		_, _ = fmt.Fprintln(os.Stdout, "No enabled project hooks.")

@@ -3,6 +3,8 @@
 package cli
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/mkusaka/ghok/internal/config"
@@ -11,132 +13,74 @@ import (
 	"github.com/mkusaka/ghok/internal/protocol"
 )
 
-func TestDecide(t *testing.T) {
-	policyDeny := policy.Evaluation{Decision: protocol.DecisionDeny, DenyReasons: []string{"policy one", "policy two"}}
-	hookDeny := hooks.Aggregate{
-		Decision: protocol.DecisionDeny,
-		Results: []protocol.HookResult{
-			{Effective: protocol.DecisionAllow, Reason: "allowed"},
-			{Effective: protocol.DecisionDeny, Reason: "first denial", Error: "unused error"},
-			{Effective: protocol.DecisionDeny, Reason: "second denial"},
-		},
-		Message: "hook message",
+func TestDenialOrderingAndStatus(t *testing.T) {
+	evaluation := policy.Evaluation{Decision: protocol.DecisionDeny, Denials: []policy.Denial{
+		{Kind: policy.DenialRule, ID: "first", Reason: "rule reason"},
+		{Kind: policy.DenialPolicy, ID: "unknownMutation", Reason: "policy reason"},
+	}}
+	pre := hooks.Aggregate{Decision: protocol.DecisionDeny, Results: []protocol.HookResult{
+		{HookID: "failed", Outcome: protocol.OutcomeError, Effective: protocol.DecisionDeny, ExitCode: 23, Error: "exit status 23"},
+		{HookID: "content", Outcome: protocol.OutcomeOK, Effective: protocol.DecisionDeny, Message: "first line\nsecret continuation", Reason: "unused reason"},
+		{HookID: "ignored", Outcome: protocol.OutcomeTimeout, Effective: protocol.DecisionAllow},
+	}}
+	got := decide(config.ModeEnforce, evaluation, pre, false)
+	var stderr bytes.Buffer
+	printDenials(&stderr, got.Denials, func(s string) string { return strings.ReplaceAll(s, "secret", "[REDACTED]") })
+	want := "ghok: denied by rule first (+3 more)\n  - rule first: rule reason\n  - policy unknownMutation: policy reason\n  - hook content: first line\n    [REDACTED] continuation\n  - hook failed: exit status 23\n"
+	if got.ExitCode != 77 || stderr.String() != want {
+		t.Fatalf("status=%d stderr=%q", got.ExitCode, stderr.String())
 	}
-	errorDeny := hooks.Aggregate{
-		Decision: protocol.DecisionDeny,
-		Results:  []protocol.HookResult{{Effective: protocol.DecisionDeny, Error: "hook failed"}},
-		Message:  "hook failed",
-	}
-	duplicateDeny := hookDeny
-	duplicateDeny.Message = "first denial"
-	emptyFirstDeny := hooks.Aggregate{
-		Decision: protocol.DecisionDeny,
-		Results: []protocol.HookResult{
-			{Effective: protocol.DecisionDeny},
-			{Effective: protocol.DecisionDeny, Reason: "not the first denial"},
-		},
-	}
-	for _, tt := range []struct {
-		name         string
-		mode         string
-		evaluation   policy.Evaluation
-		pre          hooks.Aggregate
-		stdinSkipped bool
-		want         wrapperDecision
+}
+
+func TestHookErrorDenialKinds(t *testing.T) {
+	for _, tc := range []struct {
+		outcome protocol.Outcome
+		code    int
+		kind    string
 	}{
-		{
-			name: "enforce allow", mode: config.ModeEnforce,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAllow},
-			want:       wrapperDecision{Decision: "allow"},
-		},
-		{
-			name: "enforce policy denial", mode: config.ModeEnforce, evaluation: policyDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "policy one; policy two", Prefix: "ghok: denied by policy:"},
-		},
-		{
-			name: "enforce hook first effective denial", mode: config.ModeEnforce, pre: hookDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "first denial; hook message", Prefix: "ghok: denied:"},
-		},
-		{
-			name: "mixed policy and hook denial", mode: config.ModeEnforce, evaluation: policyDeny, pre: hookDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "policy one; policy two; first denial; hook message", Prefix: "ghok: denied by policy:"},
-		},
-		{
-			name: "hook error and duplicate message", mode: config.ModeEnforce, pre: errorDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "hook failed", Prefix: "ghok: denied:"},
-		},
-		{
-			name: "hook reason and duplicate message", mode: config.ModeEnforce, pre: duplicateDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "first denial", Prefix: "ghok: denied:"},
-		},
-		{
-			name: "empty first denial does not select later reason", mode: config.ModeEnforce, pre: emptyFirstDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "pre-execution policy", Prefix: "ghok: denied:"},
-		},
-		{
-			name: "deny fallback", mode: config.ModeEnforce,
-			evaluation: policy.Evaluation{WouldDeny: true, Reasons: []string{"diagnostic only"}},
-			want:       wrapperDecision{Decision: "deny", Reason: "pre-execution policy", Prefix: "ghok: denied:"},
-		},
-		{
-			name: "observe mixed denial", mode: config.ModeObserve, evaluation: policyDeny, pre: hookDeny,
-			want: wrapperDecision{Decision: "would-deny"},
-		},
-		{
-			name: "observe would deny flag", mode: config.ModeObserve,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit, WouldDeny: true},
-			want:       wrapperDecision{Decision: "would-deny"},
-		},
-		{
-			name: "observe hook denial", mode: config.ModeObserve, pre: hookDeny,
-			want: wrapperDecision{Decision: "would-deny"},
-		},
-		{
-			name: "enforce audit", mode: config.ModeEnforce,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit},
-			want:       wrapperDecision{Decision: "audit"},
-		},
-		{
-			name: "observe audit", mode: config.ModeObserve,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit},
-			want:       wrapperDecision{Decision: "audit"},
-		},
-		{
-			name: "skipped stdin relabels audit", mode: config.ModeObserve, stdinSkipped: true,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit},
-			want:       wrapperDecision{Decision: "allow", RelabelPolicy: true},
-		},
-		{
-			name: "skipped stdin relabels implicit observe denial", mode: config.ModeObserve, stdinSkipped: true,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit, WouldDeny: true},
-			want:       wrapperDecision{Decision: "allow", RelabelPolicy: true},
-		},
-		{
-			name: "skipped stdin preserves explicit audit rule", mode: config.ModeObserve, stdinSkipped: true,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAudit, Rules: []string{"audit-rule"}},
-			want:       wrapperDecision{Decision: "audit"},
-		},
-		{
-			name: "skipped stdin preserves explicit observe denial", mode: config.ModeObserve, stdinSkipped: true,
-			evaluation: policy.Evaluation{Decision: protocol.DecisionAllow, WouldDeny: true, Rules: []string{"deny-rule"}},
-			want:       wrapperDecision{Decision: "would-deny"},
-		},
-		{
-			name: "skipped stdin preserves hook observe denial", mode: config.ModeObserve, stdinSkipped: true, pre: hookDeny,
-			want: wrapperDecision{Decision: "would-deny"},
-		},
-		{
-			name: "skipped stdin preserves enforcing denial", mode: config.ModeEnforce, stdinSkipped: true, evaluation: policyDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "policy one; policy two", Prefix: "ghok: denied by policy:"},
-		},
-		{
-			name: "skipped stdin preserves enforcing hook denial", mode: config.ModeEnforce, stdinSkipped: true, pre: errorDeny,
-			want: wrapperDecision{Decision: "deny", Reason: "hook failed", Prefix: "ghok: denied:"},
-		},
+		{protocol.OutcomeTimeout, -1, "timeout"},
+		{protocol.OutcomeError, 23, "exit 23"},
+		{protocol.OutcomeInvalidResponse, 0, "invalid response"},
+		{protocol.OutcomeError, -1, "spawn failed"},
+		{protocol.OutcomeCanceled, -1, "canceled"},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := decide(tt.mode, tt.evaluation, tt.pre, tt.stdinSkipped); got != tt.want {
-				t.Fatalf("decide() = %+v, want %+v", got, tt.want)
+		t.Run(tc.kind, func(t *testing.T) {
+			pre := hooks.Aggregate{Decision: protocol.DecisionDeny, Results: []protocol.HookResult{{HookID: "gate", Outcome: tc.outcome, ExitCode: tc.code, Effective: protocol.DecisionDeny, Error: "detail"}}}
+			got := decide(config.ModeEnforce, policy.Evaluation{}, pre, false)
+			var stderr bytes.Buffer
+			printDenials(&stderr, got.Denials, func(s string) string { return s })
+			want := "ghok: denied by hook gate (error: " + tc.kind + ")\n  - hook gate: detail\n"
+			if got.ExitCode != 78 || stderr.String() != want {
+				t.Fatalf("status=%d stderr=%q", got.ExitCode, stderr.String())
+			}
+		})
+	}
+}
+
+func TestObserveDoesNotEnforceDenials(t *testing.T) {
+	got := decide(config.ModeObserve, policy.Evaluation{WouldDeny: true}, hooks.Aggregate{}, false)
+	if got.Decision != "would-deny" || got.ExitCode != 0 || len(got.Denials) != 0 {
+		t.Fatalf("observe=%+v", got)
+	}
+}
+
+func TestSkippedStdinPolicyRelabel(t *testing.T) {
+	got := decide(config.ModeObserve, policy.Evaluation{Decision: protocol.DecisionAudit}, hooks.Aggregate{}, true)
+	if got.Decision != "allow" || !got.RelabelPolicy {
+		t.Fatalf("skipped stdin=%+v", got)
+	}
+}
+
+func TestDenialRedactionPreservesGrammar(t *testing.T) {
+	for _, secret := range []string{"ghok", "hook", "error", "timeout"} {
+		t.Run(secret, func(t *testing.T) {
+			var stderr bytes.Buffer
+			printDenials(&stderr, []denial{{Source: "hook", ID: secret + "\r\ninjected", Message: secret, ErrorKind: "timeout"}}, func(s string) string {
+				return strings.ReplaceAll(s, secret, "[REDACTED]")
+			})
+			want := "ghok: denied by hook [REDACTED]\\x0d\\ninjected (error: timeout)\n  - hook [REDACTED]\\x0d\\ninjected: [REDACTED]\n"
+			if stderr.String() != want {
+				t.Fatalf("stderr=%q, want=%q", stderr.String(), want)
 			}
 		})
 	}

@@ -338,7 +338,7 @@ func TestTextsTTYStdinIsNeverRead(t *testing.T) {
 	defer cancel()
 	cmd.Stdin = slave
 	output, err := cmd.CombinedOutput() // No terminal bytes or EOF: a pre-read would block.
-	outcome{err: err, stderr: output}.code(t, 1)
+	outcome{err: err, stderr: output}.code(t, 77)
 	s.absentRecord()
 	input := s.hookInput("pre")
 	if !input.Invocation.StdinTTY || len(input.Operations) != 1 || input.Operations[0].Texts == nil || input.Operations[0].Texts.Body == nil {

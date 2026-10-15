@@ -144,6 +144,23 @@ func (r *Runner) now() time.Time {
 	return time.Now()
 }
 
+// PrepareInput applies the per-hook envelope and payload settings without
+// starting the hook. Dependencies must already be populated in in.Previous.
+func PrepareInput(phase string, h config.Hook, in protocol.Input, redactor *redact.Redactor) protocol.Input {
+	in.SchemaVersion = 1
+	in.Event = phase
+	in.HookID = h.ID
+	if phase == config.PhasePost && in.Result != nil && !h.CaptureOutput {
+		result := *in.Result
+		result.Stdout, result.Stderr = nil, nil
+		in.Result = &result
+	}
+	if h.RedactInput {
+		in = redactor.Input(in)
+	}
+	return in
+}
+
 // Run returns results in selection order. A pre denial cancels every remaining
 // hook, including already running hooks; post decisions are informational only.
 func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in protocol.Input) Aggregate {
@@ -236,34 +253,24 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 				continue
 			}
 			input := in
-			input.SchemaVersion = 1
-			input.Event = phase
-			input.HookID = h.ID
-			if phase == config.PhasePost && input.Result != nil && !h.CaptureOutput {
-				result := *input.Result
-				result.Stdout, result.Stderr = nil, nil
-				input.Result = &result
-			}
 			input.Previous = nil
 			for _, dep := range h.DependsOn {
 				input.Previous = append(input.Previous, aggregate.Results[ids[dep]])
 			}
-			if h.RedactInput {
-				if inputRedactor == nil {
-					base := r.Env
-					if base == nil {
-						base = os.Environ()
-					}
-					env := make(map[string]string, len(base))
-					for _, entry := range base {
-						if key, value, ok := strings.Cut(entry, "="); ok {
-							env[key] = value
-						}
-					}
-					inputRedactor = redact.New(env)
+			if h.RedactInput && inputRedactor == nil {
+				base := r.Env
+				if base == nil {
+					base = os.Environ()
 				}
-				input = inputRedactor.Input(input)
+				env := make(map[string]string, len(base))
+				for _, entry := range base {
+					if key, value, ok := strings.Cut(entry, "="); ok {
+						env[key] = value
+					}
+				}
+				inputRedactor = redact.New(env)
 			}
+			input = PrepareInput(phase, h, input, inputRedactor)
 			state[i] = 1
 			running++
 			progressed = true

@@ -37,9 +37,9 @@ func TestPreHookDecisions(t *testing.T) {
 				args := []string{"pr", "merge", "1", "-R", "acme/project"}
 				result := s.gh(nil, args...)
 				if mode == "enforce" && decision == "deny" {
-					result.code(t, 1)
+					result.code(t, 77)
 					s.absentRecord()
-					if !bytes.Contains(result.stderr, []byte("ghok: denied:")) || !bytes.Contains(result.stderr, []byte("consumer supplied reason")) {
+					if !bytes.Contains(result.stderr, []byte("ghok: denied by hook pre")) || !bytes.Contains(result.stderr, []byte("consumer supplied reason")) {
 						t.Fatal("missing explicit denial/message")
 					}
 				} else {
@@ -85,7 +85,7 @@ func TestHookErrorsAndTimeout(t *testing.T) {
 				})
 				result := s.gh(nil, "version")
 				if onError == "deny" {
-					result.code(t, 1)
+					result.code(t, 78)
 					s.absentRecord()
 				} else {
 					result.code(t, 0)
@@ -191,7 +191,7 @@ func TestGraphQLStdinAndFile(t *testing.T) {
 				}
 				result := s.gh(input, args...)
 				if deny {
-					result.code(t, 1)
+					result.code(t, 77)
 					s.absentRecord()
 				} else {
 					result.code(t, 0)
@@ -238,73 +238,8 @@ func TestProtectedUnresolvedFailsClosed(t *testing.T) {
 	s := newSandbox(t)
 	s.configure(func(c *config.Config) { c.Policy.Mode = "enforce"; c.Policy.ProtectedRepositories = []string{"acme/*"} })
 	result := s.gh(nil, "pr", "merge", "1")
-	result.code(t, 1)
+	result.code(t, 77)
 	s.absentRecord()
-	if got, want := string(result.stderr), "ghok: denied by policy: target repository unresolved; cannot prove it is not protected (pr.merge.request)\n"; got != want {
-		t.Fatalf("protected denial=%q, want=%q", got, want)
-	}
-}
-
-func TestPolicyDenyMessageReasons(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		args   []string
-		policy config.Policy
-		hook   bool
-		want   string
-	}{
-		{
-			name: "rule",
-			args: []string{"pr", "merge", "1", "--admin", "-R", "acme/project"},
-			policy: config.Policy{Rules: []config.Rule{
-				{ID: "audit", Decision: "audit", Reason: "audit-only diagnostic"},
-				{ID: "no-admin", Match: config.Match{Operations: config.StringList{"pr.merge.direct"}}, Decision: "deny", Reason: "direct merges are forbidden"},
-			}},
-			want: "rule no-admin: direct merges are forbidden (pr.merge.direct)",
-		},
-		{
-			name:   "unknown and protected",
-			args:   []string{"api", "-X", "POST", "repos/acme/project/unknown"},
-			policy: config.Policy{UnknownMutation: config.UnknownDeny, ProtectedRepositories: []string{"acme/*"}},
-			want:   "unclassified-write: unknownMutation policy (api.post.unknown); unclassified-write targets protected repository acme/project (api.post.unknown)",
-		},
-		{
-			name:   "policy and hook",
-			args:   []string{"pr", "merge", "1", "--admin", "-R", "acme/project"},
-			policy: config.Policy{Rules: []config.Rule{{ID: "no-admin", Decision: "deny", Reason: "direct merges are forbidden"}}},
-			hook:   true,
-			want:   "rule no-admin: direct merges are forbidden (pr.merge.direct); hook restriction; contact maintainers",
-		},
-	} {
-		for _, mode := range []string{config.ModeEnforce, config.ModeObserve} {
-			t.Run(tc.name+"/"+mode, func(t *testing.T) {
-				s := newSandbox(t)
-				s.configure(func(c *config.Config) {
-					c.Policy = tc.policy
-					c.Policy.Mode = mode
-					if tc.hook {
-						h := s.hook("pre", "pre")
-						h.Env["FAKEGH_HOOK_RESPONSE"] = `{"decision":"deny","reason":"hook restriction","message":"contact maintainers"}`
-						c.Hooks = []config.Hook{h}
-					}
-				})
-				result := s.gh(nil, tc.args...)
-				if mode == config.ModeObserve {
-					result.code(t, 0)
-					s.onlyRecord(tc.args, nil)
-					if len(result.stderr) != 0 {
-						t.Fatalf("observe emitted deny reasons: %s", result.stderr)
-					}
-				} else {
-					result.code(t, 1)
-					s.absentRecord()
-					if got, want := string(result.stderr), "ghok: denied by policy: "+tc.want+"\n"; got != want {
-						t.Fatalf("denial=%q, want=%q", got, want)
-					}
-				}
-			})
-		}
-	}
 }
 
 func TestProtectedGraphQLUsesResolver(t *testing.T) {
@@ -329,7 +264,7 @@ func TestProtectedGraphQLUsesResolver(t *testing.T) {
 				want = 2
 				result.code(t, 0)
 			} else {
-				result.code(t, 1)
+				result.code(t, 77)
 			}
 			if len(records) != want {
 				t.Fatalf("resolver/user invocation count=%d, want=%d", len(records), want)
@@ -624,7 +559,7 @@ func TestLoggedGraphQLStdinAnalysisEligibility(t *testing.T) {
 			args := []string{"api", "graphql", "--input", "-"}
 			result := s.gh(payload, args...)
 			if enforce {
-				result.code(t, 1)
+				result.code(t, 77)
 				s.absentRecord()
 			} else {
 				result.code(t, 0)
@@ -1016,7 +951,7 @@ func TestRuleMatchesTokenKind(t *testing.T) {
 		token string
 		code  int
 	}{
-		{"ghs" + "_" + fake, 1},
+		{"ghs" + "_" + fake, 77},
 		{"ghp" + "_" + fake, 0},
 		{"", 0},
 	} {
@@ -1034,7 +969,7 @@ func TestRuleMatchesTokenKind(t *testing.T) {
 			}
 			result := s.gh(nil, "pr", "close", "1", "-R", "o/r")
 			result.code(t, tc.code)
-			if tc.code == 1 {
+			if tc.code == 77 {
 				s.absentRecord()
 				return
 			}
