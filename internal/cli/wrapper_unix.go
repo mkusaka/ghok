@@ -102,7 +102,7 @@ func wrapper(args []string, argv0, via string) int {
 			}
 		}
 	}
-	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
+	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		warnIgnoredHooks()
 		err = process.Exec(opts)
 		return fatal(err, process.StartErrorExitCode(err))
@@ -218,7 +218,7 @@ func wrapper(args []string, argv0, via string) int {
 			subject.Result = result
 		}
 	}
-	evaluation := policy.Evaluate(cfg.Policy, subject)
+	evaluation := evaluateConfig(cfg, subject)
 	input := hookInput(args, cwd, real, result, resolved, evaluation, eventID)
 	input.Invocation.Via = via
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
@@ -334,6 +334,11 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 			return true, false
 		}
 	}
+	for _, h := range c.IgnoredHooks {
+		if h.GateBlocked && couldMatch(h.Match) {
+			return true, false
+		}
+	}
 	return false, true
 }
 
@@ -395,6 +400,11 @@ func needsLocal(c *config.Config, s policy.Subject) bool {
 			return true
 		}
 	}
+	for _, h := range c.IgnoredHooks {
+		if h.GateBlocked && relevant(h.Match) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -428,6 +438,11 @@ func resolutionNeeds(c *config.Config, s policy.Subject, index int) []string {
 	}
 	for _, h := range c.Hooks {
 		if h.Enabled == nil || *h.Enabled {
+			match(h.Match)
+		}
+	}
+	for _, h := range c.IgnoredHooks {
+		if h.GateBlocked {
 			match(h.Match)
 		}
 	}

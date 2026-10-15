@@ -37,22 +37,27 @@ func TestTrustStorePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var store map[string]trustEntry
-	if err := json.Unmarshal(data, &store); err != nil {
+	store, _, err := parseTrustStore(data)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(store) != 1 {
-		t.Fatalf("expected one content grant: %+v", store)
+		t.Fatalf("expected one checkout record: %+v", store)
 	}
 	var entry trustEntry
-	for digest, grant := range store {
-		if !validDigest(digest) {
-			t.Fatalf("trust key is not a content digest: %q", digest)
+	for key, grant := range store {
+		if key != contentHash([]byte(project)) {
+			t.Fatalf("trust key is not the canonical config path hash: %q", key)
 		}
 		entry = grant
 	}
-	if entry.FirstPath != project || entry.ConfigPath != ".ghok.yaml" || len(entry.Files) != 2 || entry.Files[0].SHA256 != contentHash([]byte(body)) || !entry.Files[1].Missing || entry.Files[1].Path != "check" || !reflect.DeepEqual(entry.Files[1].HookIDs, []string{"active", "disabled"}) || entry.TrustedAt.Before(before) || entry.TrustedAt.After(time.Now().UTC()) {
-		t.Fatalf("persisted exact-byte trust: %+v", store)
+	if entry.ManifestVersion != 2 || entry.FirstPath != project || entry.ConfigPath != ".ghok.yaml" || len(entry.Files) != 1 || !entry.Files[0].Missing || entry.Files[0].Path != "check" || !reflect.DeepEqual(entry.Files[0].HookIDs, []string{"active", "disabled"}) || entry.TrustedAt.Before(before) || entry.TrustedAt.After(time.Now().UTC()) {
+		t.Fatalf("persisted checkout trust: %+v", store)
+	}
+	for _, id := range []string{"active", "disabled"} {
+		if !validDigest(entry.HookDigests[id]) || !json.Valid(entry.Definitions[id]) {
+			t.Fatalf("missing per-hook digest or definition for %s: %+v", id, entry)
+		}
 	}
 	for path, want := range map[string]os.FileMode{env["GHOK_CONFIG_DIR"]: 0o700, storePath: 0o600} {
 		info, err := os.Stat(path)
@@ -85,7 +90,7 @@ func TestTrustStorePersistence(t *testing.T) {
 	}
 }
 
-func TestContentTrustAcrossWorktrees(t *testing.T) {
+func TestTrustDoesNotAuthorizeOtherCheckouts(t *testing.T) {
 	root := t.TempDir()
 	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
 	body := "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: [{id: local, phase: pre, command: [./scripts/check]}]\n"
@@ -99,8 +104,8 @@ func TestContentTrustAcrossWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _, err := LoadEffective("", second, env)
-	if err != nil || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 0 {
-		t.Fatalf("identical worktree lost trust: %+v, %v", c, err)
+	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
+		t.Fatalf("identical checkout inherited trust: %+v, %v", c, err)
 	}
 	writeFixture(t, filepath.Join(second, "scripts", "check"), "#!/bin/sh\nexit 1\n")
 	c, _, err = LoadEffective("", second, env)
@@ -229,8 +234,8 @@ func TestTrustExecutableSelection(t *testing.T) {
 	}
 	writeFixture(t, filepath.Join(repo, "scripts", "missing"), "now present")
 	c, _, err = LoadEffective("", repo, env)
-	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 2 || c.IgnoredHooks[0].Reason != "changed since trust" {
-		t.Fatalf("missing executable appeared without re-trust: %+v, %v", c, err)
+	if err != nil || len(c.Hooks) != 1 || c.Hooks[0].ID != "absolute" || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].ID != "missing" || c.IgnoredHooks[0].Reason != "changed since trust" {
+		t.Fatalf("missing executable appearance must affect only its hook: %+v, %v", c, err)
 	}
 }
 
@@ -307,11 +312,14 @@ func TestTrustManifestIncludesAndExecutableBits(t *testing.T) {
 		t.Fatal(err)
 	}
 	store, _ := readTrustStore(env)
-	manifest := "v1\n.ghok.yaml\x000\x00" + contentHash([]byte(body)) + "\n" +
-		"data\x000\x00" + contentHash([]byte("reviewed data")) + "\n" +
-		"hook\x001\x00" + contentHash([]byte("#!/bin/sh\nexit 0\n")) + "\noptional\x000\x00missing\n"
-	if _, ok := store[contentHash([]byte(manifest))]; !ok {
-		t.Fatalf("grant does not match canonical v1 manifest: %+v", store)
+	entry := store[contentHash([]byte(project))]
+	if entry.ManifestVersion != 2 || len(entry.Files) != 3 || !validDigest(entry.HookDigests["h"]) {
+		t.Fatalf("manifest must contain only deduplicated dependency files: %+v", entry)
+	}
+	for _, file := range entry.Files {
+		if file.Path == ".ghok.yaml" || !reflect.DeepEqual(file.HookIDs, []string{"h"}) {
+			t.Fatalf("unexpected manifest file: %+v", file)
+		}
 	}
 	for _, change := range []struct {
 		name string
@@ -348,7 +356,7 @@ func TestTrustManifestLimits(t *testing.T) {
 			case "count":
 				want = "256 files"
 				var paths []string
-				for i := range 254 {
+				for i := range 255 {
 					paths = append(paths, fmt.Sprintf("missing-%03d", i))
 				}
 				body += "trust: {include: [" + strings.Join(paths, ",") + "]}\n"
@@ -360,12 +368,12 @@ func TestTrustManifestLimits(t *testing.T) {
 			case "bytes":
 				want = "runtime.fileMaxBytes"
 				writeFixture(t, filepath.Join(repo, "hook"), strings.Repeat("x", 10))
-				writeFixture(t, DefaultPath(env), fmt.Sprintf("version: 1\nruntime: {fileMaxBytes: %d}\n", len(body)+10))
+				writeFixture(t, DefaultPath(env), fmt.Sprintf("version: 1\nruntime: {fileMaxBytes: %d}\n", max(len(body), 10)))
 				writeFixture(t, project, body)
 				if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 					t.Fatalf("exact size limit rejected: %v", err)
 				}
-				writeFixture(t, filepath.Join(repo, "hook"), strings.Repeat("x", 11))
+				writeFixture(t, filepath.Join(repo, "hook"), strings.Repeat("x", max(len(body), 10)+1))
 			case "directory":
 				if err := os.Mkdir(filepath.Join(repo, "hook"), 0700); err != nil {
 					t.Fatal(err)

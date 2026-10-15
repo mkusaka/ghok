@@ -67,34 +67,41 @@ Never overwrite an existing config; edit it instead.
   `logging`. `trust.include` is project-only; user `trust.projects` is unsupported.
   Inspect hooks, then run `ghok config trust [PATH]` to activate them (`PATH`
   defaults to the current repository-root `.ghok.yaml`).
-  The v1 manifest sorts unique repository-relative paths and encodes each path,
-  executable bit and SHA256 content hash/missing marker separated by NULs. It
-  covers exact YAML bytes, root-contained hook executables and `trust.include`
-  files. Add imports/dependencies/data explicitly, for example
-  `.github/scripts/check-pr-description.ts` and `.gitleaks.toml`.
+  Trust is per hook: canonical defaulted definition + repository-local executable
+  + `hooks[].files` + top-level `trust.include` (**every hook**). YAML formatting,
+  comments, policy and unrelated hook edits/reordering do not affect trust.
+  List position is not hashed; put explicit ordering guarantees in `dependsOn`.
+  Use `files: [scripts/check.ts]` for hook-specific imports/dependencies/data;
+  use `trust.include` for shared files such as `.gitleaks.toml`. Files are hashed
+  once with every affected hook ID recorded. A change revokes only affected hooks.
+  `files` is rejected for user hooks, which run without trust.
   Project commands require `./relative` or absolute paths; user hooks may use
-  bare PATH names. Relative files and symlink targets must stay under the repo
-  root and be regular files. Limits: 256 files and global total bytes bounded
-  by effective `runtime.fileMaxBytes`. Absolute external executables,
-  interpreters, PATH tools and unlisted imports/dependencies/data are not hashed.
-  Any covered byte or executable-bit change, including creation of a missing
-  file, revokes trust for that content; notes name changed files. Policy-only
-  configs skip manifest computation.
-  Trust retains a digest set across versions/worktrees/clones. Locations are
-  diagnostic, not digest inputs: identical code is trusted anywhere, not as a
-  repository identity or a concurrent-replacement security boundary.
+  bare PATH names. `files` paths must be repo-relative, without `..` or globs;
+  list regular files, not directories. Symlink targets must stay inside the repo.
+  Limits: 256 unique files and total bytes bounded by effective `runtime.fileMaxBytes`.
+  Missing files have markers; their creation also revokes affected trust.
+  Absolute external executables, interpreters, PATH tools and unlisted files
+  are not hashed. Policy-only configs skip manifest computation.
+  A gate is a pre-hook with effective `onError: deny` (the default). In enforce
+  mode a changed gate denies matching invocations with `config <id>` / exit 78.
+  A new untrusted gate also denies when another project hook is trusted/enabled.
+  Observe records would-deny; a never-trusted project only ignores hooks/warns.
+  One record per checkout keeps per-hook digests/definitions and file baselines.
+  Other checkouts need their own trust; old manifest records require re-trust.
+  `ghok config trust --hook ID` is repeatable; unselected hooks keep their old
+  trust and review baselines. Omitting `--hook` trusts all project hooks.
   Trust output lists every hashed file, hook IDs, resolved commands and coverage
   limits. `ghok config trust --list` shows digests, first paths, trusted timestamps,
   hook IDs, per-file executable bits and hashes/missing markers, plus store notes.
   Re-trusting records HEAD, resolved Git common directory and normalized origin;
   provenance never changes the digest. `ghok config trust --dry-run [PATH]`
   validates and prints the proposed trust without writing trust/blob/cache state.
-  Trust, and validate/doctor when hooks are ignored, list changed/added/removed
-  files and executable-bit mode changes against the newest record in the first
-  matching tier: common directory, first path, normalized origin, then two
-  distinct shared content SHA256s (not paths). One shared `.gitleaks.toml` is
-  insufficient. Review the previous timestamp/path and, only in trust/dry-run,
-  the unified diff against exact stored trusted bytes, including dirty files.
+  Trust groups definition/file changes per hook, showing shared files once;
+  validate/doctor/explain/hooks list identify per-hook reasons and inactive gates.
+  Review uses the checkout's own record first, otherwise provenance-based hints
+  (common directory, first path, normalized origin, then two distinct shared
+  hashes). Hints never authorize hooks. Review the previous timestamp/path and,
+  only in trust/dry-run, the diff against exact stored bytes, including dirty files.
   The displayed diff masks credentials by default; when an agent runs
   `ghok config trust`, never add `--show-secrets` (the output stays in the
   transcript); `--no-diff` omits contents entirely. Stored copies are unredacted and may
@@ -102,14 +109,13 @@ Never overwrite an existing config; edit it instead.
   1 MiB per file/64 MiB total. Missing/corrupt/over-limit copies omit diffs with
   notes. Binary files show short hashes; over-20,000-line sides omit the diff.
   No Git executable, object lookup or fetch is used; HEAD is list-only provenance.
-  `ghok config untrust [PATH]` idempotently removes only the current digest,
-  leaving policy and other versions; `ghok config untrust --all` clears all digests
-  and purges stored copies. Trust/untrust garbage-collect unreferenced copies.
-  Trust/current-only untrust reject missing/non-repository-root configs.
-  Malformed store entries are skipped with named notes; other valid digests stay
-  trusted. Invalid top-level stores grant no trust; declarative policy stays.
-  Validate/doctor/explain report notes. The wrapper warns about enabled ignored
-  hooks once per canonical project path/manifest/ten minutes, at most three
+  `ghok config untrust [PATH]` idempotently removes the whole project record,
+  leaving policy; `--all` clears every record and purges stored copies.
+  Trust/untrust garbage-collect unreferenced copies and reject missing/non-root configs.
+  Malformed/old entries are skipped with named notes; other valid grants stay.
+  Invalid top-level stores grant no trust; declarative policy stays.
+  The wrapper warns about enabled ignored hooks once per canonical project path
+  and ignored-hook IDs/digests/reasons per ten minutes, at most three
   changed filenames. User `logging.ignoredHooksWarning: false` opts out; denied,
   nested, invalid-config, disabled-hook-only and policy-only paths do not warn.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
@@ -209,6 +215,10 @@ Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
 - Non-zero exit, timeout or invalid JSON is an *error outcome*, handled by the hook's
   `onError` (`deny` = fail closed, pre default; `allow`; `ignore`, post default).
 - Skip operations whose `execution` is `not-selected` or `skipped`.
+- Hooks run in config order (user, then project), with GitHub Actions-style concurrency:
+  `- parallel: [hooks]` blocks, `background: true` hooks, and `- wait: id|[ids]` /
+  `- wait-all:` items (capped by `runtime.hookConcurrency`, default 4). A pre deny cancels
+  all running hooks. `dependsOn` names earlier hooks only. There is no `priority`/`cancel`.
 - Post hooks can be limited to gh's outcome: `match: {result: failure}` (non-zero exit,
   signal or start failure) or `match: {exitCode: [1]}`; test with
   `ghok hooks test --phase post --exit-code 1 -- <gh args>`.

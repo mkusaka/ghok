@@ -252,7 +252,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			noDiff, _ := cmd.Flags().GetBool("no-diff")
 			showSecrets, _ := cmd.Flags().GetBool("show-secrets")
-			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff, showSecrets)
+			hookIDs, _ := cmd.Flags().GetStringArray("hook")
+			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff, showSecrets, hookIDs)
 		})
 		flag := "list"
 		if name == "untrust" {
@@ -263,6 +264,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			cmd.Flags().Bool("dry-run", false, "show changes and what would be trusted without writing anything")
 			cmd.Flags().Bool("no-diff", false, "omit the stored-content diff")
 			cmd.Flags().Bool("show-secrets", false, "show the diff unredacted (credentials are masked by default)")
+			cmd.Flags().StringArray("hook", nil, "trust only this project hook ID (repeatable); retain other hooks' trust")
+			cmd.MarkFlagsMutuallyExclusive("list", "hook")
 			cmd.MarkFlagsMutuallyExclusive("list", "dry-run")
 			cmd.MarkFlagsMutuallyExclusive("list", "no-diff")
 			cmd.MarkFlagsMutuallyExclusive("no-diff", "show-secrets")

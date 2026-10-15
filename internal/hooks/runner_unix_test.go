@@ -207,12 +207,12 @@ printf '{"decision":"allow"}'`)
 func TestSelectStableDependencies(t *testing.T) {
 	disabled := false
 	r := &Runner{Hooks: []config.Hook{
-		{ID: "dependent", Phase: "pre", Priority: -10, DependsOn: []string{"base"}},
 		{ID: "same1", Phase: "pre"}, {ID: "same2", Phase: "pre"},
-		{ID: "base", Phase: "pre", Priority: 10},
+		{ID: "base", Phase: "pre"},
+		{ID: "dependent", Phase: "pre", DependsOn: []string{"base"}},
 		{ID: "disabled", Phase: "pre", Enabled: &disabled}, {ID: "post", Phase: "post"},
 		{ID: "mismatch", Phase: "pre", Match: config.Match{Effects: config.StringList{"read"}}},
-		{ID: "maybe", Phase: "pre", Priority: 20, Match: config.Match{Repositories: config.StringList{"org/*"}}},
+		{ID: "maybe", Phase: "pre", Match: config.Match{Repositories: config.StringList{"org/*"}}},
 	}}
 	s := policy.Subject{Result: model.Result{Operations: input().Operations}}
 	selected := r.Select("pre", s)
@@ -236,7 +236,7 @@ func TestDependenciesAndPrevious(t *testing.T) {
 	second := hook("second", script(t, `cat > "$CAPTURE"; printf '{"decision":"allow"}'`))
 	second.DependsOn = []string{"first"}
 	second.Env = map[string]string{"CAPTURE": capture}
-	r := &Runner{Hooks: []config.Hook{second, first}, Concurrency: 2, Env: hermetic(t)}
+	r := &Runner{Hooks: []config.Hook{first, second}, Concurrency: 2, Env: hermetic(t)}
 	selected := r.Select("pre", policy.Subject{Result: model.Result{Operations: input().Operations}})
 	got := r.Run(context.Background(), "pre", selected, input())
 	if got.Decision != protocol.DecisionAllow || got.Results[0].HookID != "first" || got.Results[1].HookID != "second" {
@@ -387,6 +387,7 @@ func TestConcurrencyAndDeterministicAggregation(t *testing.T) {
 		body := `printf ready > "$READY"; while [ ! -f "$RELEASE" ]; do sleep 0.02; done; printf '{"decision":"allow"}'`
 		h := hook(fmt.Sprintf("h%d", i), script(t, body))
 		h.Env = map[string]string{"READY": filepath.Join(dir, fmt.Sprintf("ready%d", i)), "RELEASE": release}
+		h.Background = true
 		hooks = append(hooks, h)
 	}
 	r := &Runner{Concurrency: 3, Env: hermetic(t)}
@@ -412,13 +413,49 @@ func TestConcurrencyAndDeterministicAggregation(t *testing.T) {
 	}
 	// A later hook waits for the earlier hook to be running, then denies first.
 	first := hook("earlier", script(t, `trap 'wait; exit 0' TERM; printf ready > "$READY"; sleep 30 & wait`))
-	first.OnError = "ignore"
+	first.OnError, first.Background = "ignore", true
 	first.Env = map[string]string{"READY": filepath.Join(dir, "earlier-ready")}
 	deny := hook("later", script(t, `while [ ! -f "$READY" ]; do sleep 0.02; done; printf '{"decision":"deny","message":"later denial"}'`))
 	deny.Env = first.Env
 	got = r.Run(ctx, "pre", []config.Hook{first, deny}, input())
 	if got.Decision != protocol.DecisionDeny || got.Message != "later denial" || got.Results[0].HookID != "earlier" || got.Results[0].Outcome != protocol.OutcomeCanceled || got.Results[1].Outcome != protocol.OutcomeOK {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// Foreground hooks wait for earlier foreground hooks and their Wait list.
+func TestParallelSteps(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "log")
+	var hooks []config.Hook
+	for _, spec := range []struct {
+		id       string
+		parallel bool
+	}{{"a", false}, {"b", true}, {"c", true}, {"d", false}} {
+		h := hook(spec.id, script(t, `printf '%s+\n' "$ID" >> "$LOG"; sleep 0.2; printf '%s-\n' "$ID" >> "$LOG"; printf '{"decision":"allow"}'`))
+		h.Env = map[string]string{"ID": spec.id, "LOG": log}
+		h.Background = spec.parallel
+		if spec.id == "d" {
+			h.Wait = []string{"b", "c"} // end of a parallel block
+		}
+		hooks = append(hooks, h)
+	}
+	r := &Runner{Concurrency: 4, Env: hermetic(t)}
+	if got := r.Run(context.Background(), "pre", hooks, input()); got.Decision != protocol.DecisionAllow {
+		t.Fatalf("%+v", got)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Fields(string(data))
+	pos := map[string]int{}
+	for i, line := range lines {
+		pos[line] = i
+	}
+	// a finishes before b/c start; b and c overlap; d starts after both end.
+	if len(lines) != 8 || pos["a-"] > pos["b+"] || pos["a-"] > pos["c+"] || pos["b+"] > pos["c-"] || pos["c+"] > pos["b-"] || pos["d+"] < pos["b-"] || pos["d+"] < pos["c-"] {
+		t.Fatalf("order %v", lines)
 	}
 }
 

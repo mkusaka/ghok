@@ -82,6 +82,9 @@ func warningProject(t *testing.T, s *sandbox, change func(*config.Config)) (stri
 	disabled := s.hook("disabled", "pre")
 	disabled.Enabled = &no
 	c := &config.Config{Version: 1, Hooks: []config.Hook{s.hook("first", "pre"), s.hook("second", "pre"), disabled}}
+	for i := range c.Hooks {
+		c.Hooks[i].OnError = config.OnErrorAllow
+	}
 	if change != nil {
 		change(c)
 	}
@@ -121,7 +124,7 @@ func TestIgnoredHooksWarningThrottleAndManifestChanges(t *testing.T) {
 		}
 		return result.stderr
 	}
-	invoke(true, "never trusted on this machine")
+	invoke(true, "untrusted")
 	invoke(false, "")
 	warnings, err := filepath.Glob(filepath.Join(filepath.Dir(s.cfg), "state", "ignored-hooks-*.warning"))
 	if err != nil || len(warnings) != 1 {
@@ -130,7 +133,7 @@ func TestIgnoredHooksWarningThrottleAndManifestChanges(t *testing.T) {
 	if err := os.WriteFile(warnings[0], []byte(time.Now().Add(-11*time.Minute).UTC().Format(time.RFC3339Nano)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	invoke(true, "never trusted on this machine")
+	invoke(true, "untrusted")
 	s.management(nil, "config", "trust").code(t, 0)
 	invoke(false, "")
 	for i := range 4 {
@@ -146,7 +149,7 @@ func TestIgnoredHooksWarningThrottleAndManifestChanges(t *testing.T) {
 	if err := os.WriteFile(project, append(data, []byte("\n# new manifest\n")...), 0600); err != nil {
 		t.Fatal(err)
 	}
-	invoke(true, ".ghok.yaml")
+	invoke(false, "")
 }
 
 func TestIgnoredHooksWarningSuppression(t *testing.T) {

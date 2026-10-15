@@ -75,6 +75,34 @@ type wrapperDecision struct {
 	ExitCode      int
 }
 
+// evaluateConfig also accounts for inactive project gates without executing them.
+func evaluateConfig(c *config.Config, subject policy.Subject) policy.Evaluation {
+	evaluation := policy.Evaluate(c.Policy, subject)
+	subject.Phase = config.PhasePre
+	for _, h := range c.IgnoredHooks {
+		if !h.GateBlocked {
+			continue
+		}
+		yes, _ := policy.Matches(h.Match, subject)
+		if !yes {
+			yes, _ = policy.MatchMaybe(h.Match, subject)
+		}
+		if !yes {
+			continue
+		}
+		reason := fmt.Sprintf("hook %s is not trusted (changed since trust); run 'ghok config trust'", h.ID)
+		evaluation.WouldDeny = true
+		evaluation.Decision = protocol.DecisionDeny
+		if c.Policy.Mode == config.ModeObserve {
+			evaluation.Decision = protocol.DecisionAudit
+		}
+		evaluation.Reasons = append(evaluation.Reasons, reason)
+		evaluation.DenyReasons = append(evaluation.DenyReasons, reason)
+		evaluation.Denials = append(evaluation.Denials, policy.Denial{Kind: policy.DenialKind("config"), ID: h.ID, Reason: reason})
+	}
+	return evaluation
+}
+
 func decide(mode string, evaluation policy.Evaluation, pre hooks.Aggregate, stdinSkipped bool) wrapperDecision {
 	decision := wrapperDecision{Decision: "allow"}
 	wouldDeny := evaluation.WouldDeny || evaluation.Decision == protocol.DecisionDeny || pre.Decision == protocol.DecisionDeny
@@ -84,7 +112,9 @@ func decide(mode string, evaluation policy.Evaluation, pre hooks.Aggregate, stdi
 			decision.ExitCode = 78
 			for _, d := range evaluation.Denials {
 				decision.Denials = append(decision.Denials, denial{Source: string(d.Kind), ID: d.ID, Message: d.Reason})
-				decision.ExitCode = 77
+				if string(d.Kind) != "config" {
+					decision.ExitCode = 77
+				}
 			}
 			for _, content := range []bool{true, false} {
 				for _, h := range pre.Results {
@@ -113,7 +143,7 @@ func decide(mode string, evaluation policy.Evaluation, pre hooks.Aggregate, stdi
 	} else if evaluation.Decision == protocol.DecisionAudit {
 		decision.Decision = "audit"
 	}
-	if stdinSkipped && len(evaluation.Rules) == 0 && pre.Decision != protocol.DecisionDeny {
+	if stdinSkipped && !wouldDeny && len(evaluation.Rules) == 0 && pre.Decision != protocol.DecisionDeny {
 		decision.Decision = "allow"
 		decision.RelabelPolicy = true
 	}

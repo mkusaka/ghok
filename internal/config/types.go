@@ -12,12 +12,12 @@ import (
 
 // Config is ~/.config/ghok/config.yaml (version 1).
 type Config struct {
-	Version int     `yaml:"version" json:"version" enum:"1" doc:"Config format version; must be 1."`
-	Policy  Policy  `yaml:"policy" json:"policy"`
-	Hooks   []Hook  `yaml:"hooks" json:"hooks"`
-	Runtime Runtime `yaml:"runtime" json:"runtime"`
-	Logging Logging `yaml:"logging" json:"logging"`
-	Trust   Trust   `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
+	Version int      `yaml:"version" json:"version" enum:"1" doc:"Config format version; must be 1."`
+	Policy  Policy   `yaml:"policy" json:"policy"`
+	Hooks   HookList `yaml:"hooks" json:"hooks"`
+	Runtime Runtime  `yaml:"runtime" json:"runtime"`
+	Logging Logging  `yaml:"logging" json:"logging"`
+	Trust   Trust    `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`
@@ -107,14 +107,22 @@ const (
 )
 
 type Hook struct {
-	ID       string            `yaml:"id" json:"id" required:"true"`
-	Phase    string            `yaml:"phase" json:"phase" enum:"pre,post" required:"true"` // pre|post
-	Match    Match             `yaml:"match" json:"match"`
-	Command  []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
-	Env      map[string]string `yaml:"env" json:"env,omitempty"`
-	Timeout  Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."`                      // default 10s
-	OnError  string            `yaml:"onError" json:"onError" enum:"deny,allow,ignore"`                          // pre default deny, post default ignore
-	Priority int               `yaml:"priority" json:"priority" doc:"Lower runs first; ties keep config order."` // lower runs first; ties broken by config order
+	ID      string            `yaml:"id" json:"id" required:"true"`
+	Phase   string            `yaml:"phase" json:"phase" enum:"pre,post" required:"true"` // pre|post
+	Match   Match             `yaml:"match" json:"match"`
+	Command []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
+	Env     map[string]string `yaml:"env" json:"env,omitempty"`
+	Timeout Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."` // default 10s
+	OnError string            `yaml:"onError" json:"onError" enum:"deny,allow,ignore"`     // pre default deny, post default ignore
+	// Background starts the hook without waiting for it (GitHub Actions
+	// steps[*].background); a later wait/wait-all item or the end of the phase
+	// joins it. Members of a parallel block are background hooks.
+	Background bool `yaml:"background" json:"background,omitempty" doc:"Start without waiting; join with a later wait/wait-all item, a parallel block's end, or the end of the phase."`
+	// Wait lists background hooks that must finish before this hook starts,
+	// derived from wait/wait-all items and parallel blocks. Not a YAML field.
+	Wait []string `yaml:"-" json:"-"`
+	// Files are extra repository files hashed into this hook's trust digest.
+	Files []string `yaml:"files" json:"files,omitempty" doc:"Project hooks only: repository-relative regular files this hook depends on; a change untrusts only this hook."`
 	// DependsOn lists hook IDs that must complete before this hook runs.
 	DependsOn []string `yaml:"dependsOn" json:"dependsOn,omitempty" doc:"IDs of hooks (same phase) that must finish first."`
 	// Optional: if the command is missing/not executable, skip instead of error.
@@ -132,12 +140,12 @@ type Hook struct {
 }
 
 type Runtime struct {
-	HookConcurrency int      `yaml:"hookConcurrency" json:"hookConcurrency"` // default 1 (sequential)
-	StdinMaxBytes   int64    `yaml:"stdinMaxBytes" json:"stdinMaxBytes"`     // analysis spool limit, default 8 MiB
-	StdinTimeout    Duration `yaml:"stdinTimeout" json:"stdinTimeout"`       // default 3s
-	FileMaxBytes    int64    `yaml:"fileMaxBytes" json:"fileMaxBytes"`       // --input/@file read limit, default 8 MiB
-	CaptureLimit    int64    `yaml:"captureLimit" json:"captureLimit"`       // post-hook stdout/stderr capture, default 1 MiB
-	ResolveTimeout  Duration `yaml:"resolveTimeout" json:"resolveTimeout"`   // resolver API calls, default 2s
+	HookConcurrency int      `yaml:"hookConcurrency" json:"hookConcurrency" doc:"Maximum hooks running at once within a parallel group; default 4."`
+	StdinMaxBytes   int64    `yaml:"stdinMaxBytes" json:"stdinMaxBytes"`   // analysis spool limit, default 8 MiB
+	StdinTimeout    Duration `yaml:"stdinTimeout" json:"stdinTimeout"`     // default 3s
+	FileMaxBytes    int64    `yaml:"fileMaxBytes" json:"fileMaxBytes"`     // --input/@file read limit, default 8 MiB
+	CaptureLimit    int64    `yaml:"captureLimit" json:"captureLimit"`     // post-hook stdout/stderr capture, default 1 MiB
+	ResolveTimeout  Duration `yaml:"resolveTimeout" json:"resolveTimeout"` // resolver API calls, default 2s
 	ResolveAPI      string   `yaml:"resolveAPI" json:"resolveAPI" enum:"auto,never" doc:"auto (default): read-only API resolution only for actionable repository/host matches; never: disable implicit wrapper API lookups. Explicit management --allow-api still applies."`
 	// RealGh optionally pins the real gh path (otherwise discovered on PATH).
 	RealGh string `yaml:"realGh" json:"realGh,omitempty" doc:"Absolute path of the real gh; discovered on PATH when empty."`

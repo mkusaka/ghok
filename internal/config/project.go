@@ -1,11 +1,14 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -67,38 +70,85 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		return ignoreProject(err)
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
-	reason := ""
+	withheld := make(map[string]IgnoredHook)
 	var ignored *IgnoredProject
 	if len(p.Hooks) != 0 {
-		digest, files, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
+		files, err := projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
 			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
 		}
 		store, trustNotes := readTrustStore(env)
 		notes = append(notes, trustNotes...)
-		if _, ok := store[digest]; !ok {
-			reason = "untrusted"
-			ignored = &IgnoredProject{Path: canonical, Digest: digest}
-			current := currentTrustEntry(project, canonical, files, env)
-			comparison, latest := trustComparisonNotes(current, store)
-			notes = append(notes, comparison...)
-			if latest != nil {
-				reason = "changed since trust"
-				ignored.ChangedFiles = changedTrustFiles(files, latest.Files)
+		current := currentTrustEntry(project, canonical, p, files, env)
+		previous := store[contentHash([]byte(canonical))]
+		active := 0
+		for _, h := range p.Hooks {
+			digest := current.HookDigests[h.ID]
+			if previous.HookDigests[h.ID] == digest {
+				if h.Enabled == nil || *h.Enabled {
+					active++
+				}
+				continue
+			}
+			meta := IgnoredHook{Hook: h, Reason: "untrusted", Digest: digest}
+			if previous.HookDigests[h.ID] != "" {
+				meta.Reason = "changed since trust"
+				meta.ChangedFiles = changedTrustFiles(filesForHook(files, h.ID), filesForHook(previous.Files, h.ID))
+			}
+			withheld[h.ID] = meta
+		}
+		for _, h := range p.Hooks {
+			meta, exists := withheld[h.ID]
+			if !exists {
+				continue
+			}
+			gate := h.Phase == PhasePre && h.OnError == OnErrorDeny
+			meta.GateBlocked = gate && (h.Enabled == nil || *h.Enabled) && (meta.Reason == "changed since trust" || active > 0)
+			withheld[h.ID] = meta
+			note := fmt.Sprintf("hook %s ignored (%s)", h.ID, meta.Reason)
+			if gate {
+				note += fmt.Sprintf("; gate hook %s inactive: %s", h.ID, meta.Reason)
+			}
+			if len(meta.ChangedFiles) > 0 {
+				note += "; changed files: " + strings.Join(meta.ChangedFiles, ", ")
+			}
+			if meta.Reason == "changed since trust" && !bytes.Equal(previous.Definitions[h.ID], current.Definitions[h.ID]) {
+				note += "; definition changed"
+			}
+			notes = append(notes, note+"; run ghok config trust")
+		}
+		if len(withheld) != 0 {
+			state, _ := json.Marshal(withheld)
+			ignored = &IgnoredProject{Path: canonical, Digest: contentHash(state)}
+			ignored.ChangedFiles = changedTrustFiles(files, previous.Files)
+			if len(previous.HookDigests) != 0 {
+				comparison, _ := trustComparisonNotes(current, map[string]trustEntry{contentHash([]byte(canonical)): previous})
+				notes = append(notes, comparison...)
 			}
 		}
 	}
 	status := "policy loaded; hooks trusted"
 	if len(p.Hooks) == 0 {
 		status = "policy loaded; no project hooks"
-	}
-	if reason != "" {
-		status = "policy loaded; hooks ignored (" + reason + "); run ghok config trust"
+	} else if len(withheld) != 0 {
+		status = "policy loaded; some hooks ignored; run ghok config trust"
 	}
 	notes[sourceIndex] = fmt.Sprintf("Project config: %s (%s)", project, status)
 	merged := *c
-	if err := mergeProject(&merged, p, n, project, cwd, env, reason, &notes); err != nil {
+	if err := mergeProject(&merged, p, n, project, cwd, env, &notes); err != nil {
 		return ignoreProject(err)
+	}
+	if len(withheld) != 0 {
+		active := make([]Hook, 0, len(merged.Hooks)-len(withheld))
+		for _, h := range merged.Hooks {
+			if meta, exists := withheld[h.ID]; exists && h.Source == project {
+				meta.Hook = h
+				merged.IgnoredHooks = append(merged.IgnoredHooks, meta)
+			} else {
+				active = append(active, h)
+			}
+		}
+		merged.Hooks = active
 	}
 	merged.IgnoredProject = ignored
 	return &merged, notes, nil
@@ -124,10 +174,15 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
-	for _, h := range p.Hooks {
+	for i, h := range p.Hooks {
 		command := h.Command[0]
 		if !filepath.IsAbs(command) && !strings.HasPrefix(command, "./") {
 			return nil, nil, fmt.Errorf("project config %s: hook %s command must use ./relative or an absolute path; bare PATH names are not allowed", project, h.ID)
+		}
+		for j, path := range h.Files {
+			if !filepath.IsLocal(path) || filepath.IsAbs(path) || slices.Contains(strings.Split(filepath.ToSlash(path), "/"), "..") || strings.ContainsAny(path, "*?[]") {
+				return nil, nil, fmt.Errorf("hooks[%d].files[%d]: must be repository-relative with no .. or globs", i, j)
+			}
 		}
 	}
 	for _, path := range p.Trust.Include {
@@ -142,6 +197,21 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 // and YAML merges. Dynamic maps (hook/match env) accept arbitrary keys.
 func projectUnknownKeys(n *yaml.Node, project string) []string {
 	var notes []string
+	for _, k := range unknownKeys(n) {
+		notes = append(notes, fmt.Sprintf("project config %s: line %d: unknown key %s ignored", project, k.line, k.name))
+	}
+	return notes
+}
+
+type unknownKey struct {
+	line int
+	name string
+}
+
+// unknownKeys walks the document against Config, including hooks list control
+// items (parallel members are hooks; wait/wait-all have no nested keys).
+func unknownKeys(n *yaml.Node) []unknownKey {
+	var unknown []unknownKey
 	seen := make(map[*yaml.Node]bool)
 	var visit func(*yaml.Node, reflect.Type, string)
 	visit = func(n *yaml.Node, t reflect.Type, path string) {
@@ -154,7 +224,18 @@ func projectUnknownKeys(n *yaml.Node, project string) []string {
 			visit(n.Alias, t, path)
 		case yaml.SequenceNode:
 			for i, child := range n.Content {
-				if t.Kind() == reflect.Slice {
+				if t == reflect.TypeFor[HookList]() {
+					item := child
+					if item.Kind == yaml.AliasNode {
+						item = item.Alias
+					}
+					switch controlKey(item) {
+					case "":
+						visit(child, t.Elem(), fmt.Sprintf("%s[%d]", path, i))
+					case "parallel":
+						visit(field(item, "parallel"), t, fmt.Sprintf("%s[%d].parallel", path, i))
+					}
+				} else if t.Kind() == reflect.Slice {
 					visit(child, t.Elem(), fmt.Sprintf("%s[%d]", path, i))
 				} else {
 					visit(child, t, path) // YAML merge sequence.
@@ -185,26 +266,26 @@ func projectUnknownKeys(n *yaml.Node, project string) []string {
 					}
 				}
 				if !found {
-					notes = append(notes, fmt.Sprintf("project config %s: line %d: unknown key %s ignored", project, key.Line, name))
+					unknown = append(unknown, unknownKey{key.Line, name})
 				}
 			}
 		}
 	}
 	visit(n, reflect.TypeFor[Config](), "")
-	return notes
+	return unknown
 }
 
-func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, reason string, notes *[]string) error {
+func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, notes *[]string) error {
+	// Each config file ends with an implicit wait-all: project hooks never
+	// overlap user background hooks.
+	userBackground := c.Hooks.backgroundIDs()
 	for i := range p.Hooks {
 		h := &p.Hooks[i]
+		h.Wait = append(slices.Clone(userBackground), h.Wait...)
 		h.Source = project
 		h.Command[0] = p.HookCommandPath(*h)
 		warnWritable(hookPermissionPath(h.Command[0], cwd, env), notes)
-		if reason != "" {
-			c.IgnoredHooks = append(c.IgnoredHooks, IgnoredHook{Hook: *h, Reason: reason})
-		} else {
-			c.Hooks = append(c.Hooks, *h)
-		}
+		c.Hooks = append(c.Hooks, *h)
 	}
 	c.Policy.Rules = append(c.Policy.Rules, p.Policy.Rules...)
 	c.Policy.ProtectedRepositories = append(c.Policy.ProtectedRepositories, p.Policy.ProtectedRepositories...)

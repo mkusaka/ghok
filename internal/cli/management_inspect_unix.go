@@ -90,7 +90,7 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 		a.diagnostics = r.Fill(ctx, &a.result, need, allowAPI)
 		cancel()
 	}
-	a.evaluation = policy.Evaluate(c.Policy, a.subject(""))
+	a.evaluation = evaluateConfig(c, a.subject(""))
 	return a, nil
 }
 
@@ -134,16 +134,20 @@ func managementHooksList(asJSON bool) int {
 	// Command flags need contextual redaction in addition to JSON key redaction.
 	type listedHook struct {
 		config.Hook
-		Ignored string `json:"ignored,omitempty"`
+		Ignored  string `json:"ignored,omitempty"`
+		Inactive string `json:"inactive,omitempty"`
+		// Wait lists the background hooks this hook joins (wait, wait-all,
+		// parallel block end) before it starts.
+		Wait []string `json:"wait,omitempty"`
 	}
 	display := make([]listedHook, 0, len(c.Hooks)+len(c.IgnoredHooks))
 	for _, h := range c.Hooks {
 		h.Command = r.Argv(h.Command)
-		display = append(display, listedHook{Hook: h})
+		display = append(display, listedHook{Hook: h, Wait: h.Wait})
 	}
 	for _, h := range c.IgnoredHooks {
 		h.Command = r.Argv(h.Command)
-		display = append(display, listedHook{Hook: h.Hook, Ignored: h.Reason})
+		display = append(display, listedHook{Hook: h.Hook, Ignored: h.Reason, Inactive: ignoredHookDescription(h)})
 	}
 	if asJSON {
 		return managementJSON(display, r)
@@ -153,15 +157,19 @@ func managementHooksList(asJSON bool) int {
 	}
 	for _, h := range display {
 		enabled := h.Enabled == nil || *h.Enabled
-		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(fmt.Sprintf("%s phase=%s enabled=%t priority=%d timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Priority, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput))))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(fmt.Sprintf("%s phase=%s enabled=%t background=%t timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Background, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput))))
 		if h.Ignored != "" {
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  ignored ("+h.Ignored+")")))
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  "+h.Inactive)))
 		}
 		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  source: "+h.Source)))
 		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  command: "+managementCompact(h.Command))))
 		managementPrintMatch(os.Stdout, "  ", h.Match, r)
 		if len(h.DependsOn) != 0 {
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  dependsOn: "+strings.Join(h.DependsOn, ", "))))
+		}
+		if len(h.Wait) != 0 {
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  waits for: "+strings.Join(h.Wait, ", "))))
 		}
 	}
 	for _, note := range notes {
@@ -288,6 +296,9 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(managementCompact(result))))
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Hooks: %s\nPolicy: %s\nFINAL: %s (mode=%s, would-deny=%t)\n", aggregate.Decision, a.evaluation.Decision, decision, a.config.Policy.Mode, wouldDeny)
+		for _, reason := range a.evaluation.DenyReasons {
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("Reason: "+reason)))
+		}
 		if aggregate.Message != "" {
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("Message: "+aggregate.Message)))
 		}

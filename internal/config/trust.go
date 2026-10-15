@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,7 +19,10 @@ import (
 // IgnoredHook is reporting metadata, never an executable hook selection.
 type IgnoredHook struct {
 	Hook
-	Reason string `json:"reason"`
+	Reason       string   `json:"reason"`
+	ChangedFiles []string `json:"changedFiles,omitempty"`
+	Digest       string   `json:"digest,omitempty"`
+	GateBlocked  bool     `json:"gateBlocked,omitempty"`
 }
 
 const maxTrustFiles = 256
@@ -31,15 +36,17 @@ type trustedFile struct {
 }
 
 type trustEntry struct {
-	ManifestVersion int           `json:"manifestVersion"`
-	FirstPath       string        `json:"firstPath"`
-	ConfigPath      string        `json:"configPath"`
-	Commit          string        `json:"commit,omitempty"`
-	CommonDir       string        `json:"commonDir,omitempty"`
-	RemoteURL       string        `json:"remoteUrl,omitempty"`
-	TrustedAt       time.Time     `json:"trustedAt"`
-	HookIDs         []string      `json:"hookIds"`
-	Files           []trustedFile `json:"files"`
+	ManifestVersion int                        `json:"manifestVersion"`
+	FirstPath       string                     `json:"firstPath"`
+	ConfigPath      string                     `json:"configPath"`
+	Commit          string                     `json:"commit,omitempty"`
+	CommonDir       string                     `json:"commonDir,omitempty"`
+	RemoteURL       string                     `json:"remoteUrl,omitempty"`
+	TrustedAt       time.Time                  `json:"trustedAt"`
+	HookIDs         []string                   `json:"hookIds"`
+	HookDigests     map[string]string          `json:"hookDigests"`
+	Definitions     map[string]json.RawMessage `json:"definitions"`
+	Files           []trustedFile              `json:"files"`
 }
 
 func contentHash(data []byte) string {
@@ -93,6 +100,9 @@ func readProjectData(project string, maxBytes int64) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	if _, err := trustRelative(filepath.Dir(project), resolved); err != nil {
+		return nil, "", err
+	}
 	info, err := os.Stat(resolved)
 	if err != nil {
 		return nil, "", err
@@ -119,23 +129,28 @@ func readProjectData(project string, maxBytes int64) ([]byte, string, error) {
 	return data, resolved, nil
 }
 
-func manifestDigest(files []trustedFile) string {
+// hookDefinition uses the parsed, defaulted values, never YAML presentation or
+// load-time provenance. encoding/json sorts map keys deterministically.
+func hookDefinition(h Hook) json.RawMessage {
+	h.Source = ""
+	data, _ := json.Marshal(h)
+	return data
+}
+
+func hookTrustDigest(definition json.RawMessage, files []trustedFile, id string) string {
 	digest := sha256.New()
-	_, _ = io.WriteString(digest, "v1\n")
+	_, _ = digest.Write([]byte("hook-v2\x00"))
+	_, _ = digest.Write(definition)
 	for _, file := range files {
-		executable, hash := "0", file.SHA256
-		if file.Executable {
-			executable = "1"
+		if !slices.Contains(file.HookIDs, id) {
+			continue
 		}
-		if file.Missing {
-			hash = "missing"
-		}
-		_, _ = io.WriteString(digest, file.Path+"\x00"+executable+"\x00"+hash+"\n")
+		_, _ = fmt.Fprintf(digest, "\x00%s\x00%t\x00%t\x00%s", file.Path, file.Executable, file.Missing, file.SHA256)
 	}
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
-func projectManifest(data []byte, p *Config, root string, maxBytes int64, env map[string]string, readOnly bool) (string, []trustedFile, error) {
+func projectManifest(p *Config, root string, maxBytes int64, env map[string]string, readOnly bool) ([]trustedFile, error) {
 	var files []trustedFile
 	byPath := make(map[string]int)
 	total := int64(0)
@@ -154,7 +169,7 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 			return err
 		}
 		if index, ok := byPath[relative]; ok {
-			if hookID != "" {
+			if !slices.Contains(files[index].HookIDs, hookID) {
 				files[index].HookIDs = append(files[index].HookIDs, hookID)
 			}
 			return nil
@@ -174,20 +189,14 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 				return err
 			}
 			if !info.Mode().IsRegular() {
-				return errors.New("trusted path must be a regular file")
+				return errors.New("trusted path must be a regular file; list individual files instead of directories")
 			}
 			file.Executable = info.Mode().Perm()&0o111 != 0
 			remaining := maxBytes - total
 			if info.Size() > remaining {
 				return errors.New("trust manifest exceeds runtime.fileMaxBytes")
 			}
-			if len(files) == 0 {
-				total += int64(len(data))
-				if total > maxBytes {
-					return errors.New("trust manifest exceeds runtime.fileMaxBytes")
-				}
-				file.SHA256 = contentHash(data)
-			} else if hash, ok := cache.lookup(resolved, info); ok {
+			if hash, ok := cache.lookup(resolved, info); ok {
 				total += info.Size()
 				file.SHA256 = hash
 			} else {
@@ -196,9 +205,13 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 					return err
 				}
 				hash := sha256.New()
-				// The YAML has already consumed at least one byte, so +1
-				// cannot overflow, even with a MaxInt64 user limit.
-				n, readErr := io.Copy(hash, io.LimitReader(input, remaining+1))
+				// Avoid overflowing a MaxInt64 configured byte limit.
+				n, readErr := io.Copy(hash, io.LimitReader(input, remaining))
+				var extra [1]byte
+				if nExtra, extraErr := input.Read(extra[:]); nExtra != 0 || (extraErr != nil && !errors.Is(extraErr, io.EOF)) {
+					_ = input.Close()
+					return errors.New("trust manifest exceeds runtime.fileMaxBytes or is unreadable")
+				}
 				after, statErr := input.Stat()
 				closeErr := input.Close()
 				if readErr != nil {
@@ -221,9 +234,6 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 		files = append(files, file)
 		return nil
 	}
-	if err := add(filepath.Join(root, ".ghok.yaml"), "", false); err != nil {
-		return "", nil, fmt.Errorf(".ghok.yaml: %w", err)
-	}
 	for _, h := range p.Hooks {
 		command := h.Command[0]
 		absolute := filepath.IsAbs(command)
@@ -233,12 +243,19 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 		}
 		_, lexicalErr := trustRelative(root, path)
 		if err := add(path, h.ID, absolute && lexicalErr != nil); err != nil {
-			return "", nil, fmt.Errorf("hook %s: %w", h.ID, err)
+			return nil, fmt.Errorf("hook %s: %w", h.ID, err)
+		}
+		for _, path := range h.Files {
+			if err := add(filepath.Join(root, path), h.ID, false); err != nil {
+				return nil, fmt.Errorf("hook %s files %q: %w", h.ID, path, err)
+			}
 		}
 	}
 	for _, path := range p.Trust.Include {
-		if err := add(filepath.Join(root, path), "", false); err != nil {
-			return "", nil, fmt.Errorf("trust.include %q: %w", path, err)
+		for _, h := range p.Hooks {
+			if err := add(filepath.Join(root, path), h.ID, false); err != nil {
+				return nil, fmt.Errorf("trust.include %q: %w", path, err)
+			}
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
@@ -248,7 +265,7 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64, env ma
 	if !readOnly {
 		cache.save()
 	}
-	return manifestDigest(files), files, nil
+	return files, nil
 }
 
 func validDigest(value string) bool {
@@ -273,6 +290,17 @@ func parseTrustStore(data []byte) (map[string]trustEntry, []string, error) {
 	for key, value := range raw {
 		var entry trustEntry
 		err := json.Unmarshal(value, &entry)
+		// MarshalIndent formats RawMessage values in the store. Restore the
+		// canonical compact definition before verifying its digest.
+		if err == nil {
+			for id, definition := range entry.Definitions {
+				var compact bytes.Buffer
+				if err = json.Compact(&compact, definition); err != nil {
+					break
+				}
+				entry.Definitions[id] = compact.Bytes()
+			}
+		}
 		if err == nil {
 			err = validateTrustEntry(key, entry)
 		}
@@ -291,16 +319,18 @@ func parseTrustStore(data []byte) (map[string]trustEntry, []string, error) {
 }
 
 func validateTrustEntry(key string, entry trustEntry) error {
-	if !validDigest(key) || entry.ManifestVersion != 1 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.Files) == 0 || len(entry.Files) > maxTrustFiles {
+	if !validDigest(key) || key != contentHash([]byte(entry.FirstPath)) || entry.ManifestVersion != 2 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.HookDigests) == 0 {
 		return errors.New("invalid trust entry")
 	}
-	for i, file := range entry.Files {
-		if !filepath.IsLocal(file.Path) || filepath.ToSlash(filepath.Clean(file.Path)) != file.Path || (file.Missing && (file.SHA256 != "" || file.Executable)) || (!file.Missing && !validDigest(file.SHA256)) || (i > 0 && entry.Files[i-1].Path >= file.Path) {
+	for _, file := range entry.Files {
+		if !filepath.IsLocal(file.Path) || filepath.ToSlash(filepath.Clean(file.Path)) != file.Path || (file.Missing && (file.SHA256 != "" || file.Executable)) || (!file.Missing && !validDigest(file.SHA256)) {
 			return errors.New("invalid trusted file")
 		}
 	}
-	if manifestDigest(entry.Files) != key {
-		return errors.New("invalid manifest digest")
+	for id, digest := range entry.HookDigests {
+		if !hookID.MatchString(id) || !validDigest(digest) || !json.Valid(entry.Definitions[id]) || hookTrustDigest(entry.Definitions[id], entry.Files, id) != digest {
+			return errors.New("invalid hook digest")
+		}
 	}
 	return nil
 }
@@ -392,7 +422,7 @@ func trustProjectPath(path, cwd string, env map[string]string) (string, error) {
 // TrustProject validates and reports the exact content being authorized without
 // running hooks. dryRun skips all state writes; noDiff skips raw content output.
 // The byte result is an unredacted review diff, separate from diagnostic notes.
-func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool) (string, []Hook, []string, []byte, error) {
+func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, hookIDs ...string) (string, []Hook, []string, []byte, error) {
 	project, err := trustProjectPath(path, cwd, env)
 	if err != nil {
 		return "", nil, nil, nil, err
@@ -411,15 +441,27 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool) 
 		return "", nil, nil, nil, err
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
-	var digest string
 	var files []trustedFile
 	if len(p.Hooks) != 0 {
-		digest, files, err = projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, dryRun)
+		files, err = projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, dryRun)
 		if err != nil {
 			return "", nil, notes, nil, err
 		}
 	}
-	if err := mergeProject(c, p, n, project, filepath.Dir(project), env, "", &notes); err != nil {
+	current := currentTrustEntry(project, canonical, p, files, env)
+	selected := make(map[string]bool, len(p.Hooks))
+	for _, id := range hookIDs {
+		if _, exists := current.HookDigests[id]; !exists {
+			return "", nil, notes, nil, fmt.Errorf("unknown project hook %q", id)
+		}
+		selected[id] = true
+	}
+	if len(hookIDs) == 0 {
+		for _, h := range p.Hooks {
+			selected[h.ID] = true
+		}
+	}
+	if err := mergeProject(c, p, n, project, filepath.Dir(project), env, &notes); err != nil {
 		return "", nil, notes, nil, err
 	}
 	if len(p.Hooks) == 0 {
@@ -431,27 +473,24 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool) 
 		}
 		return canonical, nil, append(notes, "No project hooks; no trust manifest stored."), nil, nil
 	}
-	hookIDs := make([]string, 0, len(p.Hooks))
-	for _, h := range p.Hooks {
-		hookIDs = append(hookIDs, h.ID)
-	}
-	sort.Strings(hookIDs)
 	store, storeNotes := readTrustStore(env)
 	notes = append(notes, storeNotes...)
-	current := currentTrustEntry(project, canonical, files, env)
-	comparison, previous := trustComparisonNotes(current, store)
-	notes = append(notes, comparison...)
-	var diff []byte
-	if !noDiff {
-		diff = trustContentDiff(project, current, previous, env)
+	key := contentHash([]byte(canonical))
+	previous := previousTrustEntry(current, store)
+	if exact, exists := store[key]; exists {
+		previous = &exact
 	}
+	review, diff := hookTrustReview(project, current, previous, selected, env, noDiff)
+	notes = append(notes, review...)
 	if !dryRun {
-		if previous, exists := store[digest]; exists {
-			current.FirstPath = previous.FirstPath
+		trusted := current
+		if len(hookIDs) != 0 {
+			prior := store[key]
+			trusted = mergeSelectedTrust(current, prior, selected)
 		}
-		current.TrustedAt, current.HookIDs = time.Now().UTC(), hookIDs
-		store[digest] = current
-		blobNotes, err := saveTrustContents(project, files, env, store)
+		trusted.TrustedAt = time.Now().UTC()
+		store[key] = trusted
+		blobNotes, err := saveTrustContents(project, selectedTrustFiles(files, selected), env, store)
 		notes = append(notes, blobNotes...)
 		if err != nil {
 			return "", nil, notes, diff, err
@@ -460,12 +499,20 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool) 
 			return "", nil, notes, diff, err
 		}
 	}
-	notes = append(notes, "Trust digest: "+digest)
-	notes = append(notes, trustFileNotes(files)...)
-	notes = append(notes, "Not covered: interpreters, PATH tools, and unlisted data/import files. Add repository dependencies to trust.include.")
+	notes = append(notes, trustFileNotes(selectedTrustFiles(files, selected))...)
+	for _, h := range p.Hooks {
+		if selected[h.ID] && h.Phase == PhasePre && h.OnError == OnErrorDeny {
+			for _, file := range filesForHook(files, h.ID) {
+				if file.Missing {
+					notes = append(notes, fmt.Sprintf("Warning: gate hook %s dependency file %s is missing", h.ID, file.Path))
+				}
+			}
+		}
+	}
+	notes = append(notes, "Not covered: interpreters, PATH tools, and unlisted data/import files. Add dependencies to hooks[].files or trust.include (every hook).")
 	active := p.Hooks[:0]
 	for _, h := range p.Hooks {
-		if h.Enabled == nil || *h.Enabled {
+		if selected[h.ID] && (h.Enabled == nil || *h.Enabled) {
 			active = append(active, h)
 		}
 	}
@@ -487,20 +534,11 @@ func UntrustProject(path, cwd string, env map[string]string) (string, []string, 
 	if err != nil {
 		return "", nil, err
 	}
-	p, _, err := parseProject(data, project)
-	if err != nil {
-		return "", nil, err
-	}
-	if len(p.Hooks) == 0 {
-		store, notes := readTrustStore(env)
-		_, err := prepareTrustBlobs(env, store)
-		return canonical, notes, err
-	}
-	digest, _, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
-	if err != nil {
+	if _, _, err := parseProject(data, project); err != nil {
 		return "", nil, err
 	}
 	store, notes := readTrustStore(env)
+	digest := contentHash([]byte(canonical))
 	if _, exists := store[digest]; !exists {
 		_, err := prepareTrustBlobs(env, store)
 		return canonical, notes, err
@@ -532,7 +570,7 @@ func trustFileNotes(files []trustedFile) []string {
 	return notes
 }
 
-// ListProjectTrust reports every trusted content digest without loading a repo.
+// ListProjectTrust reports each project's per-hook grants without loading a repo.
 func ListProjectTrust(env map[string]string) []string {
 	store, notes := readTrustStore(env)
 	keys := make([]string, 0, len(store))
@@ -542,9 +580,12 @@ func ListProjectTrust(env map[string]string) []string {
 	sort.Strings(keys)
 	for _, key := range keys {
 		entry := store[key]
-		notes = append(notes, "Trust digest: "+key, "firstPath: "+entry.FirstPath,
+		notes = append(notes, "Project record: "+key, "firstPath: "+entry.FirstPath,
 			"trustedAt: "+entry.TrustedAt.Format(time.RFC3339), "hook IDs: "+strings.Join(entry.HookIDs, ", "))
 		notes = append(notes, "commit: "+entry.Commit, "commonDir: "+entry.CommonDir, "remoteUrl: "+entry.RemoteURL)
+		for _, id := range entry.HookIDs {
+			notes = append(notes, "hook "+id+" trust digest: "+entry.HookDigests[id])
+		}
 		notes = append(notes, trustFileNotes(entry.Files)...)
 	}
 	if len(store) == 0 {

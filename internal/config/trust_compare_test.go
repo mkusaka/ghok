@@ -109,14 +109,8 @@ func TestTrustComparisonWorktreeCloneAndShallow(t *testing.T) {
 				trustGit(t, repo, "clone", "--depth=1", "file://"+repo, other)
 			}
 			c, notes, err := LoadEffective("", other, env)
-			if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || c.Policy.Mode != ModeEnforce || !reflect.DeepEqual(c.IgnoredProject.ChangedFiles, []string{"hook"}) {
+			if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" || c.Policy.Mode != ModeEnforce {
 				t.Fatalf("comparison must not authorize changed hooks or discard policy: %+v, %v, %v", c, notes, err)
-			}
-			text := strings.Join(notes, "\n")
-			for _, want := range []string{"Previous trust: trustedAt:", filepath.Join(repo, ".ghok.yaml"), "Changed files since trust: hook"} {
-				if !strings.Contains(text, want) {
-					t.Fatalf("missing %q: %s", want, text)
-				}
 			}
 			_, _, _, diff, err := TrustProject("", other, env, true, false)
 			if err != nil || !strings.Contains(string(diff), "-reviewed code\n+new code to review\n") {
@@ -128,7 +122,7 @@ func TestTrustComparisonWorktreeCloneAndShallow(t *testing.T) {
 
 func TestPreviousTrustSelection(t *testing.T) {
 	file := func(path string) trustedFile { return trustedFile{Path: path, SHA256: contentHash([]byte(path))} }
-	current := trustEntry{FirstPath: "/repo/.ghok.yaml", ConfigPath: ".ghok.yaml", CommonDir: "/repo/.git", RemoteURL: "github.com/org/repo", Files: []trustedFile{file(".ghok.yaml"), file("hook"), file("data"), file(".gitleaks.toml")}}
+	current := trustEntry{FirstPath: "/repo/.ghok.yaml", ConfigPath: ".ghok.yaml", CommonDir: "/repo/.git", RemoteURL: "github.com/org/repo", Files: []trustedFile{file("hook"), file("data"), file(".gitleaks.toml")}}
 	now := time.Now()
 	fallback := trustEntry{FirstPath: "/fallback/.ghok.yaml", ConfigPath: ".ghok.yaml", Files: []trustedFile{file("hook"), file("data")}, TrustedAt: now}
 	remote := trustEntry{FirstPath: "/clone/.ghok.yaml", RemoteURL: current.RemoteURL, TrustedAt: now.Add(-time.Hour)}
@@ -148,7 +142,7 @@ func TestPreviousTrustSelection(t *testing.T) {
 			}
 		}
 	}
-	unrelated := trustEntry{FirstPath: "/unrelated/.ghok.yaml", ConfigPath: ".ghok.yaml", Files: []trustedFile{file(".gitleaks.toml"), {Path: ".ghok.yaml", SHA256: contentHash([]byte("different config"))}, file("other-hook")}, TrustedAt: now}
+	unrelated := trustEntry{FirstPath: "/unrelated/.ghok.yaml", ConfigPath: ".ghok.yaml", Files: []trustedFile{file(".gitleaks.toml"), file("other-hook")}, TrustedAt: now}
 	notes, previous := trustComparisonNotes(current, map[string]trustEntry{"unrelated": unrelated})
 	if previous != nil || !reflect.DeepEqual(notes, []string{"no previous trust record for this repository"}) {
 		t.Fatalf("an incidental shared include must not identify a repository: %v, %+v", notes, previous)
@@ -188,15 +182,9 @@ func TestTrustChangedAddedRemoved(t *testing.T) {
 	writeFixture(t, filepath.Join(repo, "new"), "new data")
 	writeFixture(t, filepath.Join(repo, "optional"), "now present")
 	writeFixture(t, filepath.Join(repo, "hook"), "changed code")
-	_, _, notes, diff, err := TrustProject("", repo, env, true, false)
+	_, _, _, diff, err := TrustProject("", repo, env, true, false)
 	if err != nil {
 		t.Fatal(err)
-	}
-	text := strings.Join(notes, "\n")
-	for _, want := range []string{"Changed files since trust: .ghok.yaml, hook", "Added files since trust: new, optional", "Removed files since trust: old"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("missing %q: %s", want, text)
-		}
 	}
 	for _, want := range []string{"--- trusted/old\n+++ /dev/null\n", "-previous data\n", "--- /dev/null\n+++ current/new\n", "+new data\n", "+now present\n"} {
 		if !strings.Contains(string(diff), want) {

@@ -32,7 +32,7 @@ func managementConfigTrustStore(all bool) int {
 	return 0
 }
 
-func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets bool) int {
+func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets bool, hookIDs []string) int {
 	env := environment()
 	r := redact.New(env)
 	cwd, err := os.Getwd()
@@ -44,7 +44,7 @@ func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets boo
 	var enabled []config.Hook
 	var diff []byte
 	if command == "trust" {
-		canonical, enabled, notes, diff, err = config.TrustProject(path, cwd, env, dryRun, noDiff)
+		canonical, enabled, notes, diff, err = config.TrustProject(path, cwd, env, dryRun, noDiff, hookIDs...)
 	} else {
 		canonical, notes, err = config.UntrustProject(path, cwd, env)
 	}

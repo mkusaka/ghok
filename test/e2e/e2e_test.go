@@ -156,7 +156,29 @@ func (s *sandbox) configure(change func(*config.Config)) {
 		change(c)
 	}
 	c.ApplyDefaults()
-	body, err := yaml.Marshal(c)
+	var document yaml.Node
+	if err := document.Encode(c); err != nil {
+		s.t.Fatal(err)
+	}
+	// Hook.Files is project-only. Omit the unused field from user fixtures,
+	// rather than serializing nil as an explicitly invalid `files: []`.
+	for i := 0; i < len(document.Content); i += 2 {
+		if document.Content[i].Value != "hooks" {
+			continue
+		}
+		for j, hook := range document.Content[i+1].Content {
+			if c.Hooks[j].Files != nil {
+				continue
+			}
+			for k := 0; k < len(hook.Content); k += 2 {
+				if hook.Content[k].Value == "files" {
+					hook.Content = append(hook.Content[:k], hook.Content[k+2:]...)
+					break
+				}
+			}
+		}
+	}
+	body, err := yaml.Marshal(&document)
 	if err != nil {
 		s.t.Fatal(err)
 	}

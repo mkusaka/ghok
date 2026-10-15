@@ -207,24 +207,33 @@ func ignoredHooksWarning(c *config.Config, dir string, now time.Time) string {
 	if project == nil || c.Logging.IgnoredHooksWarning != nil && !*c.Logging.IgnoredHooksWarning {
 		return ""
 	}
-	count := 0
+	var inactive []string
 	for _, h := range c.IgnoredHooks {
 		if h.Enabled == nil || *h.Enabled {
-			count++
+			inactive = append(inactive, ignoredHookDescription(h))
 		}
 	}
-	if count == 0 || !warnThrottled(dir, "ignored-hooks", project.Path, project.Digest, now) {
+	if len(inactive) == 0 || !warnThrottled(dir, "ignored-hooks", project.Path, project.Digest, now) {
 		return ""
 	}
-	reason := "never trusted on this machine"
-	if len(project.ChangedFiles) != 0 {
-		files := project.ChangedFiles
-		reason = "changed since trust: " + strings.Join(files[:min(3, len(files))], ", ")
+	return fmt.Sprintf("%d project hooks in %s are not active: %s; review and run 'ghok config trust'", len(inactive), project.Path, strings.Join(inactive, "; "))
+}
+
+func ignoredHookDescription(h config.IgnoredHook) string {
+	reason := h.Reason
+	if len(h.ChangedFiles) > 0 {
+		files := h.ChangedFiles
+		reason += ": " + strings.Join(files[:min(3, len(files))], ", ")
 		if len(files) > 3 {
 			reason += fmt.Sprintf(", …and %d more", len(files)-3)
 		}
+	} else if h.Reason == "changed since trust" {
+		reason += ": definition changed"
 	}
-	return fmt.Sprintf("%d project hooks in %s are not active (%s); review and run 'ghok config trust'", count, project.Path, reason)
+	if h.GateBlocked || h.Phase == config.PhasePre && h.OnError == config.OnErrorDeny {
+		return fmt.Sprintf("gate hook %s inactive: %s", h.ID, reason)
+	}
+	return fmt.Sprintf("hook %s inactive: %s", h.ID, reason)
 }
 
 // State is best-effort: any filesystem failure leaves the warning visible.

@@ -178,7 +178,11 @@ func TestManifestCacheInvalidatesChangedFiles(t *testing.T) {
 				writeFixture(t, project, strings.Replace(string(data), "observe", "enforce", 1))
 			}
 			c, notes, err := LoadEffective("", repo, env)
-			if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
+			if change == "yaml" {
+				if err != nil || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 0 {
+					t.Fatalf("unrelated policy edit revoked hook trust: %+v, %v, %v", c, notes, err)
+				}
+			} else if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
 				t.Fatalf("%s retained cached trust: %+v, %v, %v", change, c, notes, err)
 			}
 			if change == "yaml" && c.Policy.Mode != ModeEnforce {
@@ -202,6 +206,7 @@ func TestManifestCacheRetainsManifestValidation(t *testing.T) {
 					t.Fatal(err)
 				}
 				writeFixture(t, DefaultPath(env), fmt.Sprintf("version: 1\nruntime: {fileMaxBytes: %d}\n", info.Size()))
+				writeFixture(t, hook, strings.Repeat("x", int(info.Size())+1))
 			case "directory":
 				if err := os.Remove(hook); err != nil {
 					t.Fatal(err)

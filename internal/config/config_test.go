@@ -15,7 +15,7 @@ func TestDefaultsAndVersions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.Version != 1 || c.Policy.Mode != ModeObserve || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny || c.Runtime.HookConcurrency != 1 || c.Runtime.StdinMaxBytes != 8<<20 || c.Runtime.StdinTimeout.D() != DefaultStdinTimeout || c.Runtime.FileMaxBytes != 8<<20 || c.Runtime.CaptureLimit != 1<<20 || c.Runtime.ResolveTimeout.D() != DefaultResolveTimeout || !*c.Logging.Enabled || c.Logging.Level != "info" || c.Logging.Path != "/config/logs/ghok.jsonl" {
+		if c.Version != 1 || c.Policy.Mode != ModeObserve || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny || c.Runtime.HookConcurrency != 4 || c.Runtime.StdinMaxBytes != 8<<20 || c.Runtime.StdinTimeout.D() != DefaultStdinTimeout || c.Runtime.FileMaxBytes != 8<<20 || c.Runtime.CaptureLimit != 1<<20 || c.Runtime.ResolveTimeout.D() != DefaultResolveTimeout || !*c.Logging.Enabled || c.Logging.Level != "info" || c.Logging.Path != "/config/logs/ghok.jsonl" {
 			t.Fatalf("defaults: %+v", c)
 		}
 	}
@@ -110,11 +110,6 @@ func TestValidationPaths(t *testing.T) {
 		{"hooks[0].dependsOn[0]", func(c *Config) { c.Hooks[0].DependsOn = []string{"missing"} }},
 		{"hooks[0].dependsOn[0]", func(c *Config) { c.Hooks[0].DependsOn = []string{"a"} }},
 		{"hooks[0].dependsOn[0]", func(c *Config) { c.Hooks[0].DependsOn = []string{"b"} }},
-		{"hooks[1].dependsOn", func(c *Config) {
-			c.Hooks[1].Phase = PhasePre
-			c.Hooks[0].DependsOn = []string{"b"}
-			c.Hooks[1].DependsOn = []string{"a"}
-		}},
 		{"hooks[0].match.operation[0]", func(c *Config) { c.Hooks[0].Match.Operations = StringList{"["} }},
 		{"hooks[0].match.command[0]", func(c *Config) { c.Hooks[0].Match.Commands = StringList{"["} }},
 		{"hooks[0].match.hosts[0]", func(c *Config) { c.Hooks[0].Match.Hosts = StringList{"["} }},

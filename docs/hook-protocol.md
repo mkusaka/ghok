@@ -321,7 +321,8 @@ not a shortcut for determining outcome.
 Deny dominates all allows. Enforce aggregates policy and pre-hook denial before
 starting gh: content denials exit **77** (`EX_NOPERM`), hook-`onError`-only denials
 exit **78** (`EX_CONFIG`). Mixed content/error denial exits 77. Invalid config
-that fails closed exits 78. ghok internal errors remain 1; missing real gh is 127.
+that fails closed, or a matching inactive gate, exits 78 when no content denial
+exists. ghok internal errors remain 1; missing real gh is 127.
 Observe logs would-deny but executes gh unchanged; denial cancellation still
 short-circuits that hook batch. Normal real-gh exits/signals are reproduced
 after post-hooks. Management usage errors are 2; `hooks test` failures,
@@ -338,14 +339,15 @@ ghok: denied by <source>[ (error: <kind>)][ (+N more)]
 
 Sources: `hook <id>`, `rule <id>`, `policy unknownMutation`,
 `policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
-or `config`. Hook `onError` denials alone have an error kind: `timeout`,
+`config <id>` for an inactive gate, or `config` for invalid configuration.
+Hook `onError` denials alone have an error kind: `timeout`,
 `exit <code>`, `invalid response`, `spawn failed`, or `canceled`.
 `exit -1` means a started hook was terminated by a signal; its entry includes
 the signal error. `spawn failed` means the hook never started.
 The optional `+N more` counts the remaining denial entries.
 
 The first entry is selected in this deterministic order, also used for all
-following entries: rules in config order, policy handling, hooks that
+following entries: rules in config order, policy handling, inactive gates, hooks that
 **returned** deny in selection order, then hook `onError` denials in selection
 order. Parallel completion order never determines the first source.
 
@@ -466,12 +468,23 @@ hook execution error (nonzero exit/spawn failure, timeout, invalid response,
 cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
 usage errors exit 2.
 
-- Lower priority runs first; equal priority follows config order. Dependencies
-  are ordered before dependents; among ready nodes priority/config order wins.
-- runtime.hookConcurrency defaults 1. Increasing it permits independent ready
-  hooks to overlap; completion order is not result order.
-- dependsOn lists hook IDs in the same phase. Config rejects unknown IDs,
-  cycles, duplicates, and cross-phase dependencies. A dependency that is not
+- Hooks run in config order, user config hooks before project hooks. A hook
+  starts after every earlier selected non-background hook finished and after the
+  background hooks in its wait list (GitHub Actions semantics). `background: true`
+  hooks do not block later hooks. `- wait: id|[ids]` and `- wait-all:` list items
+  add earlier background hooks to the wait list of every later hook; a
+  `- parallel: [hooks]` block makes its members background hooks and waits for all
+  of them after the block. Project hooks also wait for every user background
+  hook. Hooks that do not match are absent and never waited for. A phase finishes
+  only after all of its hooks finished.
+- runtime.hookConcurrency (default 4) caps running hooks; excess hooks queue.
+  Completion order is not result order.
+- A failed or abstaining hook does not stop later hooks; an effective pre deny
+  cancels all of them. Ordering guarantees between hooks come from waits and
+  dependsOn only; use dependsOn to run a hook only after a gate allowed.
+- dependsOn lists earlier hook IDs in the same phase. Config rejects unknown
+  IDs, later hooks, duplicates, and cross-phase dependencies. A dependency
+  inside a parallel block serialises that pair. A dependency that is not
   selected leaves its dependent skipped rather than forcing its match.
 - A non-optional dependent skips after a non-ok dependency; an optional
   dependent may receive failed dependency records. Direct dependencies are
@@ -523,8 +536,8 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 | --- | --- |
 | id, phase, command | Required; unique ID, valid phase, nonempty argv. |
 | enabled | true; disabled excluded from selection. |
-| priority | 0; ascending/config-order ties. |
-| dependsOn | none; validated same-phase DAG. |
+| background | false; true starts without blocking later hooks (parallel block members are background). |
+| dependsOn | none; earlier hooks of the same phase. |
 | optional | false; true skips missing/non-executable command and permits failed dependencies. |
 | timeout | 10s, maximum 10m; positive duration. |
 | onError | pre deny; post ignore. |
@@ -532,7 +545,7 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 | captureOutput | false; post only. |
 | redactInput | false; set true for hooks forwarding input elsewhere. Redacts only that hook's input and reports substitution counts; does not change inherited credentials. |
 | env | none; overrides inherited values except ghok metadata above. |
-| runtime.hookConcurrency | 1, positive. |
+| runtime.hookConcurrency | 4, positive; caps hooks running at once. |
 | runtime.captureLimit | 1 MiB retained per gh stdout/stderr stream when capture enabled. |
 | runtime.stdinMaxBytes / fileMaxBytes | 8 MiB analysis bounds. |
 | runtime.stdinTimeout | 30s. |

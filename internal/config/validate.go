@@ -136,7 +136,8 @@ func (c *Config) Validate() error {
 			outcomeOnlyPost(p+".match", h.Match)
 		}
 	}
-	edges := make([][]int, len(c.Hooks))
+	// Dependencies must point backwards, so config order is already a valid
+	// execution order and no cycle can form.
 	for i, h := range c.Hooks {
 		for j, dep := range h.DependsOn {
 			p := fmt.Sprintf("hooks[%d].dependsOn[%d]", i, j)
@@ -146,37 +147,10 @@ func (c *Config) Validate() error {
 				add(p, "unknown hook "+dep)
 			case target == i:
 				add(p, "self dependency")
+			case target > i:
+				add(p, "depends on later hook "+dep+"; list dependencies first")
 			case c.Hooks[target].Phase != h.Phase:
 				add(p, "dependency must have the same phase")
-			default:
-				edges[i] = append(edges[i], target)
-			}
-		}
-	}
-	// Iterative DFS avoids stack growth on large user-supplied dependency graphs.
-	colors := make([]uint8, len(c.Hooks))
-	type frame struct{ node, edge int }
-	for root := range c.Hooks {
-		if colors[root] != 0 {
-			continue
-		}
-		stack := []frame{{node: root}}
-		colors[root] = 1
-		for len(stack) > 0 {
-			top := &stack[len(stack)-1]
-			if top.edge == len(edges[top.node]) {
-				colors[top.node] = 2
-				stack = stack[:len(stack)-1]
-				continue
-			}
-			dep := edges[top.node][top.edge]
-			top.edge++
-			if colors[dep] == 1 {
-				add(fmt.Sprintf("hooks[%d].dependsOn", top.node), "dependency cycle involving "+c.Hooks[dep].ID)
-			}
-			if colors[dep] == 0 {
-				colors[dep] = 1
-				stack = append(stack, frame{node: dep})
 			}
 		}
 	}

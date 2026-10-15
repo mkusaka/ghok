@@ -62,7 +62,7 @@ func TestTrustDryRunAndReviewHints(t *testing.T) {
 				text += check.Detail + "\n"
 			}
 		}
-		for _, want := range []string{"Previous trust: trustedAt:", ".ghok.yaml, " + path, "mode 0644 → 0755"} {
+		for _, want := range []string{"Previous trust: trustedAt:", path, "mode 0644 → 0755"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%v omitted %q: %s", args, want, text)
 			}
@@ -70,7 +70,7 @@ func TestTrustDryRunAndReviewHints(t *testing.T) {
 		if args[1] == "trust" {
 			// Credentials are masked in the displayed diff by default (agents keep
 			// this output in their transcripts); the diff itself is still shown.
-			for _, want := range []string{"-dirty trusted [REDACTED]", "+new content [REDACTED]", "+# inspect this change"} {
+			for _, want := range []string{"-dirty trusted [REDACTED]", "+new content [REDACTED]"} {
 				if !strings.Contains(text, want) {
 					t.Fatalf("review must show the masked diff %q: %s", want, text)
 				}

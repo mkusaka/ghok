@@ -24,7 +24,7 @@ const (
 	DefaultPreOnError                = OnErrorDeny
 	DefaultPostOnError               = OnErrorIgnore
 	DefaultEnabled                   = true
-	DefaultHookConcurrency           = 1
+	DefaultHookConcurrency           = 4
 	DefaultStdinMaxBytes       int64 = 8 << 20
 	DefaultStdinTimeout              = 3 * time.Second
 	DefaultFileMaxBytes        int64 = 8 << 20
@@ -219,16 +219,17 @@ func parse(data []byte, dir string, strict bool) (*Config, error) {
 	if n != nil && len(n.Content) > 0 && field(n, "version") == nil {
 		problems = append(problems, errors.New("version: required for non-empty config"))
 	}
-	hooks := field(n, "hooks")
-	if hooks != nil && hooks.Kind == yaml.AliasNode {
-		hooks = hooks.Alias
-	}
-	for i := range c.Hooks {
-		var hn *yaml.Node
-		if hooks != nil && i < len(hooks.Content) {
-			hn = hooks.Content[i]
+	if strict {
+		// Hook items decode leniently (HookList.UnmarshalYAML), so strictness
+		// for their keys comes from the walker.
+		for _, k := range unknownKeys(n) {
+			problems = append(problems, fmt.Errorf("line %d: unknown key %s", k.line, k.name))
 		}
-		defaultHook(&c.Hooks[i], hn)
+		for _, h := range c.Hooks {
+			if h.Files != nil {
+				problems = append(problems, fmt.Errorf("hook %s: files: only project hooks are trust-gated; user hooks run without trust", h.ID))
+			}
+		}
 	}
 	if err := c.Validate(); err != nil {
 		problems = append(problems, err)

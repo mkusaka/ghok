@@ -134,8 +134,8 @@ func TestTrustBlobGCLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(trustBlobsDir(env), contentHash([]byte("new trusted code\n")))); !os.IsNotExist(err) {
 		t.Fatalf("untrust retained unreferenced contents: %v", err)
 	}
-	if data, err := readTrustBlob(env, oldHash); err != nil || string(data) != "reviewed code\n" {
-		t.Fatalf("untrust removed a retained version's baseline: %q, %v", data, err)
+	if _, err := readTrustBlob(env, oldHash); err == nil {
+		t.Fatalf("single-record refresh retained an unreferenced baseline")
 	}
 	if _, err := UntrustAllProjects(env); err != nil {
 		t.Fatal(err)

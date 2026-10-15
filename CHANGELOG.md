@@ -8,6 +8,16 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Breaking
+
+- Hook `priority` is removed: hooks run in config order (user config, then project), and `dependsOn` may reference only earlier hooks (a later hook is a config error; cycles can no longer form).
+- Project trust is now per hook, not YAML bytes or a global content-digest set. One checkout-local record holds canonical hook definitions/digests; old records require `ghok config trust` again. Unrelated YAML edits no longer disable trusted siblings. Changed pre-`onError: deny` gates, or untrusted gates alongside active trusted project hooks, deny matching enforce invocations as `config <id>` (exit 78); observe records would-deny. `config untrust` removes the whole project's record.
+
+### Added
+
+- GitHub Actions-style hook concurrency: `- parallel: [hooks]` blocks, `background: true` hooks, and `- wait: id|[ids]` / `- wait-all:` items in `hooks`. A pre deny still cancels every running hook; project hooks start after user background hooks. `runtime.hookConcurrency` now defaults to 4. `ghok hooks list` shows `background` and the hooks each one waits for; the config schemas describe the new items.
+- Project `hooks[].files` tracks hook-specific dependency files; `trust.include` applies to every hook. Repeatable `config trust --hook ID` authorizes selected hooks while preserving siblings' trusted digests and exact-byte review baselines. Review is grouped by hook/shared files; list/explain/validate/doctor and throttled warnings identify per-hook reasons and inactive gates.
+
 ## [v0.0.7] - 2026-10-15
 
 ### Added

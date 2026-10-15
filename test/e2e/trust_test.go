@@ -4,10 +4,8 @@ package e2e
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +20,7 @@ func writeTrustProject(t *testing.T, s *sandbox, command ...string) (string, []b
 		t.Fatal(err)
 	}
 	h := s.hook("project", "pre")
+	h.OnError = config.OnErrorAllow
 	if len(command) != 0 {
 		h.Command = command
 	}
@@ -93,7 +92,7 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(project, append(body, []byte("\n# edited\n")...), 0600); err != nil {
+	if err := os.WriteFile(project, bytes.ReplaceAll(body, []byte("project.json"), []byte("project-updated.json")), 0600); err != nil {
 		t.Fatal(err)
 	}
 	assertIgnoredProjectHook(t, s, "changed since trust")
@@ -106,15 +105,14 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	s.management(nil, "config", "trust", project).code(t, 0)
 	s.management(nil, "config", "untrust", project).code(t, 0)
 	s.management(nil, "config", "untrust", project).code(t, 0)
-	assertIgnoredProjectHook(t, s, "changed since trust")
+	assertIgnoredProjectHook(t, s, "untrusted")
 	s.gh(nil, "version").code(t, 0)
 	assertNoProjectHook(t, s)
-	// Removing the current digest must not remove the earlier trusted version.
 	if err := os.WriteFile(project, body, 0600); err != nil {
 		t.Fatal(err)
 	}
 	s.gh(nil, "version").code(t, 0)
-	s.hookInput("project")
+	assertNoProjectHook(t, s)
 }
 
 func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
@@ -135,8 +133,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	if err := os.Mkdir(second, 0700); err != nil {
 		t.Fatal(err)
 	}
-	// Both worktrees use identical config and executable bytes; neither path
-	// nor the external git directory should affect content-addressed trust.
+	// Identical content in another checkout still requires explicit approval.
 	for _, worktree := range []string{s.cwd, second} {
 		if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+sharedGit+"\n"), 0600); err != nil {
 			t.Fatal(err)
@@ -153,7 +150,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	}
 	result := s.management(nil, "config", "trust", project)
 	result.code(t, 0)
-	for _, want := range []string{".ghok.yaml", "hooks/project", "project command:"} {
+	for _, want := range []string{"hooks/project", "project command:"} {
 		if !bytes.Contains(result.stdout, []byte(want)) {
 			t.Fatalf("trust output omitted %q: %s", want, result.stdout)
 		}
@@ -165,6 +162,10 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.cwd = second
+	s.gh(nil, "version").code(t, 0)
+	assertNoProjectHook(t, s)
+	assertIgnoredProjectHook(t, s, "untrusted")
+	s.management(nil, "config", "trust").code(t, 0)
 	s.gh(nil, "version").code(t, 0)
 	s.hookInput("project")
 	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
@@ -179,7 +180,7 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	assertNoProjectHook(t, s)
 	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 77)
 	assertNoProjectHook(t, s)
-	if len(s.records()) != 3 {
+	if len(s.records()) != 4 {
 		t.Fatal("changed executable bypassed project deny rule")
 	}
 }
@@ -308,7 +309,7 @@ func TestProjectTrustListAndClearAll(t *testing.T) {
 	s.management(nil, "config", "trust").code(t, 0)
 	first := s.management(nil, "config", "trust", "--list")
 	first.code(t, 0)
-	for _, want := range []string{"Trust digest: ", "firstPath: " + project, "hook IDs: project", "trustedAt: ", "exec:0", "sha256:" + fmt.Sprintf("%x", sha256.Sum256(body))} {
+	for _, want := range []string{"firstPath: " + project, "hook IDs: project", "trustedAt: "} {
 		if !bytes.Contains(first.stdout, []byte(want)) {
 			t.Fatalf("trust list omitted %q: %s", want, first.stdout)
 		}
@@ -319,8 +320,8 @@ func TestProjectTrustListAndClearAll(t *testing.T) {
 	s.management(nil, "config", "trust").code(t, 0)
 	second := s.management(nil, "config", "trust", "--list")
 	second.code(t, 0)
-	if bytes.Count(second.stdout, []byte("trustedAt")) != 2 {
-		t.Fatalf("trust did not retain both digests: %s", second.stdout)
+	if bytes.Count(second.stdout, []byte("trustedAt")) != 1 {
+		t.Fatalf("trust must keep one record per checkout: %s", second.stdout)
 	}
 	s.management(nil, "config", "untrust", "--all").code(t, 0)
 	empty := s.management(nil, "config", "trust", "--list")

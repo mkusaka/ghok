@@ -50,9 +50,9 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    candidates; validate recursion depth and supply incremented `GHOK_DEPTH`.
    Invalid observe/undetermined user config logs at the default path, emits a
    throttled warning, and execs gh without hooks/policy.
-5. Observe mode with no hooks/rules and logging explicitly disabled execs
-   immediately without analysis. Before allowed execution, valid non-nested
-   invocations warn once per project path/manifest/ten minutes about ignored
+5. Observe mode with no hooks/rules/inactive gates and logging explicitly disabled
+   execs immediately without analysis. Before allowed execution, valid non-nested
+   invocations warn once per project path/ignored-hook state/ten minutes about ignored
    enabled project hooks unless disabled by user logging config. Denied calls
    lead with the denial contract instead. Logging defaults on with any config.
 6. Otherwise open best-effort logging. `GHOK_NESTED=1` plus a verified
@@ -65,9 +65,10 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    Dispatcher selects API normalization only when expanded argv starts `api`;
    root flags before `api` currently remain L1 (see normalization limitations).
 9. Resolve only context relevant to potentially matching repository/host policy
-   or hook constraints/protected-repository handling. Evaluate policy; run
-   selected pre-hooks with raw input (per-hook redactInput is opt-in). Any effective deny blocks only in
-   enforce mode; content denial exits 77, hook-error-only denial 78; observe records would-deny.
+   or hook constraints/protected-repository handling, including inactive gates.
+   Evaluate policy plus matching trust-blocked gates (`config <id>`); run selected
+   pre-hooks with raw input (per-hook redactInput is opt-in). Enforce content
+   denial exits 77; hook-error/config-only denial exits 78. Observe records would-deny.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
 

@@ -4,7 +4,6 @@ package hooks
 import (
 	"context"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 
 const (
 	DefaultTimeout              = 10 * time.Second
-	DefaultConcurrency          = 1
+	DefaultConcurrency          = 4
 	DefaultMaxOutputBytes int64 = 1 << 20
 	DefaultMaxStderrBytes int64 = 64 << 10
 	DefaultPreOnError           = config.OnErrorDeny
@@ -44,8 +43,9 @@ type Aggregate struct {
 	Message  string
 }
 
-// Select conservatively includes unresolved repository/host matches. Missing
-// dependencies remain in the selection so Run can report their skipped outcome.
+// Select conservatively includes unresolved repository/host matches, in config
+// order (dependencies point backwards). Missing dependencies remain in the
+// selection so Run can report their skipped outcome.
 func (r *Runner) Select(phase string, s policy.Subject) []config.Hook {
 	if len(r.Hooks) == 0 {
 		return nil
@@ -64,49 +64,7 @@ func (r *Runner) Select(phase string, s policy.Subject) []config.Hook {
 			selected = append(selected, h)
 		}
 	}
-	if len(selected) < 2 {
-		return selected
-	}
-	sort.SliceStable(selected, func(i, j int) bool { return selected[i].Priority < selected[j].Priority })
-	// Stable Kahn ordering: priority/config order chooses among ready nodes.
-	ordered := make([]config.Hook, 0, len(selected))
-	done := make(map[string]bool, len(selected))
-	present := make(map[string]bool, len(selected))
-	for _, h := range selected {
-		present[h.ID] = true
-	}
-	used := make([]bool, len(selected))
-	for len(ordered) < len(selected) {
-		found := -1
-		for i, h := range selected {
-			if used[i] {
-				continue
-			}
-			ready := true
-			for _, dep := range h.DependsOn {
-				if present[dep] && !done[dep] {
-					ready = false
-					break
-				}
-			}
-			if ready {
-				found = i
-				break
-			}
-		}
-		if found < 0 { // Cycles are diagnosed, not executed, by Run.
-			for i, h := range selected {
-				if !used[i] {
-					ordered = append(ordered, h)
-				}
-			}
-			break
-		}
-		used[found] = true
-		ordered = append(ordered, selected[found])
-		done[selected[found].ID] = true
-	}
-	return ordered
+	return selected
 }
 
 func effective(phase string, h config.Hook, result protocol.HookResult) protocol.Decision {
@@ -252,6 +210,16 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 				finish(i, r.diagnostic(phase, h, protocol.OutcomeSkipped, skip))
 				progressed = true
 				continue
+			}
+			// Start after every earlier foreground hook and the background
+			// hooks this one waits for (absent ones were not selected).
+			for j := 0; j < i && ready; j++ {
+				ready = hooks[j].Background || state[j] == 2
+			}
+			for _, w := range h.Wait {
+				if j, ok := ids[w]; ok && j < i && state[j] != 2 {
+					ready = false
+				}
 			}
 			if !ready || running >= concurrency {
 				continue

@@ -67,6 +67,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	}
 	for _, h := range a.config.IgnoredHooks {
 		fmt.Fprintln(&output, display(fmt.Sprintf("  %s: ignored (%s)", h.ID, h.Reason)))
+		fmt.Fprintln(&output, display("  "+ignoredHookDescription(h)))
 	}
 	if showSecrets {
 		fmt.Fprintln(&output, "WARNING: --show-secrets is enabled; this output may contain credentials.")

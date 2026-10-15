@@ -52,7 +52,7 @@ Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
 | gh | 4 | Authentication required. |
 | gh | 8 | A command-specific check failed (for example, pending `gh pr checks`). |
 | ghok | 77 (`EX_NOPERM`) | Policy/rule denial or a hook **returned** deny. Content denial takes precedence over hook errors. |
-| ghok | 78 (`EX_CONFIG`) | Denied only because hooks malfunctioned under `onError: deny`, or invalid configuration failed closed. |
+| ghok | 78 (`EX_CONFIG`) | Hook malfunction under `onError: deny`, an inactive gate, or invalid configuration failed closed; no content denial. |
 | ghok | 1 | ghok internal failure. |
 | ghok | 127 | Real gh was not found. |
 
@@ -287,26 +287,36 @@ Inspect project hooks, then manage their activation:
 
 ```sh
 ghok config trust                   # current repository-root .ghok.yaml
+ghok config trust --hook check --hook audit # trust selected hooks; retain siblings' trust
 ghok config trust /path/to/repo/.ghok.yaml
 ghok config trust --dry-run          # review changes and proposed trust; writes nothing
 ghok config trust --no-diff          # keep file/mode summaries, omit raw content diffs
-ghok config trust --list             # all retained trusted digests and metadata
-ghok config untrust                 # remove only the current digest; policy remains
-ghok config untrust --all           # remove every trusted digest
+ghok config trust --list             # project records, per-hook digests and metadata
+ghok config untrust                 # remove this project's hook trust; policy remains
+ghok config untrust --all            # remove every project trust record
 ```
 
-Trust retains a set of content digests across versions, worktrees and clones.
-The v1 manifest sorts unique repository-relative paths and encodes each path,
-executable bit and SHA256 content hash (or missing marker), separated by NULs.
-It covers exact `.ghok.yaml` bytes, project hook executables inside the root,
-and files explicitly listed under project-only `trust.include`, for example:
+Trust is **per hook**, with one record for each checkout's canonical project path.
+Each digest covers the canonical, defaulted hook definition, its repository-local
+executable, its `files`, and project `trust.include` files. YAML comments,
+formatting, policy changes and unrelated hook edits/reordering do not revoke trust.
+List position is not hashed: express ordering guarantees with `dependsOn`.
+A definition or dependency change disables only affected hooks; shared files
+affect every hook that uses them, and `trust.include` applies to **every hook**:
 
 ```yaml
+hooks:
+  - id: check
+    phase: pre
+    command: ["./hooks/check"]
+    files: [".github/scripts/check-pr-description.ts"]
 trust:
-  include:
-    - .github/scripts/check-pr-description.ts
-    - .gitleaks.toml
+  include: [".gitleaks.toml"]
 ```
+
+`files` is project-only; user hooks run without trust and cannot declare it.
+Paths must be repository-relative, without `..` or globs. Directories are rejected;
+list individual files. Symlink targets must remain inside the repository.
 
 Project hook commands must start with `./` or be absolute; user hooks may still
 use bare PATH names. Relative paths resolve under the repository root. Manifest
@@ -314,19 +324,26 @@ files must resolve within that root (including symlink targets) and be regular
 files, with at most 256 files and total bytes bounded by the effective
 `runtime.fileMaxBytes`. Missing files are represented by markers, so creating
 one changes the digest. Absolute external executables are not hashed.
-Any covered byte or executable-bit change disables hooks for that content until
-re-trusted; notes name changed files. Policy-only configs skip manifest computation.
+Covered files are deduplicated and list all affected hook IDs. A covered byte,
+executable-bit or missing-file change revokes only its users' trust. Policy-only
+configs skip manifest computation.
 
-Interpreters, PATH tools, unlisted imports, dependencies and data are not covered.
-Add repository-relative imports/dependencies/data to `trust.include` as needed;
-trust output lists every hashed file, hook IDs and resolved commands, and explains
-these coverage limits.
+A **gate** is a pre-hook with effective `onError: deny` (the pre default).
+In enforce mode, matching invocations fail closed with `config <id>` / exit 78
+if a gate changed since trust, or is untrusted while another project hook is
+trusted and enabled. Observe records would-deny without blocking. A never-trusted
+project still ignores hooks with a warning, without this denial.
 
-`<config-dir>/trust.json` stores each digest with `firstPath`, `configPath`,
-`trustedAt`, hook IDs, per-file executable bits and hashes/missing markers, plus
-`commit` (HEAD SHA), resolved `commonDir`, and normalized credential-free origin
-`remoteUrl`. Git metadata is read directly from files, never by executing git.
-`ghok config trust --list` shows retained digests and metadata, plus store notes.
+Interpreters, PATH tools and unlisted imports/dependencies/data are not covered.
+Add hook-specific dependencies to `files`, or common dependencies to `trust.include`.
+Trust review groups definitions and changed files by hook, with shared files once.
+
+`<config-dir>/trust.json` stores per-hook digests and canonical definitions with
+`firstPath`, `configPath`, `trustedAt`, hook IDs, per-file executable bits and
+hashes/missing markers, plus `commit` (HEAD SHA), resolved `commonDir`, and normalized
+credential-free origin `remoteUrl`. Git metadata is read directly, never by running git.
+`ghok config trust --list` shows project records and per-hook digests.
+Old manifest records grant no trust: run `ghok config trust` once after upgrading.
 Provenance is diagnostic, not a digest input. The store is written atomically
 with mode 0600 in a 0700 config directory.
 Malformed entries are skipped individually with notes naming their keys; valid
@@ -339,7 +356,7 @@ trust, blob or cache state. `config trust`, and `config validate`/`doctor` when
 hooks are ignored, show changed/added/removed manifest files, executable-bit
 changes (`mode 0644 → 0755`) and the previous record's timestamp/path. Modes
 describe the manifest's executable bit, not every filesystem permission bit.
-The baseline is the newest record in the first matching tier: same resolved Git
+Review uses this checkout's record first; otherwise it selects a record by resolved Git
 common directory, same `firstPath`, same normalized origin, then at least two
 distinct shared file-content SHA256s (paths may differ). Sharing only
 `.gitleaks.toml` does not select an unrelated repository. Origins normalize
@@ -363,14 +380,14 @@ Git object lookup, executable or fetch is needed for diffs. Trust/untrust
 collect copies no longer referenced by any retained digest; `untrust --all`
 purges all stored copies. See [security](docs/security.md#project-configuration-trust).
 
-Trust and current-only untrust reject missing configs and paths other than a
-repository-root `.ghok.yaml`. Untrust is idempotent and leaves other trusted
-versions intact; `--all` clears the entire digest set. Identical code is trusted
-anywhere, not a repository identity. This is not a security boundary against
-concurrent file replacement or malicious users. Validate, doctor and explain
-report trust notes. The wrapper prints one stderr line when enabled project hooks
-are ignored, throttled per canonical project path and current manifest digest
-for ten minutes. Changed-file lists show at most three names. Disable only this
+Trust and untrust reject missing configs and paths other than a repository-root
+`.ghok.yaml`. Untrust is idempotent and removes the whole project's authorization;
+`--all` clears every project record. Other checkouts require their own trust.
+This is not a security boundary against concurrent replacement or malicious users.
+Validate, doctor, explain and hooks list report per-hook reasons, explicitly naming
+inactive gates. Ignored-hook warnings are throttled for ten minutes per canonical
+project path and current ignored-hook IDs/digests/reasons. Changed-file lists show
+at most three names. Disable only this
 warning with user config `logging.ignoredHooksWarning: false` (default true);
 denied, nested, invalid-config, and policy-only invocations do not emit it.
 
@@ -404,6 +421,50 @@ denies explicit `admin: true` merge requests and otherwise abstains; it does
 not validate every GitHub operation. The audit hook records command outcomes,
 not confirmed server-side merge events. A Python equivalent is optional;
 Python is not a ghok runtime requirement.
+
+Hooks run one after another in config order (user config first, then project).
+Concurrency follows GitHub Actions'
+[parallel steps](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax):
+
+```yaml
+hooks:
+  - id: lint-title                # runs first
+    phase: pre
+    command: ["./hooks/lint-title"]
+  - parallel:                     # members overlap; the next item waits for all
+      - id: check-ci
+        phase: pre
+        command: ["./hooks/check-ci"]
+      - id: check-reviews
+        phase: pre
+        command: ["./hooks/check-reviews"]
+  - id: scan-secrets              # starts, and later hooks do not wait for it
+    phase: pre
+    background: true
+    command: ["./hooks/scan-secrets"]
+  - id: require-green
+    phase: pre
+    dependsOn: [check-ci]         # skipped unless check-ci succeeded
+    command: ["./hooks/require-green"]
+  - wait: scan-secrets            # or [id, ...]; `- wait-all:` joins every background hook
+```
+
+- `background: true` starts a hook without waiting for it; `- wait: id` or
+  `- wait-all:` items join background hooks. `parallel` is shorthand for
+  background members joined at the end of the block. A phase always waits for
+  every hook before deciding, and project hooks start after all user hooks.
+- `runtime.hookConcurrency` (default 4; Actions allows 10) caps how many hooks
+  run at once; the rest queue.
+- Unlike Actions, an effective pre-hook deny cancels every running hook at once,
+  because the denial is final. Other failures follow each hook's `onError` and
+  never stop later hooks. `dependsOn` (earlier hooks only) skips a hook unless
+  its dependencies succeeded and passes their results in `previous`; use it, not
+  list position, when a hook must run only after a gate allowed.
+- `cancel` is not supported: hooks are short-lived and have a `timeout`.
+- `ghok config validate` rejects empty or nested `parallel` blocks, extra keys
+  beside `parallel`/`wait`/`wait-all`, and waits for IDs that are not earlier
+  background hooks. `ghok hooks list` shows each hook's `background` flag and the
+  hooks it waits for.
 
 A hook reads one schema-version-1 JSON document from stdin and writes one
 response to stdout, for example:
@@ -450,11 +511,12 @@ ghok: denied by <source>[ (error: <kind>)][ (+N more)]
 
 `source` is `hook <id>`, `rule <id>`, `policy unknownMutation`,
 `policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
-or `config`. The error suffix appears only for a hook's `onError` denial:
+`config <id>` for an inactive gate, or `config` for invalid configuration.
+The error suffix appears only for a hook's `onError` denial:
 `timeout`, `exit <code>`, `invalid response`, `spawn failed`, or `canceled`.
 `N` counts remaining denial entries.
 
-Order is deterministic: denying rules in config order, policy handling,
+Order is deterministic: denying rules in config order, policy handling, inactive gates,
 hooks that returned deny in selection order, then hook-error denials in
 selection order. Content denial therefore wins over an earlier hook error.
 Each entry follows as `  - <source>: <message>`, using the reason when there

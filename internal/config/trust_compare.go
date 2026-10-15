@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -14,8 +15,16 @@ import (
 
 // Repository provenance only selects a review baseline. It never grants trust
 // or participates in the content digest, including when metadata is unavailable.
-func currentTrustEntry(project, canonical string, files []trustedFile, env map[string]string) trustEntry {
-	entry := trustEntry{ManifestVersion: 1, FirstPath: canonical, ConfigPath: ".ghok.yaml", Files: files}
+func currentTrustEntry(project, canonical string, p *Config, files []trustedFile, env map[string]string) trustEntry {
+	entry := trustEntry{ManifestVersion: 2, FirstPath: canonical, ConfigPath: ".ghok.yaml", Files: files,
+		HookDigests: make(map[string]string, len(p.Hooks)), Definitions: make(map[string]json.RawMessage, len(p.Hooks))}
+	for _, h := range p.Hooks {
+		definition := hookDefinition(h)
+		entry.Definitions[h.ID] = definition
+		entry.HookDigests[h.ID] = hookTrustDigest(definition, files, h.ID)
+		entry.HookIDs = append(entry.HookIDs, h.ID)
+	}
+	sort.Strings(entry.HookIDs)
 	root := filepath.Dir(project)
 	// Trust is for this project, not a repository redirected by GIT_DIR.
 	gitdir, err := gitmeta.Directory(root, nil)
