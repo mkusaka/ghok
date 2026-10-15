@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -76,7 +77,7 @@ func TestDoctorShellEntry(t *testing.T) {
 	s.management(nil, "exec", "--", "version").code(t, 0)
 	checks = doctor()
 	entry := checks["shell-entry"]
-	if entry.Status != install.StatusInfo || !strings.Contains(entry.Detail, "bypasses ghok") || entry.Fix == "" {
+	if entry.Status != install.StatusInfo || !strings.Contains(entry.Detail, "bypasses ghok") || entry.Fix == "" || !regexp.MustCompile(`last used \d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d\d:\d\d `).MatchString(entry.Detail) {
 		t.Fatalf("shell entry: %+v", entry)
 	}
 	for _, name := range []string{"path-precedence", "shim-ownership"} {

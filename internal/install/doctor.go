@@ -200,7 +200,7 @@ func execEntryCheck(stateDir string, checks []Check, now time.Time) *Check {
 	if err != nil || now.Sub(info.ModTime()) > 7*24*time.Hour {
 		return nil
 	}
-	used := "ghok exec last used " + info.ModTime().Format(time.DateTime)
+	used := "ghok exec last used " + info.ModTime().Format("2006-01-02 15:04:05 -07:00")
 	shimOK := false
 	for _, c := range checks {
 		if c.Name == "shim-ownership" && c.Status == StatusOK {
