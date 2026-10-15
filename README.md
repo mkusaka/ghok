@@ -513,6 +513,9 @@ Normalize keeps its JSON contract. `config validate` and doctor's `config` check
 report the global source (exists or not found/defaults) and merged project policy.
 `hooks list` and explain show ignored project hooks with `untrusted` or
 `changed since trust` reasons and guidance to run `ghok config trust`.
+`changed since trust` (with the changed files and when it was trusted) is reported
+only when this same checkout path was trusted before; a checkout that was never
+trusted from its own path is simply `untrusted`.
 Hook listings include each hook's source config path in text and JSON;
 source is not a YAML setting.
 

@@ -176,7 +176,8 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(second, "hooks", "project"), append(executable, []byte("\nchanged executable\n")...), 0700); err != nil {
 		t.Fatal(err)
 	}
-	assertIgnoredProjectHook(t, s, "changed since trust")
+	// second was never trusted from its own path, so it is plain "untrusted".
+	assertIgnoredProjectHook(t, s, "untrusted")
 	result = s.gh(nil, "version")
 	result.code(t, 0)
 	if len(result.stderr) != 0 {

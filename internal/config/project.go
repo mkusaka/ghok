@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -74,25 +74,24 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		store, trustNotes := readTrustStore(env)
 		notes = append(notes, trustNotes...)
 		if _, ok := store[digest]; !ok {
+			// Only a record trusted from this same checkout path is "changed";
+			// records from other checkouts say nothing about this one.
 			reason = "untrusted"
-			keys := make([]string, 0, len(store))
+			canonical, err := filepath.EvalSymlinks(project)
+			if err != nil {
+				canonical = project
+			}
+			var latest *trustEntry
 			for key := range store {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			var changed []string
-			for _, key := range keys {
 				entry := store[key]
-				if entry.ConfigPath != ".ghok.yaml" {
-					continue
-				}
-				diff := changedTrustFiles(files, entry.Files)
-				if reason == "untrusted" || len(diff) < len(changed) {
-					reason, changed = "changed since trust", diff
+				if entry.ConfigPath == ".ghok.yaml" && entry.FirstPath == canonical && (latest == nil || entry.TrustedAt.After(latest.TrustedAt)) {
+					latest = &entry
 				}
 			}
-			if reason == "changed since trust" {
-				notes = append(notes, "Changed files since trust: "+strings.Join(changed, ", "))
+			if latest != nil {
+				reason = "changed since trust"
+				notes = append(notes, fmt.Sprintf("Changed files since trust (trusted %s from this path): %s",
+					latest.TrustedAt.Format(time.RFC3339), strings.Join(changedTrustFiles(files, latest.Files), ", ")))
 			}
 		}
 	}

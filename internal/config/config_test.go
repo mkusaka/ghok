@@ -294,7 +294,8 @@ func TestProjectTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _, err = LoadEffective(global, cwd, env)
-	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
+	// The resolved config path differs from the trusted one: plain "untrusted".
+	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
 		t.Fatalf("new symlink target: %+v, %v", c, err)
 	}
 	canonical, _, _, err := TrustProject(project, cwd, env)

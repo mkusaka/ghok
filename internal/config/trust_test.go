@@ -104,8 +104,15 @@ func TestContentTrustAcrossWorktrees(t *testing.T) {
 	}
 	writeFixture(t, filepath.Join(second, "scripts", "check"), "#!/bin/sh\nexit 1\n")
 	c, _, err = LoadEffective("", second, env)
-	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || c.Policy.Mode != ModeEnforce || len(c.Policy.Rules) != 1 {
+	// second was never trusted from its own path: plain "untrusted", no file list
+	// borrowed from another checkout's trust record.
+	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" || c.Policy.Mode != ModeEnforce || len(c.Policy.Rules) != 1 {
 		t.Fatalf("script edit must revoke hooks, not policy: %+v, %v", c, err)
+	}
+	writeFixture(t, filepath.Join(first, "scripts", "check"), "#!/bin/sh\nexit 2\n")
+	c, notes, err := LoadEffective("", first, env)
+	if err != nil || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || !strings.Contains(strings.Join(notes, "\n"), "from this path): scripts/check") {
+		t.Fatalf("edit in the trusted checkout must name the changed file: %+v, %v, %v", c, notes, err)
 	}
 }
 
