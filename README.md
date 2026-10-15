@@ -881,7 +881,8 @@ scripts/release.sh patch        # or minor | major | vX.Y.Z
 ```
 
 The script turns `[Unreleased]` into the new version section, commits, tags and
-pushes. The release workflow builds with GoReleaser, attests, publishes an
+pushes. The release workflow first runs the whole CI workflow (every OS/arch,
+race, fuzz smoke, lint) on the tag and stops if it fails; it then builds with GoReleaser, attests, publishes an
 immutable release with that CHANGELOG section above the generated notes, and
 updates the Homebrew tap. It refuses to release a tag without a CHANGELOG section.
 

@@ -13,31 +13,10 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: CI
+    # The full CI matrix (tests, race, fuzz smoke, lint, every OS/arch) on the tag.
+    uses: ./.github/workflows/ci.yml
     permissions: {}
-    steps:
-      - name: Check out tagged source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Validate release tag
-        shell: bash
-        run: |
-          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tags must use vX.Y.Z format, got ${GITHUB_REF_NAME}"
-            exit 1
-          fi
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Test
-        env:
-          GOFLAGS: -p=1
-        run: go test ./...
 
   release:
     name: Build and publish
@@ -51,6 +30,13 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use vX.Y.Z format, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

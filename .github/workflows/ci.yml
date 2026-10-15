@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Release runs the full matrix on the tag before building.
+  workflow_call: {}
 
 permissions: {}
 
