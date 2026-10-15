@@ -11,12 +11,13 @@ const (
 )
 
 // Input is written as one JSON document to a hook's stdin, then stdin is closed.
-// All string values are secret-redacted before serialization.
+// Input is raw unless the current hook opts into redactInput.
 type Input struct {
 	SchemaVersion  int                    `json:"schemaVersion"`
 	Event          string                 `json:"event"` // pre|post
 	EventID        string                 `json:"eventId"`
 	HookID         string                 `json:"hookId"`
+	Redactions     int                    `json:"redactions"`
 	Invocation     InvocationInfo         `json:"invocation"`
 	Classification model.Classification   `json:"classification"`
 	Operations     []model.Operation      `json:"operations"`
@@ -29,9 +30,9 @@ type Input struct {
 }
 
 type InvocationInfo struct {
-	Argv     []string `json:"argv"` // redacted, os.Args[1:]
+	Argv     []string `json:"argv"` // original os.Args[1:]
 	Alias    string   `json:"alias,omitempty"`
-	Expanded []string `json:"expanded,omitempty"` // alias-expanded argv (redacted)
+	Expanded []string `json:"expanded,omitempty"` // alias-expanded analysis argv
 	Cwd      string   `json:"cwd"`
 	IsTTY    bool     `json:"isTTY"` // stdout is a terminal
 	StdinTTY bool     `json:"stdinTTY"`

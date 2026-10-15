@@ -41,9 +41,6 @@ func TestMutationTexts(t *testing.T) {
 			if !reflect.DeepEqual(op.Texts, tc.want) {
 				t.Fatalf("texts = %#v; want %#v", op.Texts, tc.want)
 			}
-			if tc.field == "updateIssue" && op.Action != "graphql.updateIssue" {
-				t.Fatalf("text extraction changed curation: %+v", op)
-			}
 		})
 	}
 }

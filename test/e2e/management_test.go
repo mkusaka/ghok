@@ -343,18 +343,18 @@ func TestManagementHooksListAndTest(t *testing.T) {
 					Phase     string                `json:"phase"`
 					Synthetic bool                  `json:"synthetic"`
 					Results   []protocol.HookResult `json:"results"`
-					Aggregate struct {
+					Final     struct {
 						Decision  string `json:"decision"`
 						WouldDeny bool   `json:"wouldDeny"`
-					} `json:"aggregate"`
+					} `json:"final"`
 				}
 				decodeJSON(t, result.stdout, &report)
 				if report.Phase != phase || !report.Synthetic || len(report.Results) != 1 || report.Results[0].HookID != phase || report.Results[0].Outcome != "ok" {
 					t.Fatalf("hook test report=%+v", report)
 				}
 				if phase == "pre" {
-					if !report.Aggregate.WouldDeny || (report.Aggregate.Decision == "deny") != (mode == "enforce") {
-						t.Fatalf("aggregate=%+v", report.Aggregate)
+					if !report.Final.WouldDeny || (report.Final.Decision == "deny") != (mode == "enforce") {
+						t.Fatalf("final=%+v", report.Final)
 					}
 				}
 				input := s.hookInput(phase)

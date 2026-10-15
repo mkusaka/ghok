@@ -97,7 +97,7 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	var testJSON bool
 	var testOptions managementInspectOptions
 	var exitCode int
-	var expect string
+	var expect, expectHooks, expectPolicy string
 	phase := config.PhasePre
 	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(cmd *cobra.Command, args []string) int {
 		if cmd.Flags().Changed("expect") {
@@ -107,15 +107,47 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 				return managementUsageError("--expect must be allow, deny, abstain or audit")
 			}
 		}
-		return managementHooksTest(args, phase, exitCode, testJSON, testOptions, expect)
+		if cmd.Flags().Changed("expect-hooks") {
+			switch protocol.Decision(expectHooks) {
+			case protocol.DecisionAllow, protocol.DecisionDeny, protocol.DecisionAbstain:
+			default:
+				return managementUsageError("--expect-hooks must be allow, deny or abstain")
+			}
+		}
+		if cmd.Flags().Changed("expect-policy") {
+			switch protocol.Decision(expectPolicy) {
+			case protocol.DecisionAllow, protocol.DecisionDeny, protocol.DecisionAudit:
+			default:
+				return managementUsageError("--expect-policy must be allow, audit or deny")
+			}
+		}
+		return managementHooksTest(args, phase, exitCode, testJSON, testOptions, expect, expectHooks, expectPolicy)
 	})
-	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe original gh command. Local context is resolved by default; --allow-api permits\nread-only API resolution. Post hooks receive a synthetic result (exit 0 unless --exit-code).\n\n--expect compares the printed/JSON Aggregate decision after policy and configured-mode\nhandling, not the raw hook decision or would-deny (observe-mode would-deny is audit).\nWith --expect, exit 0 on a match, overriding normal denial/hook-error status, or 1\non a mismatch. Without --expect, exit 1 on an effective Aggregate deny or hook\nexecution error (nonzero exit/spawn failure, timeout, invalid response, cancellation),\notherwise 0. Configuration/analysis failures exit 1; usage errors exit 2."
+	test.Long = `Run matching trusted hooks for real, but never start the original gh command.
+Local context is resolved by default; --allow-api permits read-only API resolution.
+Post hooks receive a synthetic result (exit 0 unless --exit-code).
+
+Print the hook aggregate (allow/deny/abstain), policy decision (allow/audit/deny),
+and FINAL decision separately. No matching hooks or all abstaining means hooks=abstain.
+FINAL combines policy and pre-hook denial with the configured mode; observe-mode
+would-deny is audit, not deny.
+
+--expect compares FINAL (allow/deny/abstain/audit), preserving its existing semantics:
+no hook denial and policy=allow means FINAL=allow, even when hooks=abstain.
+--expect-hooks compares the hook aggregate; --expect-policy compares policy alone.
+With any expectations, exit 0 only if all match, even on denial/hook error;
+otherwise exit 1 with the failed expectation named.
+Without expectations, exit 1 on FINAL deny or hook execution error (nonzero exit,
+spawn failure, timeout, invalid response, cancellation), otherwise 0.
+Configuration/analysis failures exit 1; usage errors exit 2.`
 	test.Example = "  ghok hooks test -- pr merge 123 --admin\n  ghok hooks test --no-resolve -- pr merge 123\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
 	test.Flags().IntVar(&exitCode, "exit-code", 0, "post phase: synthetic gh exit code (selects match.result/exitCode hooks)")
-	test.Flags().StringVar(&expect, "expect", "", "expect the effective Aggregate decision: allow, deny, abstain or audit")
+	test.Flags().StringVar(&expect, "expect", "", "expect the FINAL decision: allow, deny, abstain or audit (observe would-deny is audit)")
+	test.Flags().StringVar(&expectHooks, "expect-hooks", "", "expect the hook aggregate: allow, deny or abstain")
+	test.Flags().StringVar(&expectPolicy, "expect-policy", "", "expect the policy decision: allow, audit or deny")
 	managementResolutionFlags(test, &testOptions)
 	hookCommands.AddCommand(list, test)
 
@@ -377,10 +409,21 @@ func managementConfig(command, file string) int {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
 	}
 	if err != nil {
+		_, _ = fmt.Fprintln(os.Stdout, configFailureBehavior(err, env))
 		return managementFailure(err)
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "Configuration valid")
 	return 0
+}
+
+func configFailureBehavior(err error, env map[string]string) string {
+	if config.FailClosed(err, env) {
+		if env["GHOK_FAIL_CLOSED"] == "1" {
+			return "Invalid config behavior: fail-closed (GHOK_FAIL_CLOSED=1); gh will not run."
+		}
+		return "Invalid config behavior: fail-closed (user policy.mode: enforce); gh will not run."
+	}
+	return "Invalid config behavior: fail-open (observe or undetermined user mode); gh runs without hooks with a throttled warning."
 }
 
 func managementDoctor(asJSON bool, version string) int {
@@ -406,7 +449,7 @@ func managementDoctor(asJSON bool, version string) int {
 	}
 	if loadErr != nil {
 		cfgCheck.Status = install.StatusFail
-		cfgCheck.Detail += "; " + loadErr.Error()
+		cfgCheck.Detail += "; " + loadErr.Error() + "; " + configFailureBehavior(loadErr, env)
 		cfgCheck.Fix = "Run ghok config validate and fix the reported configuration errors."
 	}
 	checks = append(checks, cfgCheck)

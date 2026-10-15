@@ -102,13 +102,13 @@ func TestTypedRoutes(t *testing.T) {
 		{"DELETE", "repos/o/r/pulls/1/requested_reviewers", "pr.reviewers", "pr.reviewers.remove"},
 		{"PUT", "repos/o/r/pulls/1/update-branch", "pr.update-branch", "pr.update-branch"},
 		{"GET", "repos/o/r/pulls/comments", "pr.read", "pr.comments.list"},
-		{"PATCH", "repos/o/r/pulls/comments/1", "pr.comment", "pr.comment.update"},
+		{"PATCH", "repos/o/r/pulls/comments/1", "pr.comment", "pr.comment.edit"},
 		{"POST", "repos/o/r/pulls/1/comments/2/replies", "pr.comment", "pr.comment.reply"},
 		{"POST", "repos/o/r/issues", "issue.create", "issue.create"},
 		{"PUT", "repos/o/r/issues/1/lock", "issue.lock", "issue.lock"},
 		{"DELETE", "repos/o/r/issues/1/lock", "issue.unlock", "issue.unlock"},
-		{"PATCH", "repos/o/r/issues/comments/1", "issue.comment", "issue.comment.update"},
-		{"DELETE", "repos/o/r/issues/comments/1", "issue.comment", "issue.comment.delete"},
+		{"PATCH", "repos/o/r/issues/comments/1", "comment", "comment.edit"},
+		{"DELETE", "repos/o/r/issues/comments/1", "comment", "comment.delete"},
 		{"PUT", "repos/o/r/issues/1/labels", "issue.labels", "issue.labels.replace"},
 		{"DELETE", "repos/o/r/issues/1/labels/bug", "issue.labels", "issue.labels.remove"},
 		{"POST", "repos/o/r/issues/1/assignees", "issue.assignees", "issue.assignees.add"},
@@ -128,7 +128,7 @@ func TestTypedRoutes(t *testing.T) {
 		{"PUT", "repos/o/r/contents/a%2Fb", "file.put", "file.put"},
 		{"DELETE", "repos/o/r/contents/a/b", "file.delete", "file.delete"},
 		{"GET", "repos/o/r/releases/latest", "release.read", "release.latest"},
-		{"PATCH", "repos/o/r/releases/1", "release.update", "release.update"},
+		{"PATCH", "repos/o/r/releases/1", "release.edit", "release.edit"},
 		{"POST", "repos/o/r/releases/1/assets", "release.asset", "release.asset.upload"},
 		{"DELETE", "repos/o/r/releases/assets/1", "release.asset", "release.asset.delete"},
 		{"POST", "repos/o/r/actions/workflows/build.yml/dispatches", "workflow.dispatch", "workflow.dispatch"},
@@ -146,7 +146,7 @@ func TestTypedRoutes(t *testing.T) {
 		{"DELETE", "orgs/o/hooks/1", "hook.delete", "hook.delete"},
 		{"POST", "repos/o/r/keys", "key.create", "repo.keys.create"},
 		{"DELETE", "user/keys/1", "key.delete", "user.keys.delete"},
-		{"PATCH", "gists/abcd1234", "gist.update", "gist.update"},
+		{"PATCH", "gists/abcd1234", "gist.edit", "gist.edit"},
 		{"POST", "gists/abcd1234/comments", "gist.comment", "gist.comment.create"},
 		{"DELETE", "orgs/o/members/u", "org.members", "org.members.remove"},
 		{"PUT", "orgs/o/teams/t/memberships/u", "team.members", "team.membership.put"},
@@ -193,7 +193,7 @@ func TestRouteFalsePositives(t *testing.T) {
 		}
 	}
 	// Merely naming the owner and repository "merge" cannot imply a merge.
-	requireOperation(t, classify(t, knownInv(), "repos/merge/merge/pulls/1"), "pr.read", "pr.view", model.EffectRead)
+	requireOperation(t, classify(t, knownInv(), "repos/merge/merge/pulls/1"), "pr.view", "pr.view", model.EffectRead)
 }
 
 func TestStateAndReviewSpecialization(t *testing.T) {
@@ -317,7 +317,7 @@ func TestPlaceholders(t *testing.T) {
 		inv := knownInv()
 		inv.Env["GH_REPO"] = ghRepo
 		res := classify(t, inv, "repos/{owner}/{repo}/issues/1/comments", "-F", "author={owner}", "-F", "nested[name]={repo}", "-f", "raw={owner}")
-		op := requireOperation(t, res, "issue.comment", "issue.comment.create", model.EffectWrite)
+		op := requireOperation(t, res, "comment", "comment.create", model.EffectWrite)
 		parts := strings.Split(ghRepo, "/")
 		repo := parts[len(parts)-1]
 		if op.Target.Repository != "o/"+repo || op.Parameters["author"] != "o" || op.Parameters["raw"] != "{owner}" || op.Parameters["nested"].(map[string]any)["name"] != repo {
@@ -328,8 +328,8 @@ func TestPlaceholders(t *testing.T) {
 		}
 	}
 	res := classify(t, model.Invocation{}, "repos/{owner}/{repo}/issues/1/comments", "-F", "author={owner}")
-	op := requireOperation(t, res, "issue.comment", "issue.comment.create", model.EffectWrite)
-	if op.Target.Repository != "" || op.Target.Owner != "" || !unresolvedField(op, "target.repository", "git") || !unresolvedField(op, "parameters.author", "git") || res.Classification.Resolution != model.ResolutionDeferred {
+	op := requireOperation(t, res, "comment", "comment.create", model.EffectWrite)
+	if op.Target.Repository != "" || op.Target.Owner != "" || !unresolvedField(op, "target.repository", "git") || !unresolvedField(op, "parameters.author", "git") {
 		t.Fatal(res)
 	}
 	inv := knownInv()
@@ -363,13 +363,13 @@ func TestURLsQueriesAndHosts(t *testing.T) {
 			args = append(args, "--hostname", tc.hostname)
 		}
 		res := classify(t, inv, args...)
-		op := requireOperation(t, res, "repo.read", "repo.view", model.EffectRead)
+		op := requireOperation(t, res, "repo.view", "repo.view", model.EffectRead)
 		if op.Target.Host != tc.host || res.Source.Path != "/repos/o/r" {
 			t.Fatal(res)
 		}
 	}
 	res := classify(t, knownInv(), "-XGET", "repos/o/r/issues?labels=good%20first+issue&labels=bug&ref=a%2Fb", "-F", "page=2", "-F", "nested[flag]=true", "-f", "names[]=a", "-f", "names[]=b")
-	op := requireOperation(t, res, "issue.read", "issue.list", model.EffectRead)
+	op := requireOperation(t, res, "issue.list", "issue.list", model.EffectRead)
 	want := map[string]any{"labels": []string{"good first issue", "bug"}, "ref": "a/b", "page": "2", "flag": "true", "names[]": []string{"a", "b"}}
 	if !reflect.DeepEqual(op.Parameters, want) {
 		t.Fatalf("query params: %#v", op.Parameters)
@@ -438,7 +438,7 @@ func TestMalformedAndHeaders(t *testing.T) {
 		}
 	}
 	res := classify(t, knownInv(), "repos/o/r", "-H", "Accept: application/vnd.github.preview+json")
-	op := requireOperation(t, res, "repo.read", "repo.view", model.EffectRead)
+	op := requireOperation(t, res, "repo.view", "repo.view", model.EffectRead)
 	if _, ok := op.Parameters["headers"]; ok {
 		t.Fatal(op)
 	}

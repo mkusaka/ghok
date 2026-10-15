@@ -18,6 +18,7 @@ type Record struct {
 	InvocationID   string                `json:"invocationId"`
 	Mode           string                `json:"mode"`
 	DurationMs     int64                 `json:"durationMs"`
+	Redactions     int                   `json:"redactions"`
 	Argv           []string              `json:"argv"`
 	Alias          string                `json:"alias,omitempty"`
 	Classification model.Classification  `json:"classification"`
@@ -41,6 +42,14 @@ func NewInvocationID() string {
 }
 
 func redactRecord(r *redact.Redactor, record Record) Record {
+	count := r.WithCount(func(r *redact.Redactor) {
+		record = redactRecordCopy(r, record)
+	})
+	record.Redactions = count
+	return record
+}
+
+func redactRecordCopy(r *redact.Redactor, record Record) Record {
 	res := r.Result(model.Result{
 		Classification: record.Classification,
 		Operations:     record.Operations,

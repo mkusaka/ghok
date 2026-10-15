@@ -47,7 +47,7 @@ Every operation has the following fields. Optional fields are omitted when empty
 
 | Operation field | Meaning |
 | --- | --- |
-| `family` | Semantic grouping, for example `pr.merge`; `unknown` when no semantic mapping is available. Families are not uniformly identical across layers. |
+| `family` | Shared semantic grouping, for example `pr.merge`; `unknown` when no semantic mapping is available. Curated actions have the same family/effect in every layer. |
 | `action` | Specific identity used by hook/policy operation globs, for example `pr.merge.queue.enqueue`. |
 | `effect` | `read`, `write`, or `unknown`; a classification, not a success/outcome report. |
 | `target` | Known host/repository/resource selectors. An empty target does not prove a target does not exist. |
@@ -60,10 +60,12 @@ Every operation has the following fields. Optional fields are omitted when empty
 | `detail` | Optional human-readable explanation; not a stable matching key. |
 | `origin` | Canonical command path, matched REST method/route, or GraphQL schema field/response alias/operation name/type. |
 
-`target` supports `host`, `owner`, `repository` (`owner/name`), `number` (PR/issue),
-`nodeId`, `branch`, `baseBranch`, `headBranch`, `sha`, `ref`, and `url`. Empty strings
-and absent numbers mean not known. `nodeId` can identify a PR, review, repository,
-ref, comment, or other resource; it is not necessarily a repository ID.
+`target` supports `kind`, `host`, `owner`, `repository` (`owner/name`), `number` (PR/issue),
+`nodeId`, `branch`, `baseBranch`, `headBranch`, `sha`, `ref`, and `url`. `kind` describes
+the selected resource: `pullRequest`, `issue`, `repository`, `ref`, `comment`, etc.
+Polymorphic subjects use `kind: unknown` plus an unresolved `target.kind` entry.
+Creation operations can select a repository ID rather than the new resource;
+`nodeId` is not necessarily a repository ID. Other empty strings/absent numbers mean not known.
 
 `origin` has optional `command` (array), `method`, `route`, `field`, `alias`,
 `operation`, and `opType` (`query`, `mutation`, or `subscription`). A GraphQL response
@@ -93,10 +95,11 @@ a byte-count/SHA256 fingerprint. Deliberately unexamined stdin can be logged as
 `operations[].texts` exposes prose without requiring a hook to re-parse argv,
 REST fields, or GraphQL input. It is an additive, optional schemaVersion 1 field.
 Each optional `title`, `body`, or `notes` is a Text object with required `value`,
-`source`, and `bytes`, plus optional `path`, `status`, and `truncated`. `bytes`
-counts original text bytes before output redaction, not Unicode characters or
-the eventual server-side content. Missing fields mean no corresponding text
-was supplied/identified. Explicit empty inline values remain present.
+`source`, `bytes`, and `redactions`, plus optional `path`, `status`, and `truncated`.
+`bytes` counts original text bytes before output redaction, not Unicode characters
+or the eventual server-side content. `redactions` counts credential substitutions
+in `value` (zero in raw input). Missing fields mean no corresponding text was
+supplied/identified. Explicit empty inline values remain present.
 
 Sources are `inline`, `file`, `stdin`, `editor`, `fill`, `template`, or `unknown`.
 Unavailable/generated prose has an empty value; a failed file/stdin read also
@@ -149,15 +152,17 @@ the body's file/stdin provenance. No second file read is needed for texts.
 GraphQL extracts semantic values after AST/variable resolution; its provenance
 describes the input transport, not an editor or a server-generated message.
 
-Hook/normalize/explain output retains ordinary prose while applying credential
-redaction. JSONL text values become `[content: N bytes]`, where N counts the
-available value before redaction; original size/provenance/status metadata is
-preserved. Existing `parameters.body`, `parameters.bodyFile`, and other flags
-retain their previous representations.
+Hooks receive raw prose and argv by default; set `redactInput: true` on hooks
+forwarding input elsewhere. Such hooks and normalize/explain output retain
+ordinary prose while applying credential redaction. Hooks can reject
+`redactions > 0` if masked content prevents safe evaluation. JSONL text values
+become `[content: N bytes]`, where N counts the available value before redaction;
+original size/provenance/status metadata is preserved. Existing `parameters.body`,
+`parameters.bodyFile`, and other flags retain their previous representations.
 For example, `gh pr create -t T -b B` adds:
 
 ```json
-{"texts":{"title":{"value":"T","source":"inline","bytes":1},"body":{"value":"B","source":"inline","bytes":1}}}
+{"texts":{"title":{"value":"T","source":"inline","bytes":1,"redactions":0},"body":{"value":"B","source":"inline","bytes":1,"redactions":0}}}
 ```
 
 ### Level, confidence, resolution, and execution
@@ -220,12 +225,60 @@ Unknown actions are not always just `unknown`: unmapped REST requests use
 
 ## Naming and merge comparison
 
-Native names usually replace spaces in canonical command paths with dots, keeping
-hyphens in verbs (`pr.update-branch`). Groups/help topics become `help`. API
-mappings group semantic reads differently (`pr.read`, `repo.read`), so do not
-assume every equal action has an equal family or vice versa.
+Curated family/action/effect identities come from the single [action catalogue](../internal/normalize/actions/actions.go).
+All native semantic rows, REST overrides, GraphQL curated fields, and flag/body
+refinements reference it. `normalize.KnownActionPattern` checks curated names and
+actual generated `rest.*` / `graphql.*` names; the generated names are not curated.
+Old exact actions such as `issue.comment` and `pr.comment` no longer match.
 
-Review rejection is `pr.review.request-changes` in all three layers.
+### Cross-layer taxonomy
+
+| Intent | Native action | REST action | GraphQL action |
+| --- | --- | --- | --- |
+| PR create/edit/close/reopen | `pr.create` / `pr.edit` / `pr.close` / `pr.reopen` | Same; PATCH state refines edit to close/reopen | Same; update state refines edit to close/reopen |
+| Issue create/edit/close/reopen | `issue.create` / `issue.edit` / `issue.close` / `issue.reopen` | Same | Same |
+| PR comment create/edit/delete | `pr.comment.create` / `.edit` / `.delete` | Shared issue-comment routes: `comment.create` / `.edit` / `.delete`; review-comment routes: `pr.comment.*` | `addComment` / `updateIssueComment` / `deleteIssueComment`: `comment.create` / `.edit` / `.delete` |
+| Issue comment create/edit/delete | `issue.comment.create` / `.edit` / `.delete` | Shared issue-comment routes: `comment.create` / `.edit` / `.delete` | Same generic `comment.*` actions |
+| Review approve/request-changes/comment | `pr.review.approve` / `.request-changes` / `.comment` | Same after event parsing | Same after event parsing |
+| Direct merge | `pr.merge.direct` with `--admin` | `pr.merge.direct` | `pr.merge.direct` |
+| Auto-merge enable/disable | `pr.merge.auto.enable` / `.disable` | No curated equivalent | Same |
+| Merge queue enqueue/dequeue | No native direct equivalent | No curated equivalent | `pr.merge.queue.enqueue` / `.dequeue` |
+| Unresolved reaction subject | — | Generated REST actions unless curated | `reaction.add` / `reaction.remove` |
+| Unresolved lockable subject | `pr.lock` / `issue.lock` when known | `issue.lock` / `issue.unlock` | `lockable.lock` / `lockable.unlock` |
+| Unresolved minimizable comment | — | — | `comment.minimize` / `comment.unminimize` |
+
+**Actions specialize monotonically as resolution improves; they never generalize.**
+A GraphQL `addComment(subjectId: ...)` cannot assert whether its opaque ID is an
+issue or PR, so it emits family `comment`, action `comment.create`,
+`target.kind: unknown`, and unresolved `target.kind` even if the ID has a familiar
+prefix. The shared REST issue-comment endpoint is equally ambiguous. Known
+comment IDs used to edit/delete have `kind: comment`, without claiming a parent type.
+`normalize.Specialize(action, kind)` supplies the future subject-resolution table:
+`comment.create` plus `pullRequest` becomes `pr.comment.create`; plus `issue`
+becomes `issue.comment.create`. Unknown/unrelated kinds leave the action unchanged,
+and already specialized actions never fall back to generic names. The resolver
+does not yet fetch `__typename` or apply this table.
+
+### Matching safely
+
+Rules/hooks that must not miss comment writes must include generic `comment.*`
+**as well as** `pr.comment.*` and `issue.comment.*`; matching only a known subject
+prefix misses unresolved GraphQL and shared REST subjects. List entries are OR:
+
+```yaml
+policy:
+  mode: enforce
+  rules:
+    - id: review-comment-writes
+      match:
+        operation: ["comment.*", "pr.comment.*", "issue.comment.*"]
+        effect: write
+      decision: deny
+```
+
+Use the same `match` block on a pre-hook when it must inspect these writes.
+Add other known subject namespaces (for example `discussion.comment.*` or
+`gist.comment.*`) when those operations are also in scope.
 
 All examples below have family `pr.merge` and effect `write`, but differ in intent:
 
@@ -329,15 +382,15 @@ in `extractParameters`, not flag metadata. Exact steps and review requirements a
 ### L1 family/action table
 
 The following rows give the default emitted action after native specialization.
-`pr merge` has raw registry action `pr.merge`, but always specializes to
-`pr.merge.request` or the flag-driven alternatives below. The empty root invocation
+`pr merge` defaults to `pr.merge.request`, with the flag-driven alternatives
+below. The empty root invocation
 is a curated `help` / `help` / read. `co` and `__completeNoDesc` below share their
 canonical commands' semantics rather than having duplicate curation.
 
 | Command after `gh` | Family | Default action | Effect |
 | --- | --- | --- | --- |
-| `__complete` | `completion` | `completion` | unknown |
-| `__completeNoDesc` | `completion` | `completion` | unknown |
+| `__complete` | `completion` | `native.completion` | unknown |
+| `__completeNoDesc` | `completion` | `native.completion` | unknown |
 | `accessibility` | `accessibility` | `accessibility` | read |
 | `actions` | `actions` | `actions` | read |
 | `agent-task` | `help` | `help` | read |
@@ -392,7 +445,7 @@ canonical commands' semantics rather than having duplicate curation.
 | `copilot` | `copilot` | `copilot` | unknown |
 | `credits` | `credits` | `credits` | read |
 | `discussion` | `help` | `help` | read |
-| `discussion comment` | `discussion.comment` | `discussion.comment` | write |
+| `discussion comment` | `discussion.comment` | `discussion.comment.create` | write |
 | `discussion create` | `discussion.create` | `discussion.create` | write |
 | `discussion edit` | `discussion.edit` | `discussion.edit` | write |
 | `discussion list` | `discussion.list` | `discussion.list` | read |
@@ -424,7 +477,7 @@ canonical commands' semantics rather than having duplicate curation.
 | `help` | `help` | `help` | read |
 | `issue` | `help` | `help` | read |
 | `issue close` | `issue.close` | `issue.close` | write |
-| `issue comment` | `issue.comment` | `issue.comment` | write |
+| `issue comment` | `issue.comment` | `issue.comment.create` | write |
 | `issue create` | `issue.create` | `issue.create` | write |
 | `issue delete` | `issue.delete` | `issue.delete` | write |
 | `issue develop` | `issue.develop` | `issue.develop` | write |
@@ -452,7 +505,7 @@ canonical commands' semantics rather than having duplicate curation.
 | `pr checkout` | `pr.checkout` | `pr.checkout` | write |
 | `pr checks` | `pr.checks` | `pr.checks` | read |
 | `pr close` | `pr.close` | `pr.close` | write |
-| `pr comment` | `pr.comment` | `pr.comment` | write |
+| `pr comment` | `pr.comment` | `pr.comment.create` | write |
 | `pr create` | `pr.create` | `pr.create` | write |
 | `pr diff` | `pr.diff` | `pr.diff` | read |
 | `pr edit` | `pr.edit` | `pr.edit` | write |
@@ -705,10 +758,10 @@ Regenerate with `go generate ./internal/normalize/rest`. Offline:
 `cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref ad351b19702b757bfd03a8ee85bcafe717878331 -date 2026-10-13`.
 Upgrade the SHA/date in `routes.go`'s directive, regenerate, and curate
 `overrides.go` by exact operationId. Never edit `routes_gen.go`. Preserve existing
-policy/hook names; `TestOverrideContract` detects absent keys, new action
-collisions, and stable family/action changes. Its explicit legacy sharing groups
-allow equivalent operations across scopes. Review any contract digest/allowlist
-change. See [REST notes](notes/rest.md#generation-and-override-curation).
+shared canonical names; `TestOverrideContract` detects absent keys, effect mismatches,
+uncurated identities, and new action collisions. Its reviewed sharing groups
+allow equivalent operations across scopes. Review each name or sharing-group
+change against the shared catalogue. See [REST notes](notes/rest.md#generation-and-override-curation).
 
 Without an override, action is `rest.` + operationId with `/` replaced by `.`,
 family is `rest.` + its first segment, GET/HEAD is read, POST/PUT/PATCH/DELETE is
@@ -825,8 +878,8 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 
 | Method | Route | Family | Base action |
 | --- | --- | --- | --- |
-| GET | `/repos/{owner}/{repo}/pulls` | `pr.read` | `pr.list` |
-| GET | `/repos/{owner}/{repo}/pulls/{pull_number}` | `pr.read` | `pr.view` |
+| GET | `/repos/{owner}/{repo}/pulls` | `pr.list` | `pr.list` |
+| GET | `/repos/{owner}/{repo}/pulls/{pull_number}` | `pr.view` | `pr.view` |
 | POST | `/repos/{owner}/{repo}/pulls` | `pr.create` | `pr.create` |
 | PATCH | `/repos/{owner}/{repo}/pulls/{pull_number}` | `pr.edit` | `pr.edit` |
 | PUT | `/repos/{owner}/{repo}/pulls/{pull_number}/merge` | `pr.merge` | `pr.merge.direct` |
@@ -836,7 +889,7 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | GET | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews` | `pr.read` | `pr.reviews.list` |
 | POST | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews` | `pr.review` | `pr.review.create` |
 | GET | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}` | `pr.read` | `pr.review.view` |
-| PUT | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}` | `pr.review` | `pr.review.update` |
+| PUT | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}` | `pr.review` | `pr.review.edit` |
 | DELETE | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}` | `pr.review` | `pr.review.delete` |
 | POST | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events` | `pr.review` | `pr.review.submit` |
 | PUT | `/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/dismissals` | `pr.review` | `pr.review.dismiss` |
@@ -846,23 +899,23 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | PUT | `/repos/{owner}/{repo}/pulls/{pull_number}/update-branch` | `pr.update-branch` | `pr.update-branch` |
 | GET | `/repos/{owner}/{repo}/pulls/comments` | `pr.read` | `pr.comments.list` |
 | GET | `/repos/{owner}/{repo}/pulls/comments/{comment_id}` | `pr.read` | `pr.comment.view` |
-| PATCH | `/repos/{owner}/{repo}/pulls/comments/{comment_id}` | `pr.comment` | `pr.comment.update` |
+| PATCH | `/repos/{owner}/{repo}/pulls/comments/{comment_id}` | `pr.comment` | `pr.comment.edit` |
 | DELETE | `/repos/{owner}/{repo}/pulls/comments/{comment_id}` | `pr.comment` | `pr.comment.delete` |
 | GET | `/repos/{owner}/{repo}/pulls/{pull_number}/comments` | `pr.read` | `pr.comments.list` |
 | POST | `/repos/{owner}/{repo}/pulls/{pull_number}/comments` | `pr.comment` | `pr.comment.create` |
 | POST | `/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies` | `pr.comment` | `pr.comment.reply` |
-| GET | `/repos/{owner}/{repo}/issues` | `issue.read` | `issue.list` |
+| GET | `/repos/{owner}/{repo}/issues` | `issue.list` | `issue.list` |
 | POST | `/repos/{owner}/{repo}/issues` | `issue.create` | `issue.create` |
-| GET | `/repos/{owner}/{repo}/issues/{issue_number}` | `issue.read` | `issue.view` |
+| GET | `/repos/{owner}/{repo}/issues/{issue_number}` | `issue.view` | `issue.view` |
 | PATCH | `/repos/{owner}/{repo}/issues/{issue_number}` | `issue.edit` | `issue.edit` |
 | PUT | `/repos/{owner}/{repo}/issues/{issue_number}/lock` | `issue.lock` | `issue.lock` |
 | DELETE | `/repos/{owner}/{repo}/issues/{issue_number}/lock` | `issue.unlock` | `issue.unlock` |
-| GET | `/repos/{owner}/{repo}/issues/comments` | `issue.read` | `issue.comments.list` |
-| GET | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `issue.read` | `issue.comment.view` |
-| PATCH | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `issue.comment` | `issue.comment.update` |
-| DELETE | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `issue.comment` | `issue.comment.delete` |
-| GET | `/repos/{owner}/{repo}/issues/{issue_number}/comments` | `issue.read` | `issue.comments.list` |
-| POST | `/repos/{owner}/{repo}/issues/{issue_number}/comments` | `issue.comment` | `issue.comment.create` |
+| GET | `/repos/{owner}/{repo}/issues/comments` | `comment` | `comment.list` |
+| GET | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `comment` | `comment.view` |
+| PATCH | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `comment` | `comment.edit` |
+| DELETE | `/repos/{owner}/{repo}/issues/comments/{comment_id}` | `comment` | `comment.delete` |
+| GET | `/repos/{owner}/{repo}/issues/{issue_number}/comments` | `comment` | `comment.list` |
+| POST | `/repos/{owner}/{repo}/issues/{issue_number}/comments` | `comment` | `comment.create` |
 | GET | `/repos/{owner}/{repo}/issues/{issue_number}/labels` | `issue.read` | `issue.labels.list` |
 | POST | `/repos/{owner}/{repo}/issues/{issue_number}/labels` | `issue.labels` | `issue.labels.add` |
 | PUT | `/repos/{owner}/{repo}/issues/{issue_number}/labels` | `issue.labels` | `issue.labels.replace` |
@@ -874,14 +927,14 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | POST | `/repos/{owner}/{repo}/labels` | `repo.labels` | `repo.labels.create` |
 | PATCH | `/repos/{owner}/{repo}/labels/{name}` | `repo.labels` | `repo.labels.update` |
 | DELETE | `/repos/{owner}/{repo}/labels/{name}` | `repo.labels` | `repo.labels.delete` |
-| GET | `/repos/{owner}/{repo}` | `repo.read` | `repo.view` |
+| GET | `/repos/{owner}/{repo}` | `repo.view` | `repo.view` |
 | PATCH | `/repos/{owner}/{repo}` | `repo.edit` | `repo.edit` |
 | DELETE | `/repos/{owner}/{repo}` | `repo.delete` | `repo.delete` |
-| GET | `/user/repos` | `repo.read` | `repo.list` |
+| GET | `/user/repos` | `repo.list` | `repo.list` |
 | POST | `/user/repos` | `repo.create` | `repo.create` |
-| GET | `/orgs/{org}/repos` | `repo.read` | `repo.list` |
+| GET | `/orgs/{org}/repos` | `repo.list` | `repo.list` |
 | POST | `/orgs/{org}/repos` | `repo.create` | `repo.create` |
-| GET | `/users/{username}/repos` | `repo.read` | `repo.list` |
+| GET | `/users/{username}/repos` | `repo.list` | `repo.list` |
 | POST | `/repos/{owner}/{repo}/transfer` | `repo.transfer` | `repo.transfer` |
 | POST | `/repos/{owner}/{repo}/forks` | `repo.fork` | `repo.fork` |
 | GET | `/repos/{owner}/{repo}/forks` | `repo.read` | `repo.forks.list` |
@@ -917,25 +970,25 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | GET | `/repos/{owner}/{repo}/contents/{path}` | `file.read` | `file.view` |
 | PUT | `/repos/{owner}/{repo}/contents/{path}` | `file.put` | `file.put` |
 | DELETE | `/repos/{owner}/{repo}/contents/{path}` | `file.delete` | `file.delete` |
-| GET | `/repos/{owner}/{repo}/releases` | `release.read` | `release.list` |
+| GET | `/repos/{owner}/{repo}/releases` | `release.list` | `release.list` |
 | POST | `/repos/{owner}/{repo}/releases` | `release.create` | `release.create` |
 | GET | `/repos/{owner}/{repo}/releases/latest` | `release.read` | `release.latest` |
 | GET | `/repos/{owner}/{repo}/releases/tags/{tag}` | `release.read` | `release.tag.view` |
-| GET | `/repos/{owner}/{repo}/releases/{release_id}` | `release.read` | `release.view` |
-| PATCH | `/repos/{owner}/{repo}/releases/{release_id}` | `release.update` | `release.update` |
+| GET | `/repos/{owner}/{repo}/releases/{release_id}` | `release.view` | `release.view` |
+| PATCH | `/repos/{owner}/{repo}/releases/{release_id}` | `release.edit` | `release.edit` |
 | DELETE | `/repos/{owner}/{repo}/releases/{release_id}` | `release.delete` | `release.delete` |
 | GET | `/repos/{owner}/{repo}/releases/{release_id}/assets` | `release.read` | `release.assets.list` |
 | POST | `/repos/{owner}/{repo}/releases/{release_id}/assets` | `release.asset` | `release.asset.upload` |
 | GET | `/repos/{owner}/{repo}/releases/assets/{asset_id}` | `release.read` | `release.asset.view` |
 | PATCH | `/repos/{owner}/{repo}/releases/assets/{asset_id}` | `release.asset` | `release.asset.update` |
 | DELETE | `/repos/{owner}/{repo}/releases/assets/{asset_id}` | `release.asset` | `release.asset.delete` |
-| GET | `/repos/{owner}/{repo}/actions/workflows` | `workflow.read` | `workflow.list` |
-| GET | `/repos/{owner}/{repo}/actions/workflows/{workflow_id}` | `workflow.read` | `workflow.view` |
+| GET | `/repos/{owner}/{repo}/actions/workflows` | `workflow.list` | `workflow.list` |
+| GET | `/repos/{owner}/{repo}/actions/workflows/{workflow_id}` | `workflow.view` | `workflow.view` |
 | POST | `/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches` | `workflow.dispatch` | `workflow.dispatch` |
 | PUT | `/repos/{owner}/{repo}/actions/workflows/{workflow_id}/enable` | `workflow.enable` | `workflow.enable` |
 | PUT | `/repos/{owner}/{repo}/actions/workflows/{workflow_id}/disable` | `workflow.disable` | `workflow.disable` |
-| GET | `/repos/{owner}/{repo}/actions/runs` | `run.read` | `run.list` |
-| GET | `/repos/{owner}/{repo}/actions/runs/{run_id}` | `run.read` | `run.view` |
+| GET | `/repos/{owner}/{repo}/actions/runs` | `run.list` | `run.list` |
+| GET | `/repos/{owner}/{repo}/actions/runs/{run_id}` | `run.view` | `run.view` |
 | POST | `/repos/{owner}/{repo}/actions/runs/{run_id}/rerun` | `run.rerun` | `run.rerun` |
 | POST | `/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs` | `run.rerun` | `run.rerun.failed` |
 | POST | `/repos/{owner}/{repo}/actions/runs/{run_id}/cancel` | `run.cancel` | `run.cancel` |
@@ -943,10 +996,10 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | DELETE | `/repos/{owner}/{repo}/actions/runs/{run_id}` | `run.delete` | `run.delete` |
 | DELETE | `/repos/{owner}/{repo}/actions/runs/{run_id}/logs` | `run.logs` | `run.logs.delete` |
 | POST | `/repos/{owner}/{repo}/actions/jobs/{job_id}/rerun` | `run.rerun` | `run.job.rerun` |
-| GET | `/repos/{owner}/{repo}/actions/secrets` | `secret.read` | `secret.list` |
+| GET | `/repos/{owner}/{repo}/actions/secrets` | `secret.list` | `secret.list` |
 | PUT | `/repos/{owner}/{repo}/actions/secrets/{secret_name}` | `secret.put` | `secret.put` |
 | DELETE | `/repos/{owner}/{repo}/actions/secrets/{secret_name}` | `secret.delete` | `secret.delete` |
-| GET | `/orgs/{org}/actions/secrets` | `secret.read` | `secret.list` |
+| GET | `/orgs/{org}/actions/secrets` | `secret.list` | `secret.list` |
 | PUT | `/orgs/{org}/actions/secrets/{secret_name}` | `secret.put` | `secret.put` |
 | DELETE | `/orgs/{org}/actions/secrets/{secret_name}` | `secret.delete` | `secret.delete` |
 | PUT | `/orgs/{org}/actions/secrets/{secret_name}/repositories` | `secret.repositories` | `secret.repositories.replace` |
@@ -954,7 +1007,7 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | DELETE | `/orgs/{org}/actions/secrets/{secret_name}/repositories/{repository_id}` | `secret.repositories` | `secret.repositories.remove` |
 | PUT | `/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}` | `secret.put` | `secret.put` |
 | DELETE | `/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}` | `secret.delete` | `secret.delete` |
-| GET | `/repos/{owner}/{repo}/actions/variables` | `variable.read` | `variable.list` |
+| GET | `/repos/{owner}/{repo}/actions/variables` | `variable.list` | `variable.list` |
 | POST | `/repos/{owner}/{repo}/actions/variables` | `variable.create` | `variable.create` |
 | PATCH | `/repos/{owner}/{repo}/actions/variables/{name}` | `variable.update` | `variable.update` |
 | DELETE | `/repos/{owner}/{repo}/actions/variables/{name}` | `variable.delete` | `variable.delete` |
@@ -986,16 +1039,16 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | DELETE | `/user/gpg_keys/{gpg_key_id}` | `key.delete` | `user.gpg_keys.delete` |
 | POST | `/user/ssh_signing_keys` | `key.create` | `user.ssh_signing_keys.create` |
 | DELETE | `/user/ssh_signing_keys/{ssh_signing_key_id}` | `key.delete` | `user.ssh_signing_keys.delete` |
-| GET | `/gists` | `gist.read` | `gist.list` |
+| GET | `/gists` | `gist.list` | `gist.list` |
 | POST | `/gists` | `gist.create` | `gist.create` |
-| GET | `/gists/{gist_id}` | `gist.read` | `gist.view` |
-| PATCH | `/gists/{gist_id}` | `gist.update` | `gist.update` |
+| GET | `/gists/{gist_id}` | `gist.view` | `gist.view` |
+| PATCH | `/gists/{gist_id}` | `gist.edit` | `gist.edit` |
 | DELETE | `/gists/{gist_id}` | `gist.delete` | `gist.delete` |
 | PUT | `/gists/{gist_id}/star` | `gist.star` | `gist.star` |
 | DELETE | `/gists/{gist_id}/star` | `gist.star` | `gist.unstar` |
 | POST | `/gists/{gist_id}/forks` | `gist.fork` | `gist.fork` |
 | POST | `/gists/{gist_id}/comments` | `gist.comment` | `gist.comment.create` |
-| PATCH | `/gists/{gist_id}/comments/{comment_id}` | `gist.comment` | `gist.comment.update` |
+| PATCH | `/gists/{gist_id}/comments/{comment_id}` | `gist.comment` | `gist.comment.edit` |
 | DELETE | `/gists/{gist_id}/comments/{comment_id}` | `gist.comment` | `gist.comment.delete` |
 | GET | `/orgs/{org}/members` | `org.read` | `org.members.list` |
 | DELETE | `/orgs/{org}/members/{username}` | `org.members` | `org.members.remove` |
@@ -1129,9 +1182,13 @@ refinements follow the table.
 | `closeIssue` | `issue.close` | `issue.close` | `issueId` |
 | `reopenIssue` | `issue.reopen` | `issue.reopen` | `issueId` |
 | `deleteIssue` | `issue.delete` | `issue.delete` | `issueId` |
-| `addComment` | `comment.create` | `comment.create` | `subjectId` |
-| `updateIssueComment` | `comment.edit` | `comment.edit` | `id` |
-| `deleteIssueComment` | `comment.delete` | `comment.delete` | `id` |
+| `updateIssue` | `issue.edit` | `issue.edit` | `id` |
+| `addComment` | `comment` | `comment.create` | `subjectId` |
+| `updateIssueComment` | `comment` | `comment.edit` | `id` |
+| `deleteIssueComment` | `comment` | `comment.delete` | `id` |
+| `addReaction` / `removeReaction` | `reaction` | `reaction.add` / `reaction.remove` | `subjectId` |
+| `lockLockable` / `unlockLockable` | `lockable` | `lockable.lock` / `lockable.unlock` | `lockableId` |
+| `minimizeComment` / `unminimizeComment` | `comment` | `comment.minimize` / `comment.unminimize` | `subjectId` |
 | `archiveRepository` | `repo.archive` | `repo.archive` | `repositoryId` |
 | `unarchiveRepository` | `repo.unarchive` | `repo.unarchive` | `repositoryId` |
 | `updateRepository` | `repo.edit` | `repo.edit` | `repositoryId` |
@@ -1153,8 +1210,8 @@ Review event `APPROVE`, `REQUEST_CHANGES`, or `COMMENT` specializes both review
 mutations to `pr.review.approve`, `pr.review.request-changes`, or
 `pr.review.comment`. `addPullRequestReview` with absent event on an available
 object becomes `pr.review.pending`; other absent/invalid events remain unresolved
-with base action `pr.review`. Unlike REST state PATCH specialization,
-`updatePullRequest(state:CLOSED)` retains `pr.edit`, with a detail about CLOSED.
+with base action `pr.review`. `updatePullRequest` and `updateIssue` state
+`CLOSED`/`OPEN` refine edit to the same close/reopen identities as REST PATCH.
 
 `createPullRequest` extracts base/head; `createRef` extracts ref/SHA; `updateRef`
 extracts SHA; `mergeBranch` extracts base/head. `expectedHeadOid` supplies target
@@ -1164,7 +1221,7 @@ recorded unresolved; GitHub schema/type/authorization validation is not performe
 
 ### Schema-backed default mutation fields
 
-The remaining 239 snapshot entries use **family `graphql.mutation`**, action
+The remaining 232 snapshot entries use **family `graphql.mutation`**, action
 **`graphql.<field>`**, effect **write**, exact confidence, and no `unknownReason`.
 Here `<field>` is each listed schema name; aliases never change it. Resolved input
 is retained in parameters. Detail includes the schema description's first line
@@ -1172,8 +1229,8 @@ and deprecation when present.
 
 Candidate targets are scalar `ID`/`ID!` fields named `*Id` (plus bare `id`).
 Generation prefers the unique longest object noun matching the mutation name;
-otherwise a sole candidate is selected. `addReaction` therefore uses `subjectId`,
-and `transferIssue` prefers `issueId` over `repositoryId`. When several candidates
+otherwise a sole candidate is selected. `transferIssue` prefers `issueId` over
+`repositoryId`; curated mappings may override the primary selector. When several candidates
 remain ambiguous, `target.nodeId` stays empty and an unresolved entry lists them,
 even if only one value is supplied. Missing selected IDs remain unresolved.
 Every mutation keeps `target.repository` unresolved with source `api`.
@@ -1191,7 +1248,7 @@ with `effect: write` to restrict the rule to writes. Curated actions such as
 | `abortQueuedMigrations`, `abortRepositoryMigration`, `acceptEnterpriseAdministratorInvitation`, `acceptEnterpriseMemberInvitation`, `acceptTopicSuggestion`, `accessUserNamespaceRepository`, `addAssigneesToAssignable` |
 | `addBlockedBy`, `addCloseIssueReferences`, `addDiscussionComment`, `addDiscussionPollVote`, `addEnterpriseOrganizationMember`, `addEnterpriseSupportEntitlement`, `addLabelsToLabelable` |
 | `addProjectCard`, `addProjectColumn`, `addProjectV2DraftIssue`, `addProjectV2ItemById`, `addPullRequestCreationCapBypassUsers`, `addPullRequestReviewComment`, `addPullRequestReviewThread` |
-| `addPullRequestReviewThreadReply`, `addReaction`, `addRelatesTo`, `addSubIssue`, `addUpvote`, `addVerifiableDomain`, `applyPendingIssueSuggestions` |
+| `addPullRequestReviewThreadReply`, `addRelatesTo`, `addSubIssue`, `addUpvote`, `addVerifiableDomain`, `applyPendingIssueSuggestions` |
 | `approveDeployments`, `approveVerifiableDomain`, `archiveProjectV2Item`, `archivePullRequest`, `cancelEnterpriseAdminInvitation`, `cancelEnterpriseMemberInvitation`, `cancelSponsorship` |
 | `changeUserStatus`, `clearLabelsFromLabelable`, `clearProjectV2ItemFieldValue`, `cloneProject`, `cloneTemplateRepository`, `closeDiscussion`, `convertProjectCardNoteToIssue` |
 | `convertProjectV2DraftIssueItemToIssue`, `copyProjectV2`, `createAttributionInvitation`, `createCheckRun`, `createCheckSuite`, `createCommitOnBranch`, `createDeployment` |
@@ -1203,21 +1260,21 @@ with `effect: write` to restrict the rule to writes. Curated actions such as
 | `deletePackageVersion`, `deleteProject`, `deleteProjectCard`, `deleteProjectColumn`, `deleteProjectV2`, `deleteProjectV2Field`, `deleteProjectV2Item` |
 | `deleteProjectV2StatusUpdate`, `deleteProjectV2View`, `deleteProjectV2Workflow`, `deletePullRequestReviewComment`, `deleteRepositoryCustomProperty`, `deleteRepositoryRuleset`, `deleteUserList` |
 | `deleteVerifiableDomain`, `dismissRepositoryVulnerabilityAlert`, `followOrganization`, `followUser`, `grantEnterpriseOrganizationsMigratorRole`, `grantMigratorRole`, `importProject` |
-| `inviteEnterpriseAdmin`, `inviteEnterpriseMember`, `linkProjectV2ToRepository`, `linkProjectV2ToTeam`, `linkRepositoryToProject`, `lockLockable`, `markDiscussionCommentAsAnswer` |
-| `markFileAsViewed`, `markProjectV2AsTemplate`, `minimizeComment`, `moveProjectCard`, `moveProjectColumn`, `pinEnvironment`, `pinIssue` |
+| `inviteEnterpriseAdmin`, `inviteEnterpriseMember`, `linkProjectV2ToRepository`, `linkProjectV2ToTeam`, `linkRepositoryToProject`, `markDiscussionCommentAsAnswer` |
+| `markFileAsViewed`, `markProjectV2AsTemplate`, `moveProjectCard`, `moveProjectColumn`, `pinEnvironment`, `pinIssue` |
 | `pinIssueComment`, `promoteRepositoryCustomProperty`, `publishSponsorsTier`, `regenerateEnterpriseIdentityProviderRecoveryCodes`, `regenerateVerifiableDomainToken`, `rejectDeployments`, `rejectPendingIssueSuggestions` |
 | `removeAssigneesFromAssignable`, `removeBlockedBy`, `removeCloseIssueReferences`, `removeEnterpriseAdmin`, `removeEnterpriseIdentityProvider`, `removeEnterpriseMember`, `removeEnterpriseOrganization` |
-| `removeEnterpriseSupportEntitlement`, `removeLabelsFromLabelable`, `removeOutsideCollaborator`, `removePullRequestCreationCapBypassUsers`, `removeReaction`, `removeRelatesTo`, `removeSubIssue` |
+| `removeEnterpriseSupportEntitlement`, `removeLabelsFromLabelable`, `removeOutsideCollaborator`, `removePullRequestCreationCapBypassUsers`, `removeRelatesTo`, `removeSubIssue` |
 | `removeUpvote`, `reopenDiscussion`, `reorderEnvironment`, `replaceActorsForAssignable`, `reprioritizeSubIssue`, `requestReviewsByLogin`, `rerequestCheckSuite` |
 | `rerequestReviews`, `resolveReviewThread`, `retireSponsorsTier`, `revokeEnterpriseOrganizationsMigratorRole`, `revokeMigratorRole`, `setEnterpriseIdentityProvider`, `setIssueFieldValue` |
 | `setOrganizationInteractionLimit`, `setRepositoryCustomPropertyValues`, `setRepositoryInteractionLimit`, `setUserInteractionLimit`, `startOrganizationMigration`, `startRepositoryMigration`, `transferEnterpriseOrganization` |
 | `transferIssue`, `unarchiveProjectV2Item`, `unarchivePullRequest`, `unfollowOrganization`, `unfollowUser`, `unlinkProjectV2FromRepository`, `unlinkProjectV2FromTeam` |
-| `unlinkRepositoryFromProject`, `unlockLockable`, `unmarkDiscussionCommentAsAnswer`, `unmarkFileAsViewed`, `unmarkIssueAsDuplicate`, `unmarkProjectV2AsTemplate`, `unminimizeComment` |
+| `unlinkRepositoryFromProject`, `unmarkDiscussionCommentAsAnswer`, `unmarkFileAsViewed`, `unmarkIssueAsDuplicate`, `unmarkProjectV2AsTemplate`, |
 | `unpinIssue`, `unpinIssueComment`, `unresolveReviewThread`, `updateCheckRun`, `updateCheckSuitePreferences`, `updateDiscussion`, `updateDiscussionComment` |
 | `updateEnterpriseAdministratorRole`, `updateEnterpriseAllowPrivateRepositoryForkingSetting`, `updateEnterpriseDefaultRepositoryPermissionSetting`, `updateEnterpriseDeployKeySetting`, `updateEnterpriseMembersCanChangeRepositoryVisibilitySetting`, `updateEnterpriseMembersCanCreateRepositoriesSetting`, `updateEnterpriseMembersCanDeleteIssuesSetting` |
 | `updateEnterpriseMembersCanDeleteRepositoriesSetting`, `updateEnterpriseMembersCanInviteCollaboratorsSetting`, `updateEnterpriseMembersCanMakePurchasesSetting`, `updateEnterpriseMembersCanUpdateProtectedBranchesSetting`, `updateEnterpriseMembersCanViewDependencyInsightsSetting`, `updateEnterpriseOrganizationProjectsSetting`, `updateEnterpriseOwnerOrganizationRole` |
 | `updateEnterpriseProfile`, `updateEnterpriseRepositoryProjectsSetting`, `updateEnterpriseTwoFactorAuthenticationDisallowedMethodsSetting`, `updateEnterpriseTwoFactorAuthenticationRequiredSetting`, `updateEnvironment`, `updateIpAllowListEnabledSetting`, `updateIpAllowListEntry` |
-| `updateIpAllowListForInstalledAppsEnabledSetting`, `updateIpAllowListUserLevelEnforcementEnabledSetting`, `updateIssue`, `updateIssueField`, `updateIssueFieldValue`, `updateIssueIssueType`, `updateIssueType` |
+| `updateIpAllowListForInstalledAppsEnabledSetting`, `updateIpAllowListUserLevelEnforcementEnabledSetting`, `updateIssueField`, `updateIssueFieldValue`, `updateIssueIssueType`, `updateIssueType` |
 | `updateLabel`, `updateNotificationRestrictionSetting`, `updateOrganizationAllowPrivateRepositoryForkingSetting`, `updateOrganizationWebCommitSignoffSetting`, `updatePatreonSponsorability`, `updateProject`, `updateProjectCard` |
 | `updateProjectColumn`, `updateProjectV2`, `updateProjectV2Collaborators`, `updateProjectV2DraftIssue`, `updateProjectV2Field`, `updateProjectV2ItemFieldValue`, `updateProjectV2ItemPosition` |
 | `updateProjectV2StatusUpdate`, `updateProjectV2View`, `updatePullRequestReview`, `updatePullRequestReviewComment`, `updateRepositoryCustomProperty`, `updateRepositoryRuleset`, `updateRepositoryWebCommitSignoffSetting` |
@@ -1247,10 +1304,13 @@ and an optional bounded `ReadFile` callback. "Pure" here means I/O is injected,
 not that analyzing an explicitly provided file cannot call that reader. All three
 layers can use it. Missing data remains unresolved/unknown.
 
-The wrapper/inspection CLI checks alias-expanded API arguments for `--input -`
-or a typed `-F key=@-`. It does not pre-read native interactive input such as
-`auth login --with-token`, `secret set`, or `workflow run --json`; API parse errors
-also skip this pre-read. Raw `-f query=@-` is a literal string, not a stdin request.
+`normalize.NeedsStdin` is the wrapper/inspection CLI's shared predicate over
+alias-expanded argv: API `--input -` / typed `-F key=@-`, plus native
+`--body-file -`, `-F -` (including bundles), and `--notes-file -`. It reuses the
+API/native parsers and native text precedence, not a second flag scanner.
+Native interactive input such as `auth login --with-token`, `secret set`, or
+`workflow run --json` is not pre-read. Parse errors also skip pre-read. Raw
+`-f query=@-` is a literal string, not a stdin request.
 
 Wrapper capture additionally requires a potentially relevant enforce-mode
 denial (rules, unknown-mutation handling, or protected repositories) or an
@@ -1264,8 +1324,9 @@ non-TTY input independently of configured enforcement.
 For native text flags, wrapper capture instead requires a potentially matching
 enabled pre-hook. The existing parsed text provenance identifies stdin, including
 bundled `-F` shorthands; known native operation/effect/target matches may exclude
-irrelevant hooks before capture. Inspection commands do not pre-read native
-stdin; their native stdin texts remain explicitly `not-captured`.
+irrelevant hooks before capture. `normalize`, `explain`, and `hooks test` read
+requested non-TTY stdin for both native and API arguments, without policy or
+hook gating: they never execute the requested gh command. TTY stdin remains untouched.
 
 | Stdin status | Analysis behavior |
 | --- | --- |
@@ -1311,7 +1372,7 @@ normalization.
 | --- | --- | --- | --- |
 | Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; normalized prose on mapped commands; plain alias chains. | Context lookup, interactive/generated text, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
 | REST | All 1,242 pinned public OpenAPI operations; 206 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
-| GraphQL | AST selection/variables/aliases/fragments/directives; 278 schema-backed writes including 39 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
+| GraphQL | AST selection/variables/aliases/fragments/directives; 278 schema-backed writes including 46 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
 
 Normalization is extensible by editing the existing static registries; it does
 not load runtime normalizer plugins. Context resolution is a separate layer and

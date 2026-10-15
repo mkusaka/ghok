@@ -90,7 +90,7 @@ func TestNormalizeDiscoveredCommands(t *testing.T) {
 		{[]string{"stack", "--help"}, "native.stack", model.EffectUnknown},
 		{[]string{"webhook", "--help"}, "native.webhook", model.EffectUnknown},
 		{[]string{"co", "42", "--force"}, "pr.checkout", model.EffectWrite},
-		{[]string{"__completeNoDesc", "pr", "--help"}, "completion", model.EffectUnknown},
+		{[]string{"__completeNoDesc", "pr", "--help"}, "native.completion", model.EffectUnknown},
 	} {
 		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
 			r := Normalize(model.Invocation{}, tt.argv)

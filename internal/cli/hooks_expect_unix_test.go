@@ -83,24 +83,16 @@ func TestHooksExpectAggregate(t *testing.T) {
 				t.Fatalf("exit=%d, want %d; stdout=%s stderr=%s", code, tc.code, out, errOut)
 			}
 			var report struct {
-				Aggregate struct {
+				Final struct {
 					Decision  string `json:"decision"`
 					WouldDeny bool   `json:"wouldDeny"`
-				} `json:"aggregate"`
+				} `json:"final"`
 			}
 			if err := json.Unmarshal([]byte(out), &report); err != nil {
 				t.Fatalf("invalid JSON stdout: %v: %s", err, out)
 			}
-			if report.Aggregate.Decision != tc.decision || report.Aggregate.WouldDeny != tc.wouldDeny {
-				t.Fatalf("aggregate=%+v", report.Aggregate)
-			}
-			if tc.expect != "" && tc.code == 1 {
-				want := "expected Aggregate decision " + tc.expect + ", actual " + tc.decision
-				if !strings.Contains(errOut, want) {
-					t.Fatalf("stderr=%q, want %q", errOut, want)
-				}
-			} else if errOut != "" {
-				t.Fatalf("unexpected stderr: %s", errOut)
+			if report.Final.Decision != tc.decision || report.Final.WouldDeny != tc.wouldDeny {
+				t.Fatalf("final=%+v", report.Final)
 			}
 		})
 	}

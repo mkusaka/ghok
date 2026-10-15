@@ -75,7 +75,9 @@ func (r *Redactor) text(in *model.Text) *model.Text {
 		return nil
 	}
 	out := *in
-	out.Value = r.String(in.Value)
+	out.Redactions = r.WithCount(func(r *Redactor) {
+		out.Value = r.String(in.Value)
+	})
 	out.Source = r.String(in.Source)
 	out.Path = r.String(in.Path)
 	out.Status = model.StdinStatus(r.String(string(in.Status)))
@@ -84,6 +86,7 @@ func (r *Redactor) text(in *model.Text) *model.Text {
 
 func (r *Redactor) target(in model.Target) model.Target {
 	out := in
+	out.Kind = r.String(in.Kind)
 	out.Host = r.String(in.Host)
 	out.Owner = r.String(in.Owner)
 	out.Repository = r.String(in.Repository)
@@ -116,6 +119,15 @@ func (r *Redactor) unresolved(in []model.Unresolved) []model.Unresolved {
 // is decoded, redacted (including JSON keys/GraphQL literals), then re-encoded;
 // original byte counts and truncation metadata continue to describe execution.
 func (r *Redactor) Input(in protocol.Input) protocol.Input {
+	var out protocol.Input
+	count := r.WithCount(func(r *Redactor) {
+		out = r.input(in)
+	})
+	out.Redactions = count
+	return out
+}
+
+func (r *Redactor) input(in protocol.Input) protocol.Input {
 	out := in
 	out.Event = r.String(in.Event)
 	out.EventID = r.String(in.EventID)
@@ -185,7 +197,7 @@ func (r *Redactor) output(in *protocol.Output) *protocol.Output {
 	if err != nil {
 		// Never pass partially decoded or opaque invalid data through: it can
 		// contain credentials that String cannot see in their encoded form.
-		body = []byte(r.mark())
+		body = []byte(r.mask(in.Base64))
 	} else {
 		body = r.body(body)
 	}

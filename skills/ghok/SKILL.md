@@ -106,13 +106,18 @@ ghok hooks list
 ghok hooks test -- pr merge 123                       # runs hooks for real, never gh
 ```
 
-`hooks test --expect allow|deny|abstain|audit -- <gh args>` compares the printed
-effective Aggregate decision after policy/mode handling, not raw hook decisions
-or would-deny: observe-mode denial compares as `audit`; abstaining hooks normally
-leave `allow`. A match exits 0 even on denial/hook error; mismatch exits 1 with a
-stderr diagnostic. Without `--expect`, Aggregate deny or hook execution error
-(nonzero/spawn failure, timeout, invalid response, cancellation) exits 1,
-otherwise 0. Configuration/analysis failures exit 1; usage errors exit 2.
+`hooks test` reports **Hooks** (`aggregate.decision`: allow/deny/abstain),
+**Policy** (`policy.decision`: allow/audit/deny, after mode handling), and
+**FINAL** (`final.decision`, after combining policy, pre-hooks and configured mode).
+`--expect allow|deny|abstain|audit` still compares FINAL: observe would-deny is `audit`;
+policy allow plus abstaining hooks is FINAL `allow`, not `abstain`.
+Use `--expect-hooks allow|deny|abstain` for hook aggregate (`abstain` when none matched
+or all abstained) and `--expect-policy allow|audit|deny` for policy alone.
+With any expectations, all must match for exit 0, even on denial/hook error;
+mismatches exit 1 and name each failed expectation. Without expectations, FINAL deny
+or hook execution error (nonzero/spawn failure, timeout, invalid response,
+cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
+usage errors exit 2.
 
 `explain`/`normalize` never run gh or hooks. Use them to get the exact `action` names to
 put in `match.operation`. Classification levels (ghok's own labels):
@@ -136,6 +141,15 @@ post hooks `result` with `exitCode`/`signal`). A pre-hook prints one JSON respon
 ```
 
 - `decision`: `allow` | `deny` | `abstain` (empty stdout with exit 0 also = abstain).
+- **Input is raw by default**, including original/expanded argv, normalized texts
+  and parameters. Hook authors are responsible for secrets they receive.
+- Set `redactInput: true` on hooks that forward input anywhere (notifiers, webhooks).
+  Only that hook's copy is masked; `redactions` reports substitutions at the top
+  level and on every Text, including zero. Counts are not unique-secret counts;
+  zero does not prove content is secret-free.
+- If complete inspection matters, deny when `truncated` is true or text is unavailable;
+  deny on `redactions > 0` when masked input cannot be safely evaluated.
+  Logs and displayed hook stderr/reason/message remain redacted.
 - Non-zero exit, timeout or invalid JSON is an *error outcome*, handled by the hook's
   `onError` (`deny` = fail closed, pre default; `allow`; `ignore`, post default).
 - Skip operations whose `execution` is `not-selected` or `skipped`.
@@ -164,7 +178,14 @@ Full protocol: <https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md>
 - `ghok doctor` first. `command -v gh` must be the shim for the wrapper to apply.
 - Deny message: `ghok: denied by policy: ...` or the hook's reason/message; exit 1 and
   the real gh was not started. Reproduce with `ghok explain -- <same args>`.
-- Invalid config: the wrapper warns once and runs gh **without** hooks/policy.
+- Invalid project config: ignore only the project overlay; user hooks/policy remain
+  active. Unknown project keys are ignored with notes. Discovery never uses HOME
+  itself as a project root.
+- Invalid user config: raw `policy.mode: enforce` prints an error every time,
+  exits 1, and never starts gh; observe/undetermined mode runs gh **without**
+  hooks/policy with a warning throttled to once per ten minutes.
+  `GHOK_FAIL_CLOSED=1` rejects any invalid config, including project files.
+  Validate/doctor explain the behavior; project failures also appear in explain.
 - Logs (JSONL, credential-redacted): `<config dir>/logs/ghok.jsonl`.
   `GHOK_DEBUG=1` prints internal logging errors to stderr.
 - Bypass for one command: run the real gh by absolute path. Hooks themselves run with

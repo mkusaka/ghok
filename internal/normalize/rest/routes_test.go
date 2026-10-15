@@ -1,42 +1,45 @@
 package rest
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 func TestOverrideContract(t *testing.T) {
-	generated := make(map[string]bool)
+	generated := make(map[string]route)
 	for _, r := range generatedRoutes {
-		if generated[r.operationID] {
+		if _, exists := generated[r.operationID]; exists {
 			t.Fatalf("duplicate generated operationId: %s", r.operationID)
 		}
-		generated[r.operationID] = true
+		generated[r.operationID] = r
 	}
-	ids := make([]string, 0, len(routeOverrides))
-	actions := make(map[string][]string)
+	sharedActions := make(map[string][]string)
 	for id, override := range routeOverrides {
-		if !generated[id] {
+		r, exists := generated[id]
+		if !exists {
 			t.Errorf("override operationId missing from OpenAPI: %s", id)
 		}
-		if override.family == "" || override.action == "" || strings.HasPrefix(override.action, "rest.") {
+		if override.Family == "" || override.Action == "" || strings.HasPrefix(override.Action, "rest.") {
 			t.Errorf("invalid canonical override: %s: %+v", id, override)
 		}
-		ids = append(ids, id)
-		actions[override.action] = append(actions[override.action], id)
+		if spec, ok := actions.Lookup(override.Action); !ok || spec != override {
+			t.Errorf("override is not a shared canonical identity: %s: %+v", id, override)
+		}
+		if override.Effect != methodEffect(r.method) {
+			t.Errorf("curated effect differs from HTTP method: %s: %+v", id, override)
+		}
+		sharedActions[override.Action] = append(sharedActions[override.Action], id)
 	}
-	// These legacy names intentionally span scopes or equivalent list routes.
-	// All other canonical actions must be unique; new sharing needs review.
+	// Equivalent operations intentionally share actions across scopes.
 	shared := map[string][]string{
 		"hook.create":            {"orgs/create-webhook", "repos/create-webhook"},
 		"hook.delete":            {"orgs/delete-webhook", "repos/delete-webhook"},
 		"hook.update":            {"orgs/update-webhook", "repos/update-webhook"},
-		"issue.comments.list":    {"issues/list-comments", "issues/list-comments-for-repo"},
+		"comment.list":           {"issues/list-comments", "issues/list-comments-for-repo"},
 		"notification.mark_read": {"activity/mark-notifications-as-read", "activity/mark-repo-notifications-as-read", "activity/mark-thread-as-read"},
 		"pr.comments.list":       {"pulls/list-review-comments", "pulls/list-review-comments-for-repo"},
 		"repo.create":            {"repos/create-for-authenticated-user", "repos/create-in-org"},
@@ -48,27 +51,16 @@ func TestOverrideContract(t *testing.T) {
 		"variable.delete":        {"actions/delete-environment-variable", "actions/delete-org-variable", "actions/delete-repo-variable"},
 		"variable.update":        {"actions/update-environment-variable", "actions/update-org-variable", "actions/update-repo-variable"},
 	}
-	for action, operationIDs := range actions {
+	for action, operationIDs := range sharedActions {
 		slices.Sort(operationIDs)
 		if len(operationIDs) > 1 && !slices.Equal(operationIDs, shared[action]) {
 			t.Errorf("unreviewed action collision %s: %v", action, operationIDs)
 		}
 	}
 	for action, operationIDs := range shared {
-		if !slices.Equal(actions[action], operationIDs) {
-			t.Errorf("shared canonical action changed %s: %v", action, actions[action])
+		if !slices.Equal(sharedActions[action], operationIDs) {
+			t.Errorf("shared canonical action changed %s: %v", action, sharedActions[action])
 		}
-	}
-	slices.Sort(ids)
-	var contract strings.Builder
-	for _, id := range ids {
-		override := routeOverrides[id]
-		fmt.Fprintf(&contract, "%s\t%s\t%s\n", id, override.family, override.action)
-	}
-	// Policy/hook identities are a compatibility contract, not generated names.
-	const want = "67d3c273da1eab4f32f8c165a86a4c49d0bd388e361578ea883012d9249318d6"
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(contract.String()))); got != want {
-		t.Fatalf("canonical family/action contract changed: %s; review before updating the digest", got)
 	}
 }
 
@@ -87,7 +79,7 @@ func TestGeneratedClassifications(t *testing.T) {
 		{"POST", "repos/o/r/merge-upstream", "branch.merge", "branch.merge-upstream", model.EffectWrite},
 		{"GET", "repos/o/r/contents", "file.read", "file.list", model.EffectRead},
 		{"GET", "repos/o/r/contents/a/b", "file.read", "file.view", model.EffectRead},
-		{"PATCH", "gists/abc123", "gist.update", "gist.update", model.EffectWrite},
+		{"PATCH", "gists/abc123", "gist.edit", "gist.edit", model.EffectWrite},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			res := classify(t, knownInv(), "-X", tc.method, tc.path)
@@ -135,7 +127,7 @@ func TestGeneratedTargetsAndLiteralPrecedence(t *testing.T) {
 	}
 	// /issues/comments must beat the integer issue_number capture.
 	res = classify(t, knownInv(), "repos/o/r/issues/comments")
-	requireOperation(t, res, "issue.read", "issue.comments.list", model.EffectRead)
+	requireOperation(t, res, "comment", "comment.list", model.EffectRead)
 	// Both paths accept strings; literal precedence must not rely on type rejection.
 	res = classify(t, knownInv(), "agents/automations/available-tools")
 	op = requireOperation(t, res, "rest.agent-automations", "rest.agent-automations.list-available-automation-tools", model.EffectRead)

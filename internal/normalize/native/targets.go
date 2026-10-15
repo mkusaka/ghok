@@ -267,3 +267,25 @@ func extractWorkflowFields(op *model.Operation, p parsedArgs) {
 		unresolved(op, "parameters.inputs", "JSON workflow inputs from stdin", "stdin")
 	}
 }
+
+// Kind describes the resource selected by native syntax, not the type of a
+// newly created result. Creation/list operations commonly select a repository.
+func nativeTargetKind(c commandSpec) string {
+	switch c.positional {
+	case "pr":
+		return "pullRequest"
+	case "issue":
+		return "issue"
+	case "repo", "repo-create":
+		return "repository"
+	case "tag":
+		return "release"
+	}
+	switch {
+	case strings.HasPrefix(c.path, "gist "):
+		return "gist"
+	case c.repo:
+		return "repository"
+	}
+	return ""
+}

@@ -373,6 +373,7 @@ func TrustProject(path, cwd string, env map[string]string) (string, []Hook, []st
 	if err != nil {
 		return "", nil, nil, err
 	}
+	notes = append(notes, projectUnknownKeys(n, project)...)
 	var digest string
 	var files []trustedFile
 	if len(p.Hooks) != 0 {

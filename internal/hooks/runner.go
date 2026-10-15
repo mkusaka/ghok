@@ -3,12 +3,15 @@ package hooks
 
 import (
 	"context"
+	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/policy"
 	"github.com/mkusaka/ghok/internal/protocol"
+	"github.com/mkusaka/ghok/internal/redact"
 )
 
 const (
@@ -172,6 +175,7 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 	}
 	remaining, running := len(hooks), 0
 	denied := false
+	var inputRedactor *redact.Redactor
 	finish := func(i int, result protocol.HookResult) {
 		state[i] = 2
 		aggregate.Results[i] = result
@@ -243,6 +247,22 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 			input.Previous = nil
 			for _, dep := range h.DependsOn {
 				input.Previous = append(input.Previous, aggregate.Results[ids[dep]])
+			}
+			if h.RedactInput {
+				if inputRedactor == nil {
+					base := r.Env
+					if base == nil {
+						base = os.Environ()
+					}
+					env := make(map[string]string, len(base))
+					for _, entry := range base {
+						if key, value, ok := strings.Cut(entry, "="); ok {
+							env[key] = value
+						}
+					}
+					inputRedactor = redact.New(env)
+				}
+				input = inputRedactor.Input(input)
 			}
 			state[i] = 1
 			running++

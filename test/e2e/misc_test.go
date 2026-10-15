@@ -146,14 +146,14 @@ func TestMiscHooksExpect(t *testing.T) {
 			result := s.management(nil, "hooks", "test", "--json", "--no-resolve", "--expect", tc.expect, "--", "version")
 			result.code(t, tc.want)
 			var report struct {
-				Aggregate struct {
+				Final struct {
 					Decision  string `json:"decision"`
 					WouldDeny bool   `json:"wouldDeny"`
-				} `json:"aggregate"`
+				} `json:"final"`
 			}
 			decodeJSON(t, result.stdout, &report)
-			if report.Aggregate.Decision != tc.decision || report.Aggregate.WouldDeny != (tc.hookDecision == "deny") {
-				t.Fatalf("aggregate=%+v", report.Aggregate)
+			if report.Final.Decision != tc.decision || report.Final.WouldDeny != (tc.hookDecision == "deny") {
+				t.Fatalf("final=%+v", report.Final)
 			}
 			if tc.want == 1 && (!bytes.Contains(result.stderr, []byte(tc.expect)) || !bytes.Contains(result.stderr, []byte(tc.decision))) {
 				t.Fatalf("missing expected/actual decision: %s", result.stderr)

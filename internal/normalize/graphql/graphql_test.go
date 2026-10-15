@@ -367,7 +367,7 @@ func TestNormalizeGraphQLSchemaMutation(t *testing.T) {
 	}`
 	result := normalizeDocument(t, document, "-f", "input[subjectId]=ISSUE_node", "-f", "input[content]=THUMBS_UP")
 	op := onlyOperation(t, result)
-	if op.Family != "graphql.mutation" || op.Action != "graphql.addReaction" || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone {
+	if op.Family != "reaction" || op.Action != "reaction.add" || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone {
 		t.Fatalf("schema-known mutation must be a classified write: %+v", op)
 	}
 	if op.Target.NodeID != "ISSUE_node" || op.Target.Repository != "" || !hasUnresolved(op, "target.repository", "api") {
@@ -400,7 +400,11 @@ func TestNormalizeGraphQLSchemaTargetSelection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := normalizeDocument(t, `mutation { `+tc.field+`(input: `+tc.input+`) { clientMutationId } }`)
 			op := onlyOperation(t, result)
-			if op.Action != "graphql."+tc.field || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone || op.Target.NodeID != tc.nodeID {
+			wantAction := "graphql." + tc.field
+			if tc.field == "addReaction" {
+				wantAction = "reaction.add"
+			}
+			if op.Action != wantAction || op.Effect != model.EffectWrite || op.UnknownReason != model.UnknownNone || op.Target.NodeID != tc.nodeID {
 				t.Fatalf("schema mutation target selection: %+v", op)
 			}
 			if len(tc.candidates) == 0 {

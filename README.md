@@ -8,9 +8,10 @@ is an independently installed `gh`.
 **This is a convenience guardrail, not a security boundary.** Direct real-`gh`
 paths, `curl`, other clients, extensions, and credential helpers can bypass it.
 Use GitHub branch protection and rulesets for authoritative enforcement.
-Hooks are trusted programs running as your user. Invalid configuration warns
-and runs real `gh` **without hooks**, even if you intended enforce mode; repeated
-warnings for the same config error are limited to once per ten minutes.
+Hooks are trusted programs running as your user. Invalid project configuration
+cannot disable user hooks or policy. Invalid user configuration fails closed
+when raw YAML declares enforce mode; observe/undetermined mode fails open.
+Set `GHOK_FAIL_CLOSED=1` to reject any invalid configuration.
 
 ## How it works
 
@@ -209,6 +210,18 @@ and append rules/protected repositories; it never weakens global policy.
 Projects cannot set runtime or logging. `trust.include` is project-only; user
 configuration has no `trust.projects` setting.
 
+Project discovery stops before `$HOME`, so a dotfiles repository at `$HOME`
+does not supply project config. Project read/parse/validation failures discard
+only the project overlay and appear in validate/doctor/explain notes and log
+diagnostics. Project unknown keys (including nested keys) are ignored with notes;
+user config remains strict. An invalid user config declaring
+`policy.mode: enforce` in raw YAML prints an error every time, exits 1, and never
+starts gh. Observe or undeterminable mode runs gh without hooks/policy with a
+warning throttled to once per ten minutes per error. `GHOK_FAIL_CLOSED=1` also
+rejects invalid project files and unreadable/unparseable user config; missing
+user config still uses defaults. Validate and doctor explain the selected
+failure behavior.
+
 Inspect project hooks, then manage their activation:
 
 ```sh
@@ -303,7 +316,15 @@ Exit zero with empty stdout means abstain; nonzero exit, timeout, or invalid
 response is an **outcome**, handled by `onError`. Commands are argv arrays,
 not shell snippets. Relative executable paths containing `/` are relative to
 the config directory; bare names use the hook's PATH. Hooks inherit the real
-environment (including credentials), although their JSON payload is redacted.
+environment (including credentials) and receive **raw input by default**, including
+original/expanded argv, normalized texts and parameters. Secret scanners see the
+same credentials gh will submit. Add `redactInput: true` to any hook that forwards
+input elsewhere (notifiers, webhooks); it receives redacted copies with a top-level
+`redactions` total and a `redactions` count on every Text. Counts measure substitutions,
+not unique secrets; zero does not prove input contains no secrets. Deny on `truncated`
+or unavailable input when complete inspection matters, and on `redactions > 0` when
+masked content cannot be safely evaluated. Logs and displayed diagnostics remain
+redacted; JSONL records include their own `redactions` count.
 See the complete [hook protocol](docs/hook-protocol.md).
 
 ### Policy and unknown handling
@@ -321,6 +342,28 @@ matches are considered conservatively. Every considered operation in a
 multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
+
+Actions specialize only as far as resolution permits. GraphQL `addComment` and
+the shared REST issue-comment endpoint can retain `comment.create` with
+`target.kind: unknown`; opaque node IDs do not establish PR versus issue.
+To avoid missing comment writes, match the generic action **and** known-subject
+names (the same match block works on a pre-hook):
+
+```yaml
+policy:
+  rules:
+    - id: check-comment-writes
+      match:
+        operation: ["comment.*", "pr.comment.*", "issue.comment.*"]
+        effect: write
+      decision: deny
+```
+
+Native `pr comment` / `issue comment` now use `pr.comment.create` /
+`issue.comment.create` (or `.edit` / `.delete` for last-comment flags), not the
+old exact `pr.comment` / `issue.comment` names. See the
+[cross-layer taxonomy and safe matching](docs/normalization.md#matching-safely).
+
 
 `match.env` applies to rules and pre/post hooks using the caller's invocation
 environment, before hook-specific `env` overrides. Names must match
@@ -418,18 +461,31 @@ read-only API queries without requiring `--resolve`; it cannot be combined with
 `--no-resolve`. The deprecated `--resolve` flag is accepted as a no-op.
 `hooks test` **executes trusted hooks**, using a synthetic result for the post
 phase (exit 0, or `--exit-code N` to exercise `match.result`/`match.exitCode`),
-but never runs the original command. Without `--expect`, `hooks test` exits 1 on
-an effective Aggregate deny or any hook execution error (nonzero exit/spawn
-failure, timeout, invalid response, cancellation), otherwise 0. Use
-`ghok hooks test --expect deny -- <gh args>` to assert the printed/JSON Aggregate
-decision (`allow|deny|abstain|audit`), after policy and configured-mode handling:
-observe-mode would-deny compares as `audit`, not `deny`. An abstaining hook
-normally leaves this effective decision `allow`; it is not the raw hook result.
-With `--expect`, a match exits 0 even on denial/hook error; a mismatch exits 1
-with expected/actual values on stderr. Configuration/analysis failures still
-exit 1 and usage errors exit 2. Other management commands use 0 success,
-1 failure/denial, 2 usage error. `explain --show-secrets` deliberately disables
-display redaction; do not paste that output into logs or tickets.
+but never runs the original command. It reports three separate decisions:
+
+- **Hooks** (`aggregate.decision` in JSON): `deny`, `allow` if some hook allowed,
+  or `abstain` if no hook matched/ran or all abstained. Deny dominates allow.
+- **Policy** (`policy.decision`): `allow|audit|deny`, after configured-mode handling;
+  an observe policy denial is `audit` with `policy.wouldDeny: true`.
+- **FINAL** (`final.decision`): combines policy and pre-hook denial. Enforce denies
+  if either denies; observe would-deny is `audit` with `final.wouldDeny: true`.
+
+`--expect allow|deny|abstain|audit` keeps comparing **FINAL**, not the hook aggregate:
+with policy allow, abstaining hooks leave FINAL `allow`; `--expect abstain` therefore
+does not match that case. Use `--expect-hooks allow|deny|abstain` to check the hook
+aggregate and `--expect-policy allow|audit|deny` to check policy alone. For example:
+
+```sh
+ghok hooks test --expect allow --expect-hooks abstain --expect-policy allow -- version
+```
+
+With any expectations, exit 0 only if **all** match, even on denial/hook error;
+otherwise exit 1 with each failed expectation named on stderr. Without expectations,
+FINAL deny or any hook execution error (nonzero exit/spawn failure, timeout, invalid
+response, cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
+usage errors exit 2. Other management commands use 0 success, 1 failure/denial,
+2 usage error. `explain --show-secrets` deliberately disables display redaction;
+do not paste that output into logs or tickets.
 
 Explain starts with the policy decision, deny reasons and pre/post hook
 selection, then shows operations and unresolved fields once, followed by rule
@@ -483,9 +539,11 @@ measured; startup allocations describe the parent, not the child. Methodology:
   whitespace-containing or over-64-byte values. GraphQL documents become
   byte-count/SHA256 fingerprints; repository/action/target metadata stays
   readable. Hook input retains ordinary content; see [logging rules](docs/security.md#files-permissions-and-logging).
-- Invalid config still runs gh without hooks and logs each failure at the
-  default log path. Warning throttling uses private `<config-dir>/state/`
-  files; state I/O failures print the warning instead of suppressing it.
+- Invalid project config is ignored without disabling user enforcement.
+  Invalid user config fails closed for raw enforce mode or
+  `GHOK_FAIL_CLOSED=1`; otherwise gh runs without hooks/policy. Invalid-user
+  failures use the default log path. Only fail-open warnings are throttled;
+  private `<config-dir>/state/` I/O failures leave warnings visible.
 - Real gh missing: install GitHub CLI or set `runtime.realGh` / `GHOK_REAL_GH`.
   The wrapper exits 127 with a short diagnostic; doctor retains PATH details.
 - `GHOK_REAL_GH=/absolute/path/to/gh` overrides `runtime.realGh`; invalid

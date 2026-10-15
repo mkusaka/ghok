@@ -111,6 +111,30 @@ func defaultHook(h *Hook, n *yaml.Node) {
 	}
 }
 
+// userConfigError retains the raw policy mode even when strict decoding fails.
+type userConfigError struct {
+	error
+	enforce bool
+}
+
+func (e *userConfigError) Unwrap() error { return e.error }
+
+// FailClosed reports whether an invalid user config must prevent gh execution.
+func FailClosed(err error, env map[string]string) bool {
+	var failure *userConfigError
+	return err != nil && (env["GHOK_FAIL_CLOSED"] == "1" || errors.As(err, &failure) && failure.enforce)
+}
+
+func invalidUserConfig(path string, data []byte, cause error) error {
+	var mode string
+	if n, err := document(data); err == nil {
+		if value := field(field(n, "policy"), "mode"); value != nil {
+			_ = value.Decode(&mode)
+		}
+	}
+	return &userConfigError{error: fmt.Errorf("config %s: %w", path, cause), enforce: mode == ModeEnforce}
+}
+
 // Load treats an absent file as an empty configuration, not as an error.
 func Load(path string) (*Config, error) {
 	return load(path, nil)
@@ -133,18 +157,18 @@ func load(path string, notes *[]string) (*Config, error) {
 		*notes = append(*notes, fmt.Sprintf("Global config: %s (%s)", absolute, status))
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("config %s: %w", absolute, err)
+		return nil, invalidUserConfig(absolute, data, err)
 	}
 	c, err := Parse(data, filepath.Dir(absolute))
 	if err != nil {
-		return nil, fmt.Errorf("config %s: %w", absolute, err)
+		return nil, invalidUserConfig(absolute, data, err)
 	}
 	n, err := document(data)
 	if err != nil {
-		return nil, err
+		return nil, invalidUserConfig(absolute, data, err)
 	}
 	if field(n, "trust") != nil {
-		return nil, fmt.Errorf("config %s: trust is only allowed in project configs", absolute)
+		return nil, invalidUserConfig(absolute, data, errors.New("trust is only allowed in project configs"))
 	}
 	for i := range c.Hooks {
 		c.Hooks[i].Source = absolute
@@ -155,10 +179,14 @@ func load(path string, notes *[]string) (*Config, error) {
 // Parse accepts version omission only for empty files/mappings. Defaults are
 // seeded before decoding so explicitly supplied zero limits remain invalid.
 func Parse(data []byte, dir string) (*Config, error) {
+	return parse(data, dir, true)
+}
+
+func parse(data []byte, dir string, strict bool) (*Config, error) {
 	c := &Config{Dir: dir}
 	c.ApplyDefaults()
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
+	dec.KnownFields(strict)
 	if err := dec.Decode(c); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}

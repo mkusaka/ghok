@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 	"github.com/mkusaka/ghok/internal/normalize/apiargs"
 )
 
@@ -118,13 +119,13 @@ func specialize(op *model.Operation, body map[string]any, bodyKnown bool) {
 		prefix := strings.TrimSuffix(op.Action, ".edit")
 		switch body["state"] {
 		case "closed":
-			op.Family, op.Action = prefix+".close", prefix+".close"
+			actions.Apply(op, prefix+".close")
 		case "open":
-			op.Family, op.Action = prefix+".reopen", prefix+".reopen"
+			actions.Apply(op, prefix+".reopen")
 		}
 	case "repo.edit":
 		if body["archived"] == true {
-			op.Family, op.Action = "repo.archive", "repo.archive"
+			actions.Apply(op, "repo.archive")
 		}
 	case "repo.create":
 		name, _ := body["name"].(string)
@@ -152,16 +153,16 @@ func specialize(op *model.Operation, body map[string]any, bodyKnown bool) {
 		if event, ok := body["event"].(string); ok {
 			switch event {
 			case "APPROVE":
-				op.Action = "pr.review.approve"
+				actions.Apply(op, "pr.review.approve")
 			case "REQUEST_CHANGES":
-				op.Action = "pr.review.request-changes"
+				actions.Apply(op, "pr.review.request-changes")
 			case "COMMENT":
-				op.Action = "pr.review.comment"
+				actions.Apply(op, "pr.review.comment")
 			default:
 				op.Unresolved = append(op.Unresolved, model.Unresolved{Field: "parameters.event", Reason: "unrecognized review event", Source: "input"})
 			}
 		} else if bodyKnown && !eventPresent && base == "pr.review.create" {
-			op.Action = "pr.review.pending"
+			actions.Apply(op, "pr.review.pending")
 		} else {
 			op.Unresolved = appendUnresolved(op.Unresolved, model.Unresolved{Field: "parameters.event", Reason: "review event is unavailable or invalid", Source: "input"})
 		}

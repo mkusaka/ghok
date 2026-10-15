@@ -243,8 +243,8 @@ func TestProjectTrust(t *testing.T) {
 	base := "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
 	writeFixture(t, global, base)
 	writeFixture(t, project, "invalid: [")
-	if _, _, err := LoadEffective(global, cwd, env); err == nil {
-		t.Fatal("invalid untrusted project must still be parsed")
+	if c, notes, err := LoadEffective(global, cwd, env); err != nil || c.Policy.Mode != ModeEnforce || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "ignored") {
+		t.Fatalf("invalid project discarded user enforcement: %+v, %v, %v", c, notes, err)
 	}
 	writeFixture(t, project, "version: 1\npolicy:\n  mode: observe\n  unknownMutation: allow\n  protectedUnknown: audit\n  protectedRepositories: [org/project]\n  rules: [{id: rule, decision: deny}]\nhooks: [{id: project, phase: post, command: [./hooks/hook]}]\n")
 	c, notes, err := LoadEffective(global, cwd, env)
@@ -275,8 +275,8 @@ func TestProjectTrust(t *testing.T) {
 	}
 	for _, section := range []string{"runtime: {}", "logging: {}", "<<: {runtime: {}}", "<<: {logging: {}}"} {
 		writeFixture(t, project, "version: 1\n"+section)
-		if _, _, err := LoadEffective(global, cwd, env); err == nil {
-			t.Fatalf("accepted untrusted project %s", section)
+		if c, notes, err := LoadEffective(global, cwd, env); err != nil || c.Policy.Mode != ModeObserve || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "cannot set") {
+			t.Fatalf("restricted project %s affected user config: %+v, %v, %v", section, c, notes, err)
 		}
 	}
 	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [./hook]}]")
@@ -328,6 +328,8 @@ func TestProjectHomeBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixture(t, filepath.Join(root, ".ghok.yaml"), "version: 1")
+	writeFixture(t, filepath.Join(home, ".git"), "gitdir: dotfiles\n")
+	writeFixture(t, filepath.Join(home, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce}")
 	got, err := findProject(cwd, home)
 	if err != nil || got != "" {
 		t.Fatalf("crossed HOME: %s, %v", got, err)

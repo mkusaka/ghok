@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 //go:generate sh -c "cd gen && go run ."
@@ -33,9 +34,7 @@ type commandMetadata struct {
 }
 
 type semanticSpec struct {
-	family     string
-	action     string
-	effect     model.Effect
+	actions.Spec
 	repo       bool
 	positional string
 	extractor  func(*model.Operation, commandSpec, parsedArgs, model.Invocation)
@@ -59,7 +58,7 @@ func buildRegistry() map[string]commandSpec {
 		}
 		semantics, ok := curatedCommands[path]
 		if !ok {
-			semantics = semanticSpec{family: model.FamilyUnknown, action: model.FamilyUnknown, effect: model.EffectUnknown}
+			semantics = semanticSpec{Spec: actions.Must("unknown")}
 		}
 		commands[path] = commandSpec{path: path, commandMetadata: metadata, semanticSpec: semantics}
 	}

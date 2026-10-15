@@ -22,7 +22,7 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/normalize/graphql` | AST, selection, variables, directives, mutation registry | No full server-schema/type validation or execution confirmation. |
 | `internal/resolve` | Local metadata and explicitly needed read-only queries | Does not execute git/ssh; API calls use real gh directly. |
 | `internal/policy` | Pure matching/evaluation across every considered operation | No config loading, hooks, or API calls. |
-| `internal/hooks` | Trusted commands, dependency/concurrency scheduling, cancellation | Caller supplies redacted Input; diagnostics have a redaction callback. |
+| `internal/hooks` | Trusted commands, dependency/concurrency scheduling, cancellation | Caller supplies raw Input; runner redacts only redactInput hooks. Diagnostics have a redaction callback. |
 | `internal/process` | Exec/supervision, Unix signals/TTY/job control, bounded stdin replay | Single child/wait/signal owner; no real-gh process-group separation. |
 | `internal/redact` | Display copies at output boundaries | Never change execution argv, payload, or replay bytes. |
 | `internal/logging` | Redacted cooperating-process JSONL append/rotation | No stdout/stderr; errors cannot block execution. |
@@ -35,11 +35,15 @@ updates are source changes; there is no runtime normalizer-plugin loader.
 ## Wrapper data flow
 
 1. Handle installation probe before config/discovery/hooks.
-2. Load effective global plus explicitly trusted nearest-project config.
-3. Discover real gh, excluding self/known wrappers and invalid PATH candidates;
-   validate recursion depth and supply the incremented `GHOK_DEPTH`.
-4. Invalid effective config: emit one redacted warning and exec real gh without
-   hooks/logs. This prioritizes availability, **not fail-closed configuration**.
+2. Load user config plus nearest-project config. Project failures discard only
+   the project overlay and retain user enforcement, notes, and log diagnostics.
+3. Invalid user config with raw `policy.mode: enforce`, or any invalid config
+   with `GHOK_FAIL_CLOSED=1`: log the failure, print an unthrottled error, and
+   exit 1 without discovering/starting gh.
+4. Otherwise discover real gh, excluding self/known wrappers and invalid PATH
+   candidates; validate recursion depth and supply incremented `GHOK_DEPTH`.
+   Invalid observe/undetermined user config logs at the default path, emits a
+   throttled warning, and execs gh without hooks/policy.
 5. In observe mode with no hooks/rules and logging explicitly disabled, exec
    immediately without analysis. Missing config does not select this shortcut:
    logging defaults on.
@@ -54,7 +58,7 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    root flags before `api` currently remain L1 (see normalization limitations).
 9. Resolve only context relevant to potentially matching repository/host policy
    or hook constraints/protected-repository handling. Evaluate policy; run
-   selected pre-hooks with redacted input. Any effective deny blocks only in
+   selected pre-hooks with raw input (per-hook redactInput is opt-in). Any effective deny blocks only in
    enforce mode; observe records would-deny.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
@@ -74,21 +78,22 @@ Normalize -> Result [Classification, Operations[], Source, Errors]
        v                  +-> resolver fills requested missing targets
 Policy Subject <----------+
        |
-       +-> pure policy evaluation -> redacted pre Input -> hook aggregate
+       +-> pure policy evaluation -> raw pre Input -> hook aggregate
        |
        +-> enforce deny: no real-gh start
        |
        v
-Process Exec OR Run -> redacted post Input -> post diagnostics
+Process Exec OR Run -> raw post Input -> post diagnostics
        |                                      |
        +--------------> redacted JSONL <-------+
        v
 Original exit/signal (post failures do not override)
 ```
 
-Raw normalized data can contain credentials. Model comments describing
-redaction-safe Source do not mean normalizers scrub it: the CLI redacts at
-hook/log/normalize/explain boundaries. Logger also redacts its own copy.
+Raw normalized data can contain credentials. Hooks receive raw input by default;
+the runner creates redacted copies only for `redactInput: true` hooks. The CLI
+redacts log/normalize/explain and terminal boundaries; Logger also redacts its
+own copy. Hook-input and log copies count credential substitutions independently.
 
 ## Fast path versus supervised path
 

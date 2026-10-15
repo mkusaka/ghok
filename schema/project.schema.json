@@ -235,6 +235,10 @@
             "description": "Lower runs first; ties keep config order.",
             "type": "integer"
           },
+          "redactInput": {
+            "description": "Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input.",
+            "type": "boolean"
+          },
           "timeout": {
             "description": "Go duration, e.g. 10s.",
             "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",

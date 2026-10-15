@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
 
-// LoadEffective never executes hooks. Project policy always applies; only
-// content-trusted project hooks are active. Notes never go to wrapper stderr.
+// LoadEffective never executes hooks. Valid project policy always applies; only
+// content-trusted project hooks are active. Project failures retain user config.
 func LoadEffective(global, cwd string, env map[string]string) (*Config, []string, error) {
 	if global == "" {
 		global = DefaultPath(env)
@@ -31,29 +32,44 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	for _, h := range c.Hooks {
 		warnWritable(hookPermissionPath(c.HookCommandPath(h), cwd, env), &notes)
 	}
-	project, err := findProject(cwd, env["HOME"])
+	sourceIndex := -1
+	var project string
+	ignoreProject := func(err error) (*Config, []string, error) {
+		message := "project config ignored: " + err.Error()
+		c.Diagnostics = append(c.Diagnostics, message)
+		if sourceIndex >= 0 {
+			notes[sourceIndex] = fmt.Sprintf("Project config: %s (ignored; user config retained)", project)
+		}
+		notes = append(notes, message)
+		if env["GHOK_FAIL_CLOSED"] == "1" {
+			return c, notes, err
+		}
+		return c, notes, nil
+	}
+	project, err = findProject(cwd, env["HOME"])
 	if err != nil {
-		return nil, notes, err
+		return ignoreProject(err)
 	}
 	if project == "" {
 		return c, notes, nil
 	}
-	sourceIndex := len(notes)
+	sourceIndex = len(notes)
 	notes = append(notes, fmt.Sprintf("Project config: %s (loading declarative policy)", project))
 	warnWritable(project, &notes)
 	data, _, err := readProjectData(project, c.Runtime.FileMaxBytes)
 	if err != nil {
-		return nil, notes, err
+		return ignoreProject(err)
 	}
 	p, n, err := parseProject(data, project)
 	if err != nil {
-		return nil, notes, err
+		return ignoreProject(err)
 	}
+	notes = append(notes, projectUnknownKeys(n, project)...)
 	reason := ""
 	if len(p.Hooks) != 0 {
 		digest, files, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes)
 		if err != nil {
-			return nil, notes, fmt.Errorf("project config %s: %w", project, err)
+			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
 		}
 		store, trustNotes := readTrustStore(env)
 		notes = append(notes, trustNotes...)
@@ -88,10 +104,11 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		status = "policy loaded; hooks ignored (" + reason + "); run ghok config trust"
 	}
 	notes[sourceIndex] = fmt.Sprintf("Project config: %s (%s)", project, status)
-	if err := mergeProject(c, p, n, project, cwd, env, reason, &notes); err != nil {
-		return nil, notes, err
+	merged := *c
+	if err := mergeProject(&merged, p, n, project, cwd, env, reason, &notes); err != nil {
+		return ignoreProject(err)
 	}
-	return c, notes, nil
+	return &merged, notes, nil
 }
 
 func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
@@ -110,7 +127,7 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 	}
 	// Resolve hooks against the repository config's directory, not the global
 	// config or the destination of a symlinked project file.
-	p, err := Parse(data, filepath.Dir(project))
+	p, err := parse(data, filepath.Dir(project), false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
@@ -126,6 +143,62 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 		}
 	}
 	return p, n, nil
+}
+
+// Unknown project fields are advisory, including fields reached through aliases
+// and YAML merges. Dynamic maps (hook/match env) accept arbitrary keys.
+func projectUnknownKeys(n *yaml.Node, project string) []string {
+	var notes []string
+	seen := make(map[*yaml.Node]bool)
+	var visit func(*yaml.Node, reflect.Type, string)
+	visit = func(n *yaml.Node, t reflect.Type, path string) {
+		if n == nil || seen[n] {
+			return
+		}
+		seen[n] = true
+		switch n.Kind {
+		case yaml.AliasNode:
+			visit(n.Alias, t, path)
+		case yaml.SequenceNode:
+			for i, child := range n.Content {
+				if t.Kind() == reflect.Slice {
+					visit(child, t.Elem(), fmt.Sprintf("%s[%d]", path, i))
+				} else {
+					visit(child, t, path) // YAML merge sequence.
+				}
+			}
+		case yaml.MappingNode:
+			if t.Kind() != reflect.Struct {
+				return
+			}
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				key, value := n.Content[i], n.Content[i+1]
+				if key.Tag == "!!merge" {
+					visit(value, t, path)
+					continue
+				}
+				name := key.Value
+				if path != "" {
+					name = path + "." + name
+				}
+				found := false
+				for j := range t.NumField() {
+					f := t.Field(j)
+					tag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+					if tag != "-" && tag == key.Value {
+						visit(value, f.Type, name)
+						found = true
+						break
+					}
+				}
+				if !found {
+					notes = append(notes, fmt.Sprintf("project config %s: line %d: unknown key %s ignored", project, key.Line, name))
+				}
+			}
+		}
+	}
+	visit(n, reflect.TypeFor[Config](), "")
+	return notes
 }
 
 func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, reason string, notes *[]string) error {
@@ -189,7 +262,7 @@ func findProject(cwd, home string) (string, error) {
 }
 
 // ProjectPath is where the project config for cwd lives: .ghok.yaml at the
-// nearest enclosing directory containing .git (searching up to $HOME).
+// nearest enclosing directory containing .git (searching strictly below $HOME).
 func ProjectPath(cwd string, env map[string]string) (string, error) {
 	root, err := projectRoot(cwd, env["HOME"])
 	if err != nil {
@@ -202,7 +275,7 @@ func ProjectPath(cwd string, env map[string]string) (string, error) {
 }
 
 // projectRoot returns the nearest directory (symlinks resolved) at or above
-// cwd that contains .git, stopping at home or the filesystem root ("" if none).
+// cwd that contains .git, stopping before home or at the filesystem root.
 func projectRoot(cwd, home string) (string, error) {
 	d, err := filepath.Abs(cwd)
 	if err != nil {
@@ -222,6 +295,9 @@ func projectRoot(cwd, home string) (string, error) {
 		}
 	}
 	for {
+		if d == home {
+			return "", nil
+		}
 		_, err := os.Stat(filepath.Join(d, ".git"))
 		if err == nil {
 			return d, nil
@@ -230,7 +306,7 @@ func projectRoot(cwd, home string) (string, error) {
 			return "", err
 		}
 		parent := filepath.Dir(d)
-		if d == home || d == parent {
+		if d == parent {
 			return "", nil
 		}
 		d = parent

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 func TestNormalizeSelectors(t *testing.T) {
@@ -292,8 +293,11 @@ func TestRegistryClassifiesEveryCommand(t *testing.T) {
 	var missing []string
 	for path, metadata := range generatedCommands {
 		c, ok := curatedCommands[metadata.canonicalPath]
-		if !ok || c.family == "" || c.action == "" || c.effect == "" {
+		if !ok || c.Family == "" || c.Action == "" || c.Effect == "" {
 			missing = append(missing, path)
+		}
+		if spec, exists := actions.Lookup(c.Action); !exists || spec != c.Spec {
+			t.Errorf("%s has an uncurated identity: %+v", path, c)
 		}
 	}
 	slices.Sort(missing)

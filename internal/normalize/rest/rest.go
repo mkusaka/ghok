@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 // Normalize classifies a parsed non-GraphQL `gh api` request. All input comes
@@ -48,9 +49,10 @@ func Normalize(inv model.Invocation, req model.APIRequest) (res model.Result) {
 		op.Family, op.Action, op.Effect = rt.family, rt.action, rt.effect
 		op.Origin.Route = rt.path
 		if rt.operationID == "repos/get-content" && captures["path"] == "" {
-			op.Action = "file.list"
+			actions.Apply(&op, "file.list")
 		}
 		extractTarget(&op, captures)
+		setTargetKind(&op, rt, captures)
 	} else {
 		op.Family, op.Action = model.FamilyUnknown, "api."+strings.ToLower(method)+".unknown"
 		op.UnknownReason = model.UnknownEndpoint
@@ -188,5 +190,31 @@ func extractTarget(op *model.Operation, c map[string]string) {
 			n, _ := strconv.Atoi(v)
 			op.Target.Number = model.IntPtr(n)
 		}
+	}
+}
+
+func setTargetKind(op *model.Operation, rt *route, captures map[string]string) {
+	switch {
+	case captures["comment_id"] != "":
+		op.Target.Kind = "comment"
+	case strings.HasPrefix(op.Action, "comment."):
+		// GitHub's issue-comment routes also address pull-request comments.
+		// The route alone cannot establish the parent subject's type.
+		op.Target.Kind = "unknown"
+		op.Unresolved = append(op.Unresolved, model.Unresolved{
+			Field: "target.kind", Reason: "issue-comment subject may be an issue or pull request", Source: "api",
+		})
+	case captures["pull_number"] != "":
+		op.Target.Kind = "pullRequest"
+	case captures["issue_number"] != "":
+		op.Target.Kind = "issue"
+	case captures["ref"] != "" || captures["branch"] != "":
+		op.Target.Kind = "ref"
+	case captures["release_id"] != "" || captures["tag"] != "":
+		op.Target.Kind = "release"
+	case captures["gist_id"] != "":
+		op.Target.Kind = "gist"
+	case strings.HasPrefix(rt.operationID, "repos/") || captures["repo"] != "":
+		op.Target.Kind = "repository"
 	}
 }

@@ -3,8 +3,9 @@
 A hook is a **trusted non-interactive executable running as your user**. It reads
 one JSON document plus newline and EOF from stdin, then writes at most one JSON
 response to stdout. There is no implicit shell. Write diagnostic text to stderr,
-not stdout. Redacted JSON does not remove credentials from the inherited hook
-environment; see [security](security.md).
+not stdout. Hook input is raw. Your hook is now responsible for what it does with secrets; use redactInput: true if it forwards input.
+Hooks already inherit credentials such as GH_TOKEN; optional input redaction is
+not a sandbox. See [security](security.md).
 
 Pre-hook decisions can stop gh only in enforce mode. Post-hooks receive command
 outcomes and never change gh's exit status. A successful command is not proof
@@ -26,10 +27,11 @@ bytes are base64, never an assumed UTF-8 string.
 | event | string | no | `pre` or `post`, set by runner. |
 | eventId | string | no | Invocation correlation ID, shared across hooks/phases. |
 | hookId | string | no | Current configured hook ID. |
+| redactions | integer | no | Credential substitutions made in this hook's input; zero for raw input. Counts repeated representations separately, not unique secrets. |
 | invocation | InvocationInfo object | no | Original/expanded argv and execution context. |
 | classification | Classification object | no | Invocation-level normalization identity/resolution/proof. |
 | operations | Operation array/null | no | All normalized operations, including execution evidence. |
-| errors | string array | yes | Nonfatal normalization problems, redacted. |
+| errors | string array | yes | Nonfatal normalization problems; raw unless redactInput is enabled. |
 | context | ResolvedContext object | yes | Resolver context when requested. |
 | policy | PolicyInfo object | yes | CLI policy evaluation, not aggregate pre-hook decision. |
 | result | ExecResult object | yes | Real gh outcome in post phase; absent before execution. |
@@ -39,9 +41,9 @@ bytes are base64, never an assumed UTF-8 string.
 
 | Field | Type | Optional | Meaning |
 | --- | --- | --- | --- |
-| argv | string array/null | no | Original arguments after argv[0], redacted. |
+| argv | string array/null | no | Original arguments after argv[0]; raw unless redactInput is enabled. |
 | alias | string | yes | First expanded plain alias name. |
-| expanded | string array | yes | Alias-expanded analysis argv, redacted. |
+| expanded | string array | yes | Alias-expanded analysis argv; raw unless redactInput is enabled. Real gh still receives original argv. |
 | cwd | string | no | Invocation working directory. Hook inherits this cwd. |
 | isTTY | boolean | no | Original stdout is a terminal. Capture can make child stdout non-TTY. |
 | stdinTTY | boolean | no | Original stdin is a terminal. |
@@ -65,7 +67,7 @@ Each Operation has these fields:
 | action | string | no | Specific action matched by operation globs. |
 | effect | string | no | `read`, `write`, `unknown`. |
 | target | Target object | no | Known selector metadata; unknown values omitted. |
-| parameters | object | yes | Action-specific JSON-like parameters, redacted. |
+| parameters | object | yes | Action-specific JSON-like parameters; raw unless redactInput is enabled. |
 | texts | Texts object | yes | Normalized title/body/notes and input provenance; existing parameters remain unchanged. |
 | execution | string | no | `will-run`, `maybe`, `not-selected`, `skipped`. |
 | evidence | string | yes | Proof/explanation of execution state. |
@@ -93,17 +95,18 @@ notes use `notes` (including REST release `body`).
 
 | Text field | Type | Optional | Meaning |
 | --- | --- | --- | --- |
-| value | string | no | Available prose with credentials redacted; empty when unavailable/generated. |
+| value | string | no | Raw available prose, or credentials masked for redactInput hooks; empty when unavailable/generated. |
 | source | string | no | `inline`, `file`, `stdin`, `editor`, `fill`, `template`, or `unknown`. |
 | path | string | yes | Input file path as supplied, when applicable. |
 | status | string | yes | Unavailable native stdin: `not-captured`, `tty`, `too-large`, `timeout`, or `error`; omitted on successful capture. |
 | truncated | boolean | yes | Analysis hit a known size limit; do not treat the available value as complete. |
 | bytes | integer | no | Original text byte count before redaction, not character count. For truncated native wrapper input, full regular-file size (remaining bytes for redirected stdin) when known; zero if unavailable/unknown. |
+| redactions | integer | no | Credential substitutions in value; zero when unchanged or input is raw. |
 
 For example, `gh pr create -t T -b B` supplies:
 
 ```json
-{"texts":{"title":{"value":"T","source":"inline","bytes":1},"body":{"value":"B","source":"inline","bytes":1}}}
+{"texts":{"title":{"value":"T","source":"inline","bytes":1,"redactions":0},"body":{"value":"B","source":"inline","bytes":1,"redactions":0}}}
 ```
 
 `--body-file path` uses the bounded injected file reader. Native `--body-file -`,
@@ -115,18 +118,28 @@ unread remainder after a limit or timeout. TTY stdin is never read.
 Unavailable file/stdin values retain provenance and add `unresolved` for
 `texts.body`/`texts.notes`; native stdin also carries `status`. For example,
 over-limit piped input reports
-`{"value":"","source":"stdin","status":"too-large","truncated":true,"bytes":0}`:
+`{"value":"","source":"stdin","status":"too-large","truncated":true,"bytes":0,"redactions":0}`:
 the stream's full size is not known before gh starts. **Secret-scanning hooks
 should deny when `truncated` is true**, and reject other unavailable inputs if
 complete inspection is required. Editor, web, fill, and template flows do not
 claim to know their final submitted text.
 
-Hooks retain ordinary prose while credentials are redacted. JSONL logs replace
-every text value with `[content: N bytes]` (N is the available value's byte count
-before redaction), retaining source/path/status/original-size metadata. See
-[normalization](normalization.md#normalized-texts) for per-layer mappings and
-limits. Texts describe input available before execution, not GitHub's stored
-content or an editor's eventual result.
+Hooks receive raw prose by default so secret scanners inspect the same credentials
+gh will submit. For hooks that forward input, set `redactInput: true` in that hook's
+configuration; only that hook's copy is redacted, including original/expanded argv,
+parameters, texts, and captured bodies. Every Text includes `redactions`, including
+zero, and the input has a top-level total. Counts measure actual substitutions,
+not unique secrets; repeated argv/expanded/text representations count separately.
+Deny when `redactions > 0` if masked content prevents safe evaluation; zero is
+not proof that content contains no secrets. Hook stderr/reason/message stay
+redacted before display or logging regardless of redactInput.
+
+JSONL logs replace every text value with `[content: N bytes]` (available value's
+byte count before redaction), retain source/path/status/original-size metadata,
+and report their own top-level `redactions` count. Content summarization is not a
+credential substitution. See [normalization](normalization.md#normalized-texts)
+for per-layer mappings and limits. Texts describe input available before execution,
+not GitHub's stored content or an editor's eventual result.
 
 ### ResolvedContext and PolicyInfo
 
@@ -155,9 +168,10 @@ content or an editor's eventual result.
 | startError | string | yes | Real gh could not start. |
 
 Output has required base64 (string retained bytes), size (integer total observed
-bytes), truncated (boolean). Bodies are redacted display copies, not byte-exact
-execution output. Size/truncation still describe original capture; body bytes
-may be withheld on malformed structured data. No captured bodies go to logs.
+bytes), truncated (boolean). Bodies are raw by default. With `redactInput: true`,
+bodies are decoded, redacted and re-encoded; malformed structured data may be
+withheld. Size/truncation always describe original capture. No captured bodies
+go to logs.
 
 ### HookResult (previous dependencies/diagnostics)
 
@@ -346,14 +360,26 @@ output capture) and filtered by these criteria once the result is known; hooks
 that do not match the result are not started. `ghok hooks test --phase post
 --exit-code N -- <gh args>` exercises this selection with a synthetic result.
 
-`ghok hooks test --expect allow|deny|abstain|audit -- <gh args>` compares the
-printed/JSON Aggregate decision after policy and configured-mode handling, not
-the runner's raw aggregate or `wouldDeny`. Observe-mode would-deny is `audit`;
-an abstaining hook normally leaves the effective decision `allow`. A match
-exits 0 even on denial/hook execution error; a mismatch exits 1 with a stderr
-diagnostic. Without `--expect`, an effective deny or hook execution error
-(nonzero exit/spawn failure, timeout, invalid response, cancellation) exits 1,
-otherwise 0. Configuration/analysis failures exit 1; usage errors exit 2.
+`ghok hooks test` reports the hook aggregate (`aggregate.decision`: `allow`, `deny`,
+or `abstain`), policy decision (`policy.decision`: `allow`, `audit`, or `deny`),
+and FINAL decision (`final.decision`) separately. No matching hooks or all abstaining
+gives hook aggregate `abstain`; some allow gives `allow` unless a deny dominates.
+Post aggregate remains abstain. Policy's decision already reflects configured
+mode: observe policy denial is `audit` with `policy.wouldDeny: true`.
+FINAL denies in enforce if policy or pre-hooks deny; observe instead gives
+`audit` and `final.wouldDeny: true`.
+
+`--expect allow|deny|abstain|audit` preserves its previous comparison: **FINAL**,
+now printed as FINAL and serialized as `final.decision`, not the raw hook aggregate
+or wouldDeny. Policy allow plus hook abstention yields FINAL allow, so
+`--expect abstain` does not match it. Use `--expect-hooks allow|deny|abstain`
+to assert hook abstention/allow/denial and `--expect-policy allow|audit|deny`
+to assert policy independently. With any expectations, all must match for exit 0,
+even on denial/hook execution error; mismatches exit 1 and name every failed
+expectation with expected/actual values. Without expectations, FINAL deny or
+hook execution error (nonzero exit/spawn failure, timeout, invalid response,
+cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
+usage errors exit 2.
 
 - Lower priority runs first; equal priority follows config order. Dependencies
   are ordered before dependents; among ready nodes priority/config order wins.
@@ -412,6 +438,7 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 | onError | pre deny; post ignore. |
 | maxOutputBytes | Config default 1 MiB **for each stdout and stderr stream**. |
 | captureOutput | false; post only. |
+| redactInput | false; set true for hooks forwarding input elsewhere. Redacts only that hook's input and reports substitution counts; does not change inherited credentials. |
 | env | none; overrides inherited values except ghok metadata above. |
 | runtime.hookConcurrency | 1, positive. |
 | runtime.captureLimit | 1 MiB retained per gh stdout/stderr stream when capture enabled. |

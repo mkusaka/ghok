@@ -216,8 +216,8 @@ func TestTrustRejectsEscapingExecutables(t *testing.T) {
 			if _, _, _, err := TrustProject("", repo, env); err == nil || !strings.Contains(err.Error(), "escapes repository root") {
 				t.Fatalf("escaped executable accepted: %v", err)
 			}
-			if _, _, err := LoadEffective("", repo, env); err == nil || !strings.Contains(err.Error(), "escapes repository root") {
-				t.Fatalf("escaped executable loaded: %v", err)
+			if c, notes, err := LoadEffective("", repo, env); err != nil || len(c.Hooks) != 0 || !strings.Contains(strings.Join(notes, "\n"), "escapes repository root") {
+				t.Fatalf("escaped project must be ignored without discarding user config: %+v, %v, %v", c, notes, err)
 			}
 		})
 	}
@@ -354,8 +354,8 @@ func TestTrustManifestLimits(t *testing.T) {
 			if _, _, _, err := TrustProject("", repo, env); err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("trust accepted %s: %v", kind, err)
 			}
-			if _, _, err := LoadEffective("", repo, env); err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("loader accepted %s: %v", kind, err)
+			if c, notes, err := LoadEffective("", repo, env); err != nil || len(c.Hooks) != 0 || !strings.Contains(strings.Join(notes, "\n"), want) {
+				t.Fatalf("loader did not isolate %s: %+v, %v, %v", kind, c, notes, err)
 			}
 		})
 	}

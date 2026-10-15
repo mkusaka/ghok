@@ -477,6 +477,7 @@ func TestLogsAndHookInputRedactSecrets(t *testing.T) {
 		c.Logging.Enabled = &yes
 		h := s.hook("post", "post")
 		h.CaptureOutput = true
+		h.RedactInput = true
 		h.Env["FAKEGH_HOOK_MESSAGE"] = token
 		setBytes(h.Env, "FAKEGH_HOOK_STDERR_B64", []byte(token))
 		c.Hooks = []config.Hook{h}
@@ -528,7 +529,7 @@ func TestLogsMaskContentWithoutChangingHookInput(t *testing.T) {
 	}{
 		{name: "issue-body", content: "privatebody", action: "issue.edit", args: []string{"issue", "edit", "7", "-R", "acme/project", "--body", "privatebody"}},
 		{name: "pr-title", content: "A private PR title", key: "title", action: "pr.edit", args: []string{"pr", "edit", "7", "-R", "acme/project", "--title", "A private PR title"}},
-		{name: "rest-body", content: "private REST body " + token, key: "body", action: "issue.comment.create", args: []string{"api", "repos/acme/project/issues/7/comments", "-f", "body=private REST body " + token}},
+		{name: "rest-body", content: "private REST body " + token, key: "body", action: "comment.create", args: []string{"api", "repos/acme/project/issues/7/comments", "-f", "body=private REST body " + token}},
 		{name: "graphql-comment", content: comment, key: "body", action: "comment.create", node: "ISSUE_private_node", args: []string{"api", "graphql", "-f", "query=" + query}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -537,7 +538,9 @@ func TestLogsMaskContentWithoutChangingHookInput(t *testing.T) {
 			s.configure(func(c *config.Config) {
 				yes := true
 				c.Logging.Enabled = &yes
-				c.Hooks = []config.Hook{s.hook("pre", "pre")}
+				h := s.hook("pre", "pre")
+				h.RedactInput = true
+				c.Hooks = []config.Hook{h}
 			})
 			result := s.gh(nil, tc.args...)
 			result.code(t, 0)

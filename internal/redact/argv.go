@@ -1,17 +1,23 @@
 package redact
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Argv returns a fresh slice. Flag values are redacted even when they are too
 // short or have no recognizable token shape. -- terminates flag interpretation.
 func (r *Redactor) Argv(argv []string) []string {
-	out := r.strings(argv)
+	out := slices.Clone(argv)
 	command := commandWords(argv)
 	api := command[0] == "api"
 	secretSet := command[0] == "secret" && command[1] == "set"
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		if a == "--" {
+			for j := i; j < len(argv); j++ {
+				out[j] = r.String(argv[j])
+			}
 			break
 		}
 		prefix, value, attached, kind := "", "", false, ""
@@ -55,9 +61,11 @@ func (r *Redactor) Argv(argv []string) []string {
 			}
 		}
 		if kind == "" {
+			out[i] = r.String(a)
 			continue
 		}
 		if !attached {
+			out[i] = r.String(a)
 			if i+1 >= len(argv) || argv[i+1] == "--" {
 				continue
 			}
@@ -67,7 +75,7 @@ func (r *Redactor) Argv(argv []string) []string {
 		var redacted string
 		switch kind {
 		case "secret":
-			redacted = r.mark()
+			redacted = r.mask(value)
 		case "header":
 			redacted = r.header(value)
 		case "field":
@@ -83,9 +91,9 @@ func (r *Redactor) Argv(argv []string) []string {
 }
 
 func (r *Redactor) header(value string) string {
-	name, _, ok := strings.Cut(value, ":")
+	name, secret, ok := strings.Cut(value, ":")
 	if ok && sensitiveName(strings.TrimSpace(name)) {
-		return r.String(name + ": " + r.mark())
+		return r.String(name + ": " + r.mask(strings.TrimSpace(secret)))
 	}
 	return r.String(value)
 }
@@ -96,7 +104,7 @@ func (r *Redactor) field(value string) string {
 		return r.String(value)
 	}
 	if sensitivePath(key) {
-		return r.String(key + "=" + r.mark())
+		return r.String(key + "=" + r.mask(val))
 	}
 	if key == "query" && looksGraphQL(val) {
 		return r.String(key) + "=" + r.graphQL(val)

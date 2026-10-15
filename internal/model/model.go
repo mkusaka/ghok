@@ -121,12 +121,13 @@ type Texts struct {
 // Unavailable input has an empty Value and an Operation.Unresolved entry.
 // Status explains unavailable stdin; zero Bytes then means an unknown size.
 type Text struct {
-	Value     string      `json:"value"`
-	Source    string      `json:"source"` // inline | file | stdin | editor | fill | template | unknown
-	Path      string      `json:"path,omitempty"`
-	Status    StdinStatus `json:"status,omitempty"`
-	Truncated bool        `json:"truncated,omitempty"`
-	Bytes     int64       `json:"bytes"`
+	Value      string      `json:"value"`
+	Source     string      `json:"source"` // inline | file | stdin | editor | fill | template | unknown
+	Path       string      `json:"path,omitempty"`
+	Status     StdinStatus `json:"status,omitempty"`
+	Truncated  bool        `json:"truncated,omitempty"`
+	Bytes      int64       `json:"bytes"`
+	Redactions int         `json:"redactions"` // credential substitutions in this text
 }
 
 // UnknownReason is a machine-readable reason for an unknown classification.
@@ -154,6 +155,9 @@ const FamilyUnknown = "unknown"
 // Target is what an operation acts on. Empty string / nil means "not known";
 // the field name then appears in Operation.Unresolved when it matters.
 type Target struct {
+	// Kind describes the selected resource type; "unknown" marks an unresolved
+	// polymorphic subject rather than inferring its type from a node ID.
+	Kind       string `json:"kind,omitempty"`
 	Host       string `json:"host,omitempty"`
 	Owner      string `json:"owner,omitempty"`
 	Repository string `json:"repository,omitempty"` // "owner/name"

@@ -18,6 +18,53 @@ import (
 
 const replacement = "[REDACTED]"
 
+func TestRedactionCounts(t *testing.T) {
+	secret := "learned-" + "count-credential"
+	pattern := "ghp_" + strings.Repeat("c", 36)
+	r := redact.New(map[string]string{"GH_TOKEN": secret})
+	for _, tc := range []struct {
+		name string
+		in   any
+		want any
+		n    int
+	}{
+		{"repeated-learned", secret + " " + secret, replacement + " " + replacement, 2},
+		{"pattern-and-learned", pattern + " " + secret, replacement + " " + replacement, 2},
+		{"already-masked", replacement, replacement, 0},
+		{"authorization", "Bearer " + secret, "Bearer " + replacement, 1},
+		{"sensitive-map", map[string]any{"password": "short-" + "password", "nested": map[string]any{"token": []any{secret}}}, map[string]any{"password": replacement, "nested": map[string]any{"token": replacement}}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out any
+			n := r.WithCount(func(r *redact.Redactor) { out = r.Value(tc.in) })
+			if n != tc.n || !reflect.DeepEqual(out, tc.want) {
+				t.Fatalf("redacted=%#v count=%d; want %#v count=%d", out, n, tc.want, tc.n)
+			}
+			n = r.WithCount(func(r *redact.Redactor) { _ = r.Value(out) })
+			if n != 0 {
+				t.Fatalf("redacting an already masked value counted %d substitutions", n)
+			}
+		})
+	}
+	t.Run("contextual-argv", func(t *testing.T) {
+		args := []string{"secret", "set", "NAME", "--body", secret}
+		var out []string
+		n := r.WithCount(func(r *redact.Redactor) { out = r.Argv(args) })
+		if n != 1 || out[4] != replacement {
+			t.Fatalf("argv=%q count=%d", out, n)
+		}
+	})
+	t.Run("overlap", func(t *testing.T) {
+		long := "abcdefgh" + "ij"
+		r := redact.New(map[string]string{"GH_TOKEN": long, "OTHER_TOKEN": long[2:]})
+		var out string
+		n := r.WithCount(func(r *redact.Redactor) { out = r.String(long + long[2:]) })
+		if n != 2 || out != replacement+replacement {
+			t.Fatalf("overlapping credentials: %q count=%d", out, n)
+		}
+	})
+}
+
 func TestStringPatterns(t *testing.T) {
 	ghToken := "ghp_" + strings.Repeat("a", 36)
 	r := redact.New(map[string]string{"CUSTOM_SECRET": "learned-value", "GH_TOKEN": "tiny"})

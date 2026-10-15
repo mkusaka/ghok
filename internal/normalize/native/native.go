@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 	"github.com/spf13/pflag"
 )
 
@@ -212,7 +213,7 @@ func parseArgs(c commandSpec, argv []string) parsedArgs {
 // Normalize classifies alias-expanded argv without filesystem, git or API I/O.
 func Normalize(inv model.Invocation, argv []string) model.Result {
 	c, args, known := findCommand(argv)
-	if known && c.family == model.FamilyUnknown {
+	if known && c.Family == model.FamilyUnknown {
 		return singleResult(argv, model.Operation{
 			Family: model.FamilyUnknown, Action: model.FamilyUnknown, Effect: model.EffectUnknown,
 			Execution: model.ExecutionWillRun, UnknownReason: model.UnknownCommand,
@@ -227,7 +228,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	}
 	// Unknown commands may be extensions, and extension exec forwards even
 	// --help to external code (DisableFlagParsing). Never prove those safe.
-	if known && c.effect != model.EffectUnknown && len(p.unknown) == 0 && len(p.errors) == 0 && (p.enabled("help") || (len(argv) > 0 && argv[0] == "help") || p.enabled("version")) {
+	if known && c.Effect != model.EffectUnknown && len(p.unknown) == 0 && len(p.errors) == 0 && (p.enabled("help") || (len(argv) > 0 && argv[0] == "help") || p.enabled("version")) {
 		return singleResult(argv, model.Operation{Family: "help", Action: "help", Effect: model.EffectRead, Execution: model.ExecutionWillRun}, model.ConfidenceExact, nil)
 	}
 	if !known {
@@ -235,7 +236,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 		r.Source = model.Source{Kind: "command", Argv: argv}
 		return r
 	}
-	op := model.Operation{Family: c.family, Action: c.action, Effect: c.effect, Execution: model.ExecutionWillRun, Origin: model.Origin{Command: strings.Fields(c.path)}, Parameters: make(map[string]any)}
+	op := model.Operation{Family: c.Family, Action: c.Action, Effect: c.Effect, Execution: model.ExecutionWillRun, Origin: model.Origin{Command: strings.Fields(c.path)}, Parameters: make(map[string]any)}
 	if op.Effect == model.EffectUnknown {
 		op.UnknownReason = model.UnknownCommand
 		op.Detail = "runtime behavior is not normalized; side effects are unknown"
@@ -247,6 +248,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	if c.extractor != nil {
 		c.extractor(&op, c, p, inv)
 	}
+	op.Target.Kind = nativeTargetKind(c)
 	extractTexts(&op, c, p, inv)
 	confidence := model.ConfidenceExact
 	if len(p.unknown) > 0 {
@@ -261,9 +263,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 		appendDetail(&op, strings.Join(p.errors, "; "))
 	}
 	if c.path == "" && len(p.unknown) > 0 {
-		op.Family = model.FamilyUnknown
-		op.Action = model.FamilyUnknown
-		op.Effect = model.EffectUnknown
+		actions.Apply(&op, model.FamilyUnknown)
 		op.UnknownReason = model.UnknownFlag
 	}
 	return singleResult(argv, op, confidence, p.errors)
@@ -340,17 +340,16 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 		op.Parameters["valueFromStdin"] = !p.present("body") && !p.present("env-file")
 	}
 	if path == "pr merge" {
-		op.Action = "pr.merge.request"
-		op.Family = "pr.merge"
+		actions.Apply(op, "pr.merge.request")
 		switch {
 		case p.enabled("auto"):
-			op.Action = "pr.merge.auto.enable"
+			actions.Apply(op, "pr.merge.auto.enable")
 			appendDetail(op, "enable auto-merge intent: requests automatic merging when requirements are met; not a completed merge")
 		case p.enabled("disable-auto"):
-			op.Action = "pr.merge.auto.disable"
+			actions.Apply(op, "pr.merge.auto.disable")
 			appendDetail(op, "disable auto-merge intent: requests disabling automatic merging; not a direct merge")
 		case p.enabled("admin"):
-			op.Action = "pr.merge.direct"
+			actions.Apply(op, "pr.merge.direct")
 			appendDetail(op, "admin direct merge intent: bypasses requirements and the merge queue; the server may still reject the request")
 		default:
 			appendDetail(op, "merge request intent: the server and runtime merge-queue/protection state decide direct merge, queue, or auto-merge")
@@ -365,10 +364,18 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 		op.Parameters["deleteBranch"] = p.enabled("delete-branch")
 		op.Parameters["admin"] = p.enabled("admin")
 	}
+	if path == "pr comment" || path == "issue comment" {
+		switch {
+		case p.enabled("delete-last"):
+			actions.Apply(op, strings.ReplaceAll(path, " ", ".")+".delete")
+		case p.enabled("edit-last"):
+			actions.Apply(op, strings.ReplaceAll(path, " ", ".")+".edit")
+		}
+	}
 	if path == "pr review" {
 		for _, v := range []string{"approve", "request-changes", "comment"} {
 			if p.enabled(v) {
-				op.Action = "pr.review." + v
+				actions.Apply(op, "pr.review."+v)
 				break
 			}
 		}
@@ -377,15 +384,12 @@ func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 		}
 	}
 	if path == "repo set-default" && p.enabled("view") {
-		op.Effect = model.EffectRead
-		op.Action = "repo.set-default.view"
+		actions.Apply(op, "repo.set-default.view")
 	}
 	if path == "secret set" && p.enabled("no-store") {
-		op.Effect = model.EffectRead
-		op.Action = "secret.set.encrypt"
+		actions.Apply(op, "secret.set.encrypt")
 	}
 	if path == "issue develop" && p.enabled("list") {
-		op.Effect = model.EffectRead
-		op.Action = "issue.develop.list"
+		actions.Apply(op, "issue.develop.list")
 	}
 }

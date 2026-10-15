@@ -33,7 +33,7 @@ func (r *Redactor) graphQL(s string) string {
 	}
 	doc, err := parser.ParseQuery(&ast.Source{Input: s})
 	if err != nil {
-		return r.mark()
+		return r.mask(s)
 	}
 	for _, op := range doc.Operations {
 		r.graphQLVariables(op.VariableDefinitions)
@@ -91,7 +91,7 @@ func (r *Redactor) graphQLValue(value *ast.Value, sensitive bool) {
 	}
 	if value.Kind == ast.StringValue || value.Kind == ast.BlockValue {
 		if sensitive {
-			value.Raw = r.mark()
+			value.Raw = r.mask(value.Raw)
 		} else {
 			value.Raw = r.String(value.Raw)
 		}

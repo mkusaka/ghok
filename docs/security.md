@@ -35,17 +35,33 @@ broker, or server-side enforcement.
   changes, or concurrent users. Pre-hooks cannot atomically enforce the later
   GitHub operation. A post exit-zero result does not prove a merge occurred.
 
-Availability takes precedence on **invalid effective configuration**: the
-wrapper prints a redacted warning and executes real gh without hooks,
-including when the broken file was intended to enforce policy. Each failure
-is logged using the default logging path, not settings from invalid config.
-The same `(config path, error)` warning is printed at most once per ten minutes,
+## Configuration failure modes
+
+An unreadable, malformed, or invalid project `.ghok.yaml` drops **only the
+project contribution**. User hooks and policy remain active. Validate, doctor,
+and explain report the ignored project; invocation logs retain the failure
+diagnostic when logging is enabled. Project unknown keys, including nested keys,
+are ignored with notes rather than invalidating known settings. User config
+unknown keys remain errors.
+
+An invalid **user config** fails closed when its raw YAML declares
+`policy.mode: enforce`: the wrapper prints a redacted error on **every**
+invocation, exits 1, and never starts gh. This mode is read independently of
+strict decoding/validation. Unparseable YAML, unreadable files, or an absent or
+indeterminate mode cannot establish enforce intent; those cases and explicit
+observe mode fail open, running real gh without hooks or policy.
+`GHOK_FAIL_CLOSED=1` overrides this fallback for **any** invalid config, including
+an invalid project file, and prevents gh execution. A missing user config is
+valid and still uses defaults. Validate and doctor state the applicable behavior.
+
+Invalid-user-config failures (and forced project failures) are logged at the
+default logging path, never one taken from invalid config. Fail-open warnings
+for the same `(config path, error)` are printed at most once per ten minutes,
 using SHA256-keyed timestamp files under `<config-dir>/state/` (0700 directory,
 0600 files, with per-pair process locking). State I/O errors print the warning;
-throttling never hides the event from the log. Validate config
-before use, and do not describe this as fail-closed installation. Runtime
-pre-hook errors default to deny only when valid config establishes enforce mode;
-observe records would-deny and still runs gh.
+throttling never hides the event from the log. Fail-closed errors are never
+throttled. Runtime pre-hook errors default to deny only when valid config
+establishes enforce mode; observe records would-deny and still runs gh.
 
 ### GraphQL schema-known writes and unknown handling
 
@@ -65,9 +81,11 @@ handling still applies independently. See [normalization](normalization.md#schem
 
 Hooks execute as your user, with inherited cwd and environment plus configured
 `env` overrides and ghok metadata. They can read credentials, files, keychains,
-original payload files, and call APIs independently. **Redacted stdin is not a
-sandbox:** inherited GH_TOKEN/GITHUB_TOKEN and other credentials are not removed
-from hook environments. Inspect hook code before installing it.
+original payload files, and call APIs independently. **Hook input is raw by
+default**, allowing scanners to see the credentials gh will submit. Set
+`redactInput: true` for any hook forwarding input elsewhere. Optional redaction
+is not a sandbox: inherited GH_TOKEN/GITHUB_TOKEN and other credentials are not
+removed from hook environments. Inspect hook code before installing it.
 
 Commands are argv arrays without implicit shell evaluation. Relative executable
 paths containing `/` resolve against their originating config directory; bare
@@ -86,13 +104,17 @@ killed with SIGKILL.** Deliberately escaped descendants remain unsupported.
 ## Project configuration trust
 
 Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then
-HOME/.config/ghok. The nearest discovered repository's `.ghok.yaml` always
-contributes declarative policy: explicitly set values can only tighten observe
-to enforce or allow to audit to deny, while rules and protected repositories
-append. Attempted weakening is ignored with a note. Projects cannot set runtime
-or logging, even empty sections. `trust.include` is project-only; user
-`trust.projects` is not supported. Invalid project policy or an invalid effective
-config fails validation; wrapper config failure then passes through without hooks.
+HOME/.config/ghok. Repository discovery stops **before checking HOME**: a
+dotfiles repository at HOME and its `.ghok.yaml` do not become project config
+for HOME or unrelated child directories. The nearest discovered repository's
+valid `.ghok.yaml` contributes declarative policy: explicitly set values can
+only tighten observe to enforce or allow to audit to deny, while rules and
+protected repositories append. Attempted weakening is ignored with a note.
+Projects cannot set runtime or logging, even empty sections. `trust.include` is
+project-only; user `trust.projects` is not supported. Project read, parse,
+validation, manifest, or merge failures discard the entire project overlay,
+including changes made before a hook/rule collision is detected; they cannot
+discard user configuration.
 
 Repository hooks are inactive until the user inspects them and runs
 `ghok config trust [PATH]`. Without PATH it selects the current repository-root
@@ -143,9 +165,10 @@ replacement, competing writers or malicious users.
 
 ## Redaction rules and limits
 
-The CLI creates display copies for hook JSON, logs, normalize/explain, errors,
-and reasons. Real gh gets original arguments/environment/request bytes;
-redaction must never rewrite API requests or stdout/stderr.
+The CLI creates display copies for logs, normalize/explain, errors, and reasons.
+Hook JSON is raw unless that hook opts into `redactInput: true`. Real gh gets
+original arguments/environment/request bytes; redaction must never rewrite API
+requests or stdout/stderr.
 
 | Rule | Coverage |
 | --- | --- |
@@ -196,6 +219,9 @@ Secure stdin spool files are 0600 and immediately unlinked.
 JSONL contains invocation ID/time/duration, redacted argv/operations,
 classification/unresolved evidence, policy/hook results, diagnostics, and
 execution metadata when supervised. **Captured gh output bodies are omitted.**
+Each record includes `redactions`: credential substitutions made by the log
+redactor, not unique secrets or content summaries. Repeated representations may
+count separately; zero is not proof of secret-free input.
 Exec-path logs precede execution and cannot include final gh status. Info logs
 every invocation; decision logs retain non-allow decisions/errors/hook failures,
 not every ordinary nonzero child exit.
@@ -212,10 +238,11 @@ GraphQL query strings/documents become
 `[graphql document: N bytes, sha256:<16 hex digits>]`, measured and hashed before
 credential redaction; source fingerprints cover the normalizer's bounded copy.
 Byte counts/fingerprints reveal length and permit matching identical content;
-they are not encryption. Hooks and normalize/explain retain ordinary content
-with the existing credential redaction.
+they are not encryption. Hooks retain raw content by default; normalize/explain
+and `redactInput: true` hooks retain ordinary content with credential redaction.
 
-Routine config-source notes are not log diagnostics. Deliberately unexamined
+Routine config-source notes are not log diagnostics; ignored-project failures
+are. Deliberately unexamined
 API stdin is logged as `allow` with
 `stdin not analyzed (nothing could act on it)`, retaining the unknown operation
 and analysis errors; this is passthrough, not a classification as safe/read.

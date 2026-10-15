@@ -20,6 +20,7 @@ type Redactor struct {
 	secrets     []string
 	replacer    *strings.Replacer
 	replacement string
+	count       *int
 }
 
 // New learns nonempty GitHub authentication variables, including short values.
@@ -82,19 +83,85 @@ func (r *Redactor) mark() string {
 	return r.replacement
 }
 
+// WithCount runs f with an isolated counter, returning credential substitutions.
+// The supplied redactor must not escape f or be used concurrently. The original
+// redactor remains immutable and safe to share.
+func (r *Redactor) WithCount(f func(*Redactor)) int {
+	var scoped Redactor
+	if r != nil {
+		scoped = *r
+	}
+	count := 0
+	scoped.count = &count
+	f(&scoped)
+	if r != nil && r.count != nil {
+		*r.count += count
+	}
+	return count
+}
+
+func (r *Redactor) mask(value any) string {
+	m := r.mark()
+	if r != nil && r.count != nil && value != m {
+		*r.count++
+	}
+	return m
+}
+
+func (r *Redactor) replacePattern(s string, pattern *regexp.Regexp, replacement string) string {
+	if r == nil || r.count == nil {
+		return pattern.ReplaceAllString(s, replacement)
+	}
+	return pattern.ReplaceAllStringFunc(s, func(match string) string {
+		out := pattern.ReplaceAllString(match, replacement)
+		if out != match {
+			*r.count++
+		}
+		return out
+	})
+}
+
+func (r *Redactor) replaceLearned(s string) string {
+	if r.count == nil {
+		return r.replacer.Replace(s)
+	}
+	var out strings.Builder
+	start := 0
+	for i := 0; i < len(s); {
+		matched := false
+		for _, secret := range r.secrets {
+			if strings.HasPrefix(s[i:], secret) {
+				out.WriteString(s[start:i])
+				out.WriteString(r.mask(secret))
+				i += len(secret)
+				start, matched = i, true
+				break
+			}
+		}
+		if !matched {
+			i++
+		}
+	}
+	if start == 0 {
+		return s
+	}
+	out.WriteString(s[start:])
+	return out.String()
+}
+
 // String removes learned values wherever they occur, GitHub tokens, JWTs,
 // authorization values, URL passwords, and PEM private-key blocks. Unfinished
 // private-key blocks are redacted through the end of the string.
 func (r *Redactor) String(s string) string {
 	m := r.mark()
-	s = privateKey.ReplaceAllString(s, m)
-	s = githubToken.ReplaceAllString(s, m)
-	s = jwtToken.ReplaceAllString(s, m)
-	s = authHeader.ReplaceAllString(s, "${1}"+m)
-	s = authValue.ReplaceAllString(s, "${1}${2}"+m)
-	s = urlPassword.ReplaceAllString(s, "${1}"+m+"@")
+	s = r.replacePattern(s, privateKey, m)
+	s = r.replacePattern(s, githubToken, m)
+	s = r.replacePattern(s, jwtToken, m)
+	s = r.replacePattern(s, authHeader, "${1}"+m)
+	s = r.replacePattern(s, authValue, "${1}${2}"+m)
+	s = r.replacePattern(s, urlPassword, "${1}"+m+"@")
 	if r != nil && r.replacer != nil {
-		s = r.replacer.Replace(s)
+		s = r.replaceLearned(s)
 		// Replacements can join previously separated text into a learned value
 		// (including across marker boundaries). Removal strictly decreases the
 		// string length, so even overlapping/adversarial values terminate.
@@ -108,6 +175,9 @@ func (r *Redactor) removeSecrets(s string) string {
 		changed := false
 		for _, secret := range r.secrets {
 			if strings.Contains(s, secret) {
+				if r.count != nil {
+					*r.count += strings.Count(s, secret)
+				}
 				s = strings.ReplaceAll(s, secret, "")
 				changed = true
 			}
@@ -162,7 +232,7 @@ func (r *Redactor) Value(v any) any {
 		for k, value := range v {
 			key := r.String(k)
 			if sensitivePath(k) {
-				out[key] = r.mark()
+				out[key] = r.mask(value)
 			} else if s, ok := value.(string); ok && k == "query" && looksGraphQL(s) {
 				out[key] = r.graphQL(s)
 			} else {
@@ -177,7 +247,7 @@ func (r *Redactor) Value(v any) any {
 		out := make(map[string]string, len(v))
 		for k, value := range v {
 			if sensitivePath(k) {
-				out[r.String(k)] = r.mark()
+				out[r.String(k)] = r.mask(value)
 			} else if k == "query" && looksGraphQL(value) {
 				out[r.String(k)] = r.graphQL(value)
 			} else {
@@ -230,7 +300,7 @@ func (r *Redactor) Value(v any) any {
 			for iter.Next() {
 				key, item := iter.Key().String(), iter.Value()
 				if sensitivePath(key) {
-					out[r.String(key)] = r.mark()
+					out[r.String(key)] = r.mask(item.Interface())
 				} else if key == "query" && item.Kind() == reflect.String && looksGraphQL(item.String()) {
 					out[r.String(key)] = r.graphQL(item.String())
 				} else {
@@ -276,7 +346,7 @@ func (r *Redactor) body(in []byte) []byte {
 		}
 	}
 	if bytes.HasPrefix(bytes.TrimSpace(in), []byte("[")) {
-		return []byte(r.mark())
+		return []byte(r.mask(string(in)))
 	}
 	if looksGraphQL(string(in)) {
 		return []byte(r.graphQL(string(in)))

@@ -24,6 +24,9 @@ type Config struct {
 	// IgnoredHooks are project hooks withheld by trust, for management reporting
 	// only. Execution paths must use Hooks, never this list.
 	IgnoredHooks []IgnoredHook `yaml:"-" json:"-"`
+	// Diagnostics are project load failures retained for invocation logging.
+	// Routine source/trust notes are returned separately by LoadEffective.
+	Diagnostics []string `yaml:"-" json:"-"`
 }
 
 // Policy modes.
@@ -117,6 +120,7 @@ type Hook struct {
 	// CaptureOutput (post only) streams gh stdout/stderr into the hook input,
 	// bounded by Runtime.CaptureLimit. Default false.
 	CaptureOutput bool `yaml:"captureOutput" json:"captureOutput,omitempty" doc:"Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input."`
+	RedactInput   bool `yaml:"redactInput" json:"redactInput,omitempty" doc:"Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input."`
 	// MaxOutputBytes bounds what ghok reads from the hook's stdout/stderr
 	// (default 1 MiB / 64 KiB).
 	MaxOutputBytes int64 `yaml:"maxOutputBytes" json:"maxOutputBytes,omitempty"`

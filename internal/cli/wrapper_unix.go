@@ -54,16 +54,22 @@ func Wrapper(args []string) int {
 		return fatal(err, 1)
 	}
 	cfg, notes, configErr := config.LoadEffective(config.DefaultPath(env), cwd, env)
-	real, err := realGh(cfg, env)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ghok: %s.\n", redactor.String(err.Error()))
-		return 127
+	failClosed := config.FailClosed(configErr, env)
+	var real string
+	var childEnv []string
+	var opts process.Options
+	if !failClosed {
+		real, err = realGh(cfg, env)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ghok: %s.\n", redactor.String(err.Error()))
+			return 127
+		}
+		childEnv, _, err = install.NextDepth(os.Environ())
+		if err != nil {
+			return fatal(err, 1)
+		}
+		opts = process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv}
 	}
-	childEnv, _, err := install.NextDepth(os.Environ())
-	if err != nil {
-		return fatal(err, 1)
-	}
-	opts := process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv}
 	if configErr != nil {
 		// An invalid effective config cannot be trusted, including its log path.
 		cfg = &config.Config{Dir: config.Dir(env)}
@@ -74,7 +80,7 @@ func Wrapper(args []string) int {
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	eventID := logging.NewInvocationID()
-	record := logging.Record{InvocationID: eventID, Time: started.UTC(), Mode: cfg.Policy.Mode, Argv: args, Decision: "allow"}
+	record := logging.Record{InvocationID: eventID, Time: started.UTC(), Mode: cfg.Policy.Mode, Argv: args, Decision: "allow", Diagnostics: cfg.Diagnostics}
 	var logger *logging.Logger
 	debug := func(err error) {
 		if err != nil && env["GHOK_DEBUG"] == "1" {
@@ -87,6 +93,9 @@ func Wrapper(args []string) int {
 	}
 	logRecord := func() {
 		record.DurationMs = time.Since(started).Milliseconds()
+		// Config failures are errors, not routine diagnostics: retain them at
+		// decision log level even when the requested gh operation is allowed.
+		record.Errors = append(record.Errors, cfg.Diagnostics...)
 		if logger != nil {
 			debug(logger.Write(record))
 		}
@@ -98,6 +107,14 @@ func Wrapper(args []string) int {
 	}
 	defer closeLog()
 	if configErr != nil {
+		if failClosed {
+			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
+			fmt.Fprintf(os.Stderr, "ghok: invalid config (%s); fail-closed: not running gh — run 'ghok config validate'\n", warning)
+			record.Decision = "deny-invalid-config"
+			record.Diagnostics = []string{"invalid config: " + configErr.Error()}
+			logRecord()
+			return 1
+		}
 		if warnInvalidConfig(config.Dir(env), configFailurePath(config.DefaultPath(env), notes), configErr, started) {
 			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
 			fmt.Fprintf(os.Stderr, "ghok: invalid config (%s); running gh without hooks — run 'ghok config validate'\n", warning)
@@ -163,7 +180,7 @@ func Wrapper(args []string) int {
 		record.Diagnostics = append(record.Diagnostics, "stdin not analyzed (nothing could act on it)")
 	}
 	record.Policy = input.Policy
-	pre := runner.Run(ctx, config.PhasePre, runner.Select(config.PhasePre, subject), redactor.Input(input))
+	pre := runner.Run(ctx, config.PhasePre, runner.Select(config.PhasePre, subject), input)
 	post := runner.Select(config.PhasePost, subject)
 	// All helper children are reaped before relinquishing signal ownership.
 	caught := stopHelpers()
@@ -251,7 +268,7 @@ func Wrapper(args []string) int {
 	// Candidates were selected before gh ran; apply match.result/exitCode now.
 	subject.Outcome = input.Result
 	post = runner.Select(config.PhasePost, subject)
-	aggregate := runner.Run(ctx, config.PhasePost, post, redactor.Input(input))
+	aggregate := runner.Run(ctx, config.PhasePost, post, input)
 	if caught := stopHelpers(); caught != 0 {
 		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))
 	}
@@ -267,30 +284,19 @@ func Wrapper(args []string) int {
 // the existing flag parse, including bundled shorthands and interactive flows.
 func shouldSpool(c *config.Config, result model.Result, env map[string]string) (spool, skipped bool) {
 	argv := result.Source.Argv
-	api := len(argv) > 0 && argv[0] == "api"
+	needed, which := normalize.NeedsStdin(argv)
+	if !needed {
+		return false, false
+	}
+	api := which == "api"
 	s := policy.Subject{Result: result, Argv: argv, Token: policy.TokenKind(env), Env: env}
 	if api {
-		req, err := apiargs.Parse(argv[1:])
-		if err != nil || !apiargs.NeedsStdin(req) {
-			return false, false
-		}
+		req, _ := apiargs.Parse(argv[1:])
 		level := model.LevelL2
 		if apiargs.IsGraphQL(req) {
 			level = model.LevelL3
 		}
 		s.Result = model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured")
-	} else {
-		needed := false
-		for _, op := range result.Operations {
-			if op.Texts != nil {
-				for _, text := range [3]*model.Text{op.Texts.Title, op.Texts.Body, op.Texts.Notes} {
-					needed = needed || text != nil && text.Source == "stdin"
-				}
-			}
-		}
-		if !needed {
-			return false, false
-		}
 	}
 	couldMatch := func(m config.Match) bool {
 		if api {

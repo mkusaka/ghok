@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,9 +52,6 @@ func compileRoutes(rs []route) routeIndex {
 		r := &rs[i]
 		r.family = "rest." + strings.SplitN(r.operationID, "/", 2)[0]
 		r.action = "rest." + strings.ReplaceAll(r.operationID, "/", ".")
-		if override, ok := routeOverrides[r.operationID]; ok {
-			r.family, r.action = override.family, override.action
-		}
 		switch r.method {
 		case "GET", "HEAD":
 			r.effect = model.EffectRead
@@ -61,6 +59,9 @@ func compileRoutes(rs []route) routeIndex {
 			r.effect = model.EffectWrite
 		default:
 			r.effect = model.EffectUnknown
+		}
+		if override, ok := routeOverrides[r.operationID]; ok {
+			r.family, r.action, r.effect = override.Family, override.Action, override.Effect
 		}
 		if r.path != "/" {
 			for _, part := range strings.Split(strings.TrimPrefix(r.path, "/"), "/") {
@@ -204,4 +205,17 @@ func validCapture(name, value string) bool {
 		return (name == "owner" && (value == "{owner}" || value == ":owner")) || (name == "repo" && (value == "{repo}" || value == ":repo"))
 	}
 	return !strings.ContainsAny(value, "{}")
+}
+
+// KnownActionPattern checks emitted OpenAPI-backed default action names.
+func KnownActionPattern(glob string) bool {
+	for _, route := range generatedRoutes {
+		if _, curated := routeOverrides[route.operationID]; curated {
+			continue
+		}
+		if match, _ := path.Match(glob, route.action); match {
+			return true
+		}
+	}
+	return false
 }

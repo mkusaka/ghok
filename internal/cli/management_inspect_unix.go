@@ -17,7 +17,6 @@ import (
 	"github.com/mkusaka/ghok/internal/logging"
 	"github.com/mkusaka/ghok/internal/model"
 	"github.com/mkusaka/ghok/internal/normalize"
-	"github.com/mkusaka/ghok/internal/normalize/apiargs"
 	"github.com/mkusaka/ghok/internal/policy"
 	"github.com/mkusaka/ghok/internal/process"
 	"github.com/mkusaka/ghok/internal/protocol"
@@ -45,7 +44,7 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 		return nil, err
 	}
 	inv := invocation(c, args, env, cwd, model.StdinData{Status: model.StdinNotCaptured})
-	if apiargs.NeedsStdinArgv(expandedArgv(inv)) {
+	if needed, _ := normalize.NeedsStdin(expandedArgv(inv)); needed {
 		if install.IsTTY(os.Stdin) {
 			inv.Stdin.Status = model.StdinTTY
 		} else {
@@ -162,7 +161,7 @@ func managementHooksList(asJSON bool) int {
 	return 0
 }
 
-func managementHooksTest(args []string, phase string, exitCode int, asJSON bool, options managementInspectOptions, expect string) int {
+func managementHooksTest(args []string, phase string, exitCode int, asJSON bool, options managementInspectOptions, expect, expectHooks, expectPolicy string) int {
 	if phase != config.PhasePre && phase != config.PhasePost {
 		return managementUsageError("--phase must be pre or post")
 	}
@@ -191,7 +190,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	}
 	selected := runner.Select(phase, subject)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	aggregate := runner.Run(ctx, phase, selected, r.Input(input))
+	aggregate := runner.Run(ctx, phase, selected, input)
 	cancel()
 	wouldDeny := a.evaluation.WouldDeny || phase == config.PhasePre && aggregate.Decision == protocol.DecisionDeny
 	decision := a.evaluation.Decision
@@ -212,13 +211,17 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			Synthetic bool                  `json:"synthetic"`
 			Results   []protocol.HookResult `json:"results"`
 			Aggregate struct {
-				Decision  protocol.Decision `json:"decision"`
-				WouldDeny bool              `json:"wouldDeny"`
-				Message   string            `json:"message,omitempty"`
+				Decision protocol.Decision `json:"decision"`
+				Message  string            `json:"message,omitempty"`
 			} `json:"aggregate"`
 			Policy policy.Evaluation `json:"policy"`
+			Final  struct {
+				Decision  protocol.Decision `json:"decision"`
+				WouldDeny bool              `json:"wouldDeny"`
+			} `json:"final"`
 		}{Phase: phase, Synthetic: true, Results: results, Policy: a.evaluation}
-		value.Aggregate.Decision, value.Aggregate.WouldDeny, value.Aggregate.Message = decision, wouldDeny, aggregate.Message
+		value.Aggregate.Decision, value.Aggregate.Message = aggregate.Decision, aggregate.Message
+		value.Final.Decision, value.Final.WouldDeny = decision, wouldDeny
 		if code := managementJSON(value, r); code != 0 {
 			return code
 		}
@@ -230,17 +233,27 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		for _, result := range results {
 			_, _ = fmt.Fprintln(os.Stdout, r.String(managementCompact(result)))
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "Aggregate: %s (mode=%s, would-deny=%t)\n", decision, a.config.Policy.Mode, wouldDeny)
+		_, _ = fmt.Fprintf(os.Stdout, "Hooks: %s\nPolicy: %s\nFINAL: %s (mode=%s, would-deny=%t)\n", aggregate.Decision, a.evaluation.Decision, decision, a.config.Policy.Mode, wouldDeny)
 		if aggregate.Message != "" {
 			_, _ = fmt.Fprintln(os.Stdout, r.String("Message: "+aggregate.Message))
 		}
 	}
-	if expect != "" {
-		if decision != protocol.Decision(expect) {
-			_, _ = fmt.Fprintf(os.Stderr, "ghok: expected Aggregate decision %s, actual %s\n", expect, decision)
-			return 1
+	if expect != "" || expectHooks != "" || expectPolicy != "" {
+		code := 0
+		for _, check := range []struct {
+			name, expected string
+			actual         protocol.Decision
+		}{
+			{"FINAL", expect, decision},
+			{"hooks", expectHooks, aggregate.Decision},
+			{"policy", expectPolicy, a.evaluation.Decision},
+		} {
+			if check.expected != "" && check.actual != protocol.Decision(check.expected) {
+				_, _ = fmt.Fprintf(os.Stderr, "ghok: expected %s decision %s, actual %s\n", check.name, check.expected, check.actual)
+				code = 1
+			}
 		}
-		return 0
+		return code
 	}
 	if decision == protocol.DecisionDeny {
 		return 1

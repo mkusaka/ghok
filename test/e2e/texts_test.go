@@ -99,7 +99,9 @@ func TestTextsPreserveCredentialRedaction(t *testing.T) {
 	s.configure(func(c *config.Config) {
 		yes := true
 		c.Logging.Enabled = &yes
-		c.Hooks = []config.Hook{s.hook("pre", "pre")}
+		h := s.hook("pre", "pre")
+		h.RedactInput = true
+		c.Hooks = []config.Hook{h}
 	})
 	body := "ordinary prose " + secret + " " + pattern
 	args := []string{"pr", "create", "-R", "acme/project", "-t", "ordinary title", "-b", body}
