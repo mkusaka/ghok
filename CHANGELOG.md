@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.10] - 2026-10-15
+
 ### Fixed
 
 - Trust follows content again: a hook trusted in one worktree or clone is trusted in every checkout with identical content (0.0.8 made trust per checkout path). Worktrees of a repository share one record that keeps earlier grants, so older branches stay trusted, and a changed gate is blocked the same way in every worktree instead of only in the one that trusted it.
@@ -138,7 +140,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.9...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.10...HEAD
+[v0.0.10]: https://github.com/mkusaka/ghok/compare/v0.0.9...v0.0.10
 [v0.0.9]: https://github.com/mkusaka/ghok/compare/v0.0.8...v0.0.9
 [v0.0.8]: https://github.com/mkusaka/ghok/compare/v0.0.7...v0.0.8
 [v0.0.7]: https://github.com/mkusaka/ghok/compare/v0.0.6...v0.0.7
