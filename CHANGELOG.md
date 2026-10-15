@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.5] - 2026-10-15
+
 ### Breaking
 
 - **Comment actions renamed (L1).** `pr.comment` / `issue.comment` are now `pr.comment.create|edit|delete` and `issue.comment.create|edit|delete`, shared with REST and GraphQL. Writes whose subject is unknown (REST `POST .../issues/{n}/comments`, GraphQL `addComment` before node resolution) are `comment.create`. **Update `match.operation`**; to never miss a comment write, also match `comment.*`. `ghok config validate` warns about patterns that match no known action.
@@ -77,7 +79,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.5...HEAD
+[v0.0.5]: https://github.com/mkusaka/ghok/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/mkusaka/ghok/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/mkusaka/ghok/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/mkusaka/ghok/compare/v0.0.1...v0.0.2
