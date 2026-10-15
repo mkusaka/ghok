@@ -1,0 +1,32 @@
+{
+  "$id": "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/hook-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "description": "Hook decision; allow cannot override another hook's denial.",
+      "enum": [
+        "allow",
+        "deny",
+        "abstain"
+      ],
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "Hook protocol version; omit or use 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "title": "ghok hook response",
+  "type": "object"
+}

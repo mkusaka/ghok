@@ -90,6 +90,27 @@ are summarized, structural targets remain readable, and GraphQL source becomes
 a byte-count/SHA256 fingerprint. Deliberately unexamined stdin can be logged as
 `allow` while its operation remains unknown; this does not prove mutation-free.
 
+### Action-specific parameters
+
+The hook-input JSON Schema intentionally gives `parameters` unrestricted
+`additionalProperties: {}`. Values may be strings, numbers, booleans, objects,
+arrays, or null. Keys are not a closed enum: match `action` and `origin` before
+interpreting them, and tolerate additional keys.
+
+| Action / layer | Parameter keys and representation |
+| --- | --- |
+| Native commands generally | Supplied flag names become lower camel case (`match-head-commit` → `matchHeadCommit`). Booleans stay boolean; repeatable flags are string arrays; other pflag-normalized values are strings. `body`, `bodyFile`, and `envFile` are boolean presence markers, not prose. |
+| `pr.merge.*` / L1 | `method` is `merge`, `squash`, `rebase`, or empty if unspecified; `admin` and `deleteBranch` are booleans. Supplied `subject` and `matchHeadCommit` remain strings; body flags use presence markers. |
+| `pr.review.*` / L1 | Supplied `approve`, `requestChanges`, and `comment` are booleans; body flags are presence markers. An interactive event is unresolved, not an invented parameter value. |
+| `secret.set`, `variable.set`, `auth.*` / L1 | `sensitive`, `valueFromStdin`, and `tokenFromStdin` are boolean indicators when applicable; no stdin credential value is extracted. |
+| REST actions / L2 | Reconstructed body/query keys retain API spelling and JSON types (for example `title`, `body`, `labels`, `state`, `archived`, `event`). Non-target route captures retain OpenAPI names. Body wins query collisions; route captures win payload collisions. |
+| `pr.merge.direct` / L2 | Original `merge_method`, `commit_title`, `commit_message`, and `sha` remain when supplied; `merge_method` additionally supplies canonical `method`. |
+| GraphQL mutations / L3 | Resolved input fields retain schema names and JSON types, e.g. `pullRequestId`, `subjectId`, `body`, `state`, `mergeMethod`. Merge/auto-merge add canonical lowercase `method` and commit-text presence flags when applicable. |
+
+Use `texts` for cross-layer prose inspection. See the layer-specific extraction,
+merge comparison, and review/state refinement sections below for precedence and
+unavailable-input behavior.
+
 ### Normalized texts
 
 `operations[].texts` exposes prose without requiring a hook to re-parse argv,

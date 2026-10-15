@@ -53,6 +53,7 @@ func TestManagementUsageErrors(t *testing.T) {
 		{"hooks", "test", "--phase", "bad", "--", "version"}, {"hooks", "test", "--"},
 		{"hooks", "test", "--allow-api", "--no-resolve", "--", "version"},
 		{"config", "unknown"}, {"doctor", "--unknown"}, {"shim", "install", "--bin-dir", ""},
+		{"config", "schema"}, {"schema", "unknown"}, {"schema", "hook-input", "--project"}, {"schema", "hook-input", "extra"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			s := newSandbox(t)
@@ -430,17 +431,6 @@ func TestManagementConfigAndDoctor(t *testing.T) {
 	result.code(t, 0)
 	if strings.TrimSpace(string(result.stdout)) != s.cfg {
 		t.Fatalf("config path=%q", result.stdout)
-	}
-	for _, project := range []bool{false, true} {
-		args := []string{"config", "schema"}
-		if project {
-			args = append(args, "--project")
-		}
-		result = s.management(nil, args...)
-		result.code(t, 0)
-		if !bytes.Equal(result.stdout, config.SchemaJSON(project)) {
-			t.Fatalf("config schema project=%v output differs from config.SchemaJSON", project)
-		}
 	}
 	result = s.management(nil, "config", "validate")
 	result.code(t, 0)

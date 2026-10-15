@@ -18,6 +18,7 @@ import (
 	"github.com/mkusaka/ghok/internal/normalize"
 	"github.com/mkusaka/ghok/internal/protocol"
 	"github.com/mkusaka/ghok/internal/redact"
+	"github.com/mkusaka/ghok/internal/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -182,12 +183,20 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 	path := managementCommand("path", "Print the global configuration path", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfig("path", "")
 	})
-	var project bool
-	schema := managementCommand("schema", "Print the JSON Schema for config.yaml (or a project .ghok.yaml)", code, func(_ *cobra.Command, _ []string) int {
-		_, _ = os.Stdout.Write(config.SchemaJSON(project))
-		return 0
-	})
-	schema.Flags().BoolVar(&project, "project", false, "print the schema for a project .ghok.yaml instead of config.yaml")
+	schemaCommands := managementGroup("schema", "Print JSON Schemas for configuration and hook documents", code)
+	for _, name := range []string{"config", "project-config", "hook-input", "hook-response"} {
+		cmd := managementCommand(name, "Print the "+name+" JSON Schema", code, func(cmd *cobra.Command, _ []string) int {
+			body, err := schema.JSON(cmd.Name())
+			if err == nil {
+				_, err = os.Stdout.Write(body)
+			}
+			if err != nil {
+				return managementFailure(err)
+			}
+			return 0
+		})
+		schemaCommands.AddCommand(cmd)
+	}
 	scope := config.ScopeProject
 	initCmd := managementCommand("init", "Create a commented config file with a JSON Schema reference", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfigInit(scope)
@@ -205,13 +214,21 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			if list || all {
 				return managementConfigTrustStore(all)
 			}
-			return managementConfigTrust(cmd.Name(), path)
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			noDiff, _ := cmd.Flags().GetBool("no-diff")
+			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff)
 		})
 		flag := "list"
 		if name == "untrust" {
 			flag = "all"
 		}
 		cmd.Flags().Bool(flag, false, "manage all stored project trust without PATH")
+		if name == "trust" {
+			cmd.Flags().Bool("dry-run", false, "show changes and what would be trusted without writing anything")
+			cmd.Flags().Bool("no-diff", false, "omit the unredacted stored-content diff")
+			cmd.MarkFlagsMutuallyExclusive("list", "dry-run")
+			cmd.MarkFlagsMutuallyExclusive("list", "no-diff")
+		}
 		cmd.Args = func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 				return err
@@ -224,8 +241,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		}
 		configCommands.AddCommand(cmd)
 	}
-	configCommands.AddCommand(initCmd, validate, path, schema)
-	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands)
+	configCommands.AddCommand(initCmd, validate, path)
+	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands, schemaCommands)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Show help for a command",
@@ -383,6 +400,7 @@ func managementShim(command, bin string) int {
 		_, _ = fmt.Fprintln(os.Stdout, r.String("Fix: "+result.FixHint))
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "Shim probe passed. Shell rc files were not modified.")
+	_, _ = fmt.Fprintln(os.Stdout, "repos without a ghok config are unaffected: gh is exec'd directly")
 	return 0
 }
 
@@ -458,7 +476,8 @@ func managementDoctor(asJSON bool, version string) int {
 	if err != nil {
 		return managementFailure(err)
 	}
-	c, notes, _, loadErr := managementLoad(env)
+	c, notes, cwd, loadErr := managementLoad(env)
+	noConfig := loadErr == nil && !config.HasConfig(cwd, env)
 	notes = append(notes, operationPatternWarnings(c)...)
 	override := env["GHOK_REAL_GH"]
 	if override == "" && c != nil {
@@ -478,6 +497,9 @@ func managementDoctor(asJSON bool, version string) int {
 		cfgCheck.Status = install.StatusFail
 		cfgCheck.Detail += "; " + loadErr.Error() + "; " + configFailureBehavior(loadErr, env)
 		cfgCheck.Fix = "Run ghok config validate and fix the reported configuration errors."
+	} else if noConfig {
+		cfgCheck.Status = install.StatusInfo
+		cfgCheck.Detail = "no config: the wrapper is a pure passthrough and logs nothing; run 'ghok config init --scope user' to enable logging/auditing"
 	}
 	checks = append(checks, cfgCheck)
 	for _, note := range notes {
@@ -493,7 +515,7 @@ func managementDoctor(asJSON bool, version string) int {
 	if info, err := os.Stat(config.DefaultPath(env)); err == nil && info.Mode().Perm()&0022 != 0 {
 		checks = append(checks, install.Check{Name: "config-permissions", Status: install.StatusFail, Detail: "Global configuration is group/world writable", Fix: "Remove group/world write permission from the configuration."})
 	}
-	if c != nil {
+	if c != nil && !noConfig {
 		for _, h := range c.Hooks {
 			checks = append(checks, managementHookCheck(c, h, env))
 		}

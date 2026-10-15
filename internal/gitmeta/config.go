@@ -1,4 +1,4 @@
-package resolve
+package gitmeta
 
 import (
 	"bufio"
@@ -8,18 +8,18 @@ import (
 	"strings"
 )
 
-type configEntry struct{ section, subsection, key, value string }
+type ConfigEntry struct{ Section, Subsection, Key, Value string }
 
 // Read includes in place: later values override earlier values, just as git does.
-func readConfig(path, home string, depth int) ([]configEntry, error) {
+func ReadConfig(path, home string, depth int) ([]ConfigEntry, error) {
 	if depth > 10 {
 		return nil, fmt.Errorf("git config include depth exceeded")
 	}
-	data, err := readBounded(path)
+	data, err := ReadBounded(path)
 	if err != nil {
 		return nil, err
 	}
-	var entries []configEntry
+	var entries []ConfigEntry
 	var section, subsection, logical string
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 4096), maxBytes)
@@ -42,7 +42,7 @@ func readConfig(path, home string, depth int) ([]configEntry, error) {
 		if text == "" || text[0] == '#' || text[0] == ';' {
 			continue
 		}
-		fail := func() ([]configEntry, error) { return nil, fmt.Errorf("malformed git config at line %d", line) }
+		fail := func() ([]ConfigEntry, error) { return nil, fmt.Errorf("malformed git config at line %d", line) }
 		if text[0] == '[' {
 			end := strings.LastIndexByte(text, ']')
 			if end < 0 {
@@ -123,7 +123,7 @@ func readConfig(path, home string, depth int) ([]configEntry, error) {
 			if !filepath.IsAbs(include) {
 				include = filepath.Join(filepath.Dir(path), include)
 			}
-			more, err := readConfig(include, home, depth+1)
+			more, err := ReadConfig(include, home, depth+1)
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -132,7 +132,7 @@ func readConfig(path, home string, depth int) ([]configEntry, error) {
 			}
 			entries = append(entries, more...)
 		} else {
-			entries = append(entries, configEntry{section, subsection, key, value})
+			entries = append(entries, ConfigEntry{section, subsection, key, value})
 		}
 	}
 	if err := scanner.Err(); err != nil {

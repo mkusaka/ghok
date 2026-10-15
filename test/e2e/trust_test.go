@@ -77,9 +77,6 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	assertIgnoredProjectHook(t, s, "untrusted")
 	result := s.gh(nil, "version")
 	result.code(t, 0)
-	if len(result.stderr) != 0 {
-		t.Fatalf("untrusted wrapper must remain silent: %s", result.stderr)
-	}
 	assertNoProjectHook(t, s)
 	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
 	if len(s.records()) != 1 {
@@ -176,13 +173,9 @@ func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(second, "hooks", "project"), append(executable, []byte("\nchanged executable\n")...), 0700); err != nil {
 		t.Fatal(err)
 	}
-	// second was never trusted from its own path, so it is plain "untrusted".
-	assertIgnoredProjectHook(t, s, "untrusted")
+	assertIgnoredProjectHook(t, s, "changed since trust")
 	result = s.gh(nil, "version")
 	result.code(t, 0)
-	if len(result.stderr) != 0 {
-		t.Fatalf("changed-executable wrapper must remain silent: %s", result.stderr)
-	}
 	assertNoProjectHook(t, s)
 	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
 	assertNoProjectHook(t, s)
@@ -202,9 +195,6 @@ func TestProjectTrustCorruption(t *testing.T) {
 	}
 	result := s.gh(nil, "version")
 	result.code(t, 0)
-	if len(result.stderr) != 0 {
-		t.Fatalf("corrupt-store wrapper must remain silent: %s", result.stderr)
-	}
 	assertNoProjectHook(t, s)
 	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
 	if len(s.records()) != 2 {

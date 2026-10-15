@@ -202,9 +202,38 @@ func configFailurePath(fallback string, notes []string) string {
 	return fallback
 }
 
+func ignoredHooksWarning(c *config.Config, dir string, now time.Time) string {
+	project := c.IgnoredProject
+	if project == nil || c.Logging.IgnoredHooksWarning != nil && !*c.Logging.IgnoredHooksWarning {
+		return ""
+	}
+	count := 0
+	for _, h := range c.IgnoredHooks {
+		if h.Enabled == nil || *h.Enabled {
+			count++
+		}
+	}
+	if count == 0 || !warnThrottled(dir, "ignored-hooks", project.Path, project.Digest, now) {
+		return ""
+	}
+	reason := "never trusted on this machine"
+	if len(project.ChangedFiles) != 0 {
+		files := project.ChangedFiles
+		reason = "changed since trust: " + strings.Join(files[:min(3, len(files))], ", ")
+		if len(files) > 3 {
+			reason += fmt.Sprintf(", …and %d more", len(files)-3)
+		}
+	}
+	return fmt.Sprintf("%d project hooks in %s are not active (%s); review and run 'ghok config trust'", count, project.Path, reason)
+}
+
 // State is best-effort: any filesystem failure leaves the warning visible.
 // A per-pair flock makes the ten-minute window apply across wrapper processes.
 func warnInvalidConfig(dir, path string, configErr error, now time.Time) (warn bool) {
+	return warnThrottled(dir, "invalid-config", path, configErr.Error(), now)
+}
+
+func warnThrottled(dir, kind, path, version string, now time.Time) (warn bool) {
 	state := filepath.Join(dir, "state")
 	if err := os.MkdirAll(state, 0700); err != nil {
 		return true
@@ -216,8 +245,8 @@ func warnInvalidConfig(dir, path string, configErr error, now time.Time) (warn b
 	if err := os.Chmod(state, 0700); err != nil {
 		return true
 	}
-	digest := sha256.Sum256([]byte(path + "\x00" + configErr.Error()))
-	name := filepath.Join(state, fmt.Sprintf("invalid-config-%x.warning", digest))
+	digest := sha256.Sum256([]byte(path + "\x00" + version))
+	name := filepath.Join(state, fmt.Sprintf("%s-%x.warning", kind, digest))
 	fd, err := syscall.Open(name, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
 	if err != nil {
 		return true

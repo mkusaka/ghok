@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 )
+
+// projectForbidden are the top-level sections a project .ghok.yaml may not set.
+var projectForbidden = []string{"runtime", "logging"}
 
 // LoadEffective never executes hooks. Valid project policy always applies; only
 // content-trusted project hooks are active. Project failures retain user config.
@@ -56,7 +58,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	sourceIndex = len(notes)
 	notes = append(notes, fmt.Sprintf("Project config: %s (loading declarative policy)", project))
 	warnWritable(project, &notes)
-	data, _, err := readProjectData(project, c.Runtime.FileMaxBytes)
+	data, canonical, err := readProjectData(project, c.Runtime.FileMaxBytes)
 	if err != nil {
 		return ignoreProject(err)
 	}
@@ -66,32 +68,23 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	reason := ""
+	var ignored *IgnoredProject
 	if len(p.Hooks) != 0 {
-		digest, files, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes)
+		digest, files, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
 			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
 		}
 		store, trustNotes := readTrustStore(env)
 		notes = append(notes, trustNotes...)
 		if _, ok := store[digest]; !ok {
-			// Only a record trusted from this same checkout path is "changed";
-			// records from other checkouts say nothing about this one.
 			reason = "untrusted"
-			canonical, err := filepath.EvalSymlinks(project)
-			if err != nil {
-				canonical = project
-			}
-			var latest *trustEntry
-			for key := range store {
-				entry := store[key]
-				if entry.ConfigPath == ".ghok.yaml" && entry.FirstPath == canonical && (latest == nil || entry.TrustedAt.After(latest.TrustedAt)) {
-					latest = &entry
-				}
-			}
+			ignored = &IgnoredProject{Path: canonical, Digest: digest}
+			current := currentTrustEntry(project, canonical, files, env)
+			comparison, latest := trustComparisonNotes(current, store)
+			notes = append(notes, comparison...)
 			if latest != nil {
 				reason = "changed since trust"
-				notes = append(notes, fmt.Sprintf("Changed files since trust (trusted %s from this path): %s",
-					latest.TrustedAt.Format(time.RFC3339), strings.Join(changedTrustFiles(files, latest.Files), ", ")))
+				ignored.ChangedFiles = changedTrustFiles(files, latest.Files)
 			}
 		}
 	}
@@ -107,6 +100,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	if err := mergeProject(&merged, p, n, project, cwd, env, reason, &notes); err != nil {
 		return ignoreProject(err)
 	}
+	merged.IgnoredProject = ignored
 	return &merged, notes, nil
 }
 

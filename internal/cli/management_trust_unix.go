@@ -32,7 +32,7 @@ func managementConfigTrustStore(all bool) int {
 	return 0
 }
 
-func managementConfigTrust(command, path string) int {
+func managementConfigTrust(command, path string, dryRun, noDiff bool) int {
 	env := environment()
 	r := redact.New(env)
 	cwd, err := os.Getwd()
@@ -42,13 +42,18 @@ func managementConfigTrust(command, path string) int {
 	var canonical string
 	var notes []string
 	var enabled []config.Hook
+	var diff []byte
 	if command == "trust" {
-		canonical, enabled, notes, err = config.TrustProject(path, cwd, env)
+		canonical, enabled, notes, diff, err = config.TrustProject(path, cwd, env, dryRun, noDiff)
 	} else {
 		canonical, notes, err = config.UntrustProject(path, cwd, env)
 	}
 	for _, note := range notes {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
+	}
+	if len(diff) != 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "Content diff (unredacted trusted bytes → current files):")
+		_, _ = os.Stdout.Write(diff)
 	}
 	if err != nil {
 		return managementFailure(err)
@@ -57,7 +62,11 @@ func managementConfigTrust(command, path string) int {
 		_, _ = fmt.Fprintln(os.Stdout, r.String("Project hook trust removed: "+canonical))
 		return 0
 	}
-	_, _ = fmt.Fprintln(os.Stdout, r.String("Project hooks trusted: "+canonical))
+	status := "Project hooks trusted: "
+	if dryRun {
+		status = "Dry run; would trust project hooks: "
+	}
+	_, _ = fmt.Fprintln(os.Stdout, r.String(status+canonical))
 	for _, h := range enabled {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(h.ID+" command: "+managementCompact(r.Argv(h.Command))))
 	}

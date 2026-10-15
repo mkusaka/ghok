@@ -260,6 +260,10 @@
         "enabled": {
           "type": "boolean"
         },
+        "ignoredHooksWarning": {
+          "description": "Warn on stderr about enabled project hooks withheld by trust, at most once per project manifest per ten minutes. Default true; user config only.",
+          "type": "boolean"
+        },
         "level": {
           "enum": [
             "info",

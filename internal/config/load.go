@@ -88,6 +88,10 @@ func (c *Config) ApplyDefaults() {
 		b := DefaultEnabled
 		c.Logging.Enabled = &b
 	}
+	if c.Logging.IgnoredHooksWarning == nil {
+		b := DefaultEnabled
+		c.Logging.IgnoredHooksWarning = &b
+	}
 	if c.Logging.Path == "" {
 		c.Logging.Path = filepath.Join(c.Dir, DefaultLoggingRelativePath)
 	}

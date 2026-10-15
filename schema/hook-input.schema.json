@@ -1,0 +1,746 @@
+{
+  "$id": "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/hook-input.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "classification": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "description": "Certainty of operation identity, not execution success.",
+          "enum": [
+            "exact",
+            "heuristic",
+            "none"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "Normalization layer: native command, REST, GraphQL, or none.",
+          "enum": [
+            "none",
+            "L1",
+            "L2",
+            "L3"
+          ],
+          "type": "string"
+        },
+        "mutationFree": {
+          "type": "boolean"
+        },
+        "resolution": {
+          "description": "Completeness of targets and parameters; inspect unresolved entries.",
+          "enum": [
+            "complete",
+            "partial",
+            "deferred",
+            "unresolved"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "confidence",
+        "resolution",
+        "mutationFree"
+      ],
+      "type": "object"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "gitDir": {
+          "type": "string"
+        },
+        "headSha": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "sources": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "unresolved": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "field",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "event": {
+      "description": "Hook phase.",
+      "enum": [
+        "pre",
+        "post"
+      ],
+      "type": "string"
+    },
+    "eventId": {
+      "description": "Invocation correlation ID, shared across hooks and phases.",
+      "type": "string"
+    },
+    "hookId": {
+      "description": "Current configured hook ID.",
+      "type": "string"
+    },
+    "invocation": {
+      "additionalProperties": false,
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "argv": {
+          "description": "Original arguments after argv[0]; absent means empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "expanded": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "isTTY": {
+          "type": "boolean"
+        },
+        "realGh": {
+          "type": "string"
+        },
+        "stdinTTY": {
+          "type": "boolean"
+        },
+        "tokenKind": {
+          "description": "Credential kind from the environment token prefix; never the token itself.",
+          "enum": [
+            "app",
+            "user",
+            "unknown",
+            "none"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "cwd",
+        "isTTY",
+        "stdinTTY"
+      ],
+      "type": "object"
+    },
+    "operations": {
+      "description": "Normalized operations; absent means empty.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "effect": {
+            "description": "Side-effect classification; unknown never proves safety.",
+            "enum": [
+              "read",
+              "write",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "execution": {
+            "description": "Requested execution state, not proof of server-side effects.",
+            "enum": [
+              "will-run",
+              "maybe",
+              "not-selected",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "origin": {
+            "additionalProperties": false,
+            "properties": {
+              "alias": {
+                "type": "string"
+              },
+              "command": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "field": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "opType": {
+                "description": "GraphQL operation type.",
+                "enum": [
+                  "query",
+                  "mutation",
+                  "subscription"
+                ],
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "route": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "parameters": {
+            "additionalProperties": {},
+            "description": "Action- and layer-specific JSON values; keys are documented in docs/normalization.md.",
+            "type": "object"
+          },
+          "target": {
+            "additionalProperties": false,
+            "properties": {
+              "baseBranch": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "headBranch": {
+                "type": "string"
+              },
+              "host": {
+                "type": "string"
+              },
+              "kind": {
+                "description": "Selected resource kind, not necessarily the created result; unknown marks an unresolved polymorphic subject.",
+                "enum": [
+                  "unknown",
+                  "pullRequest",
+                  "issue",
+                  "repository",
+                  "ref",
+                  "comment",
+                  "release",
+                  "gist",
+                  "branchProtectionRule",
+                  "checkRun",
+                  "checkSuite",
+                  "deployment",
+                  "discussion",
+                  "draftIssue",
+                  "enterprise",
+                  "environment",
+                  "ipAllowListEntry",
+                  "issueType",
+                  "linkedBranch",
+                  "migration",
+                  "milestone",
+                  "organization",
+                  "packageVersion",
+                  "project",
+                  "projectCard",
+                  "projectColumn",
+                  "pullRequestReview",
+                  "pullRequestReviewThread",
+                  "repositoryCustomProperty",
+                  "repositoryRuleset",
+                  "repositoryVulnerabilityAlert",
+                  "sponsor",
+                  "sponsorable",
+                  "team",
+                  "user",
+                  "workflow",
+                  "workflowRun"
+                ],
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "number": {
+                "description": "Known PR or issue number; omitted when unknown.",
+                "type": "integer"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "repository": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "texts": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "type": "integer"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "redactions": {
+                    "type": "integer"
+                  },
+                  "source": {
+                    "description": "Text input provenance; generated/editor text is not the final submitted value.",
+                    "enum": [
+                      "inline",
+                      "file",
+                      "stdin",
+                      "editor",
+                      "fill",
+                      "template",
+                      "unknown"
+                    ],
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "Unavailable stdin status; omitted on successful capture.",
+                    "enum": [
+                      "not-captured",
+                      "tty",
+                      "too-large",
+                      "timeout",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "value",
+                  "source",
+                  "bytes",
+                  "redactions"
+                ],
+                "type": "object"
+              },
+              "notes": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "type": "integer"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "redactions": {
+                    "type": "integer"
+                  },
+                  "source": {
+                    "description": "Text input provenance; generated/editor text is not the final submitted value.",
+                    "enum": [
+                      "inline",
+                      "file",
+                      "stdin",
+                      "editor",
+                      "fill",
+                      "template",
+                      "unknown"
+                    ],
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "Unavailable stdin status; omitted on successful capture.",
+                    "enum": [
+                      "not-captured",
+                      "tty",
+                      "too-large",
+                      "timeout",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "value",
+                  "source",
+                  "bytes",
+                  "redactions"
+                ],
+                "type": "object"
+              },
+              "title": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "type": "integer"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "redactions": {
+                    "type": "integer"
+                  },
+                  "source": {
+                    "description": "Text input provenance; generated/editor text is not the final submitted value.",
+                    "enum": [
+                      "inline",
+                      "file",
+                      "stdin",
+                      "editor",
+                      "fill",
+                      "template",
+                      "unknown"
+                    ],
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "Unavailable stdin status; omitted on successful capture.",
+                    "enum": [
+                      "not-captured",
+                      "tty",
+                      "too-large",
+                      "timeout",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "value",
+                  "source",
+                  "bytes",
+                  "redactions"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "unknownReason": {
+            "description": "Machine-readable reason for an unknown classification.",
+            "enum": [
+              "unknown-command",
+              "unknown-flag",
+              "extension",
+              "shell-alias",
+              "alias-loop",
+              "unknown-endpoint",
+              "unknown-mutation",
+              "parse-error",
+              "input-unavailable",
+              "input-too-large",
+              "operation-ambiguous",
+              "malformed-request"
+            ],
+            "type": "string"
+          },
+          "unresolved": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "family",
+          "action",
+          "effect",
+          "target",
+          "execution",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "policy": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "description": "Policy decision; audit is not a hook response decision.",
+          "enum": [
+            "allow",
+            "deny",
+            "abstain",
+            "audit"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "description": "Policy enforcement mode.",
+          "enum": [
+            "observe",
+            "enforce"
+          ],
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "decision"
+      ],
+      "type": "object"
+    },
+    "previous": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "description": "Response decision, meaningful when outcome is ok.",
+            "enum": [
+              "allow",
+              "deny",
+              "abstain"
+            ],
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "effective": {
+            "description": "Decision used after phase and onError handling.",
+            "enum": [
+              "allow",
+              "deny",
+              "abstain"
+            ],
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "hookId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "description": "Execution outcome, independent of the decision.",
+            "enum": [
+              "ok",
+              "error",
+              "timeout",
+              "canceled",
+              "invalid-response",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "phase": {
+            "description": "Hook execution phase.",
+            "enum": [
+              "pre",
+              "post"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hookId",
+          "phase",
+          "outcome",
+          "exitCode",
+          "durationMs"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "redactions": {
+      "description": "Credential substitutions in this hook's input; zero for raw input.",
+      "type": "integer"
+    },
+    "result": {
+      "additionalProperties": false,
+      "properties": {
+        "coreDump": {
+          "type": "boolean"
+        },
+        "durationMs": {
+          "type": "integer"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "signal": {
+          "type": "string"
+        },
+        "startError": {
+          "type": "string"
+        },
+        "stderr": {
+          "additionalProperties": false,
+          "properties": {
+            "base64": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "base64",
+            "size",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        "stdout": {
+          "additionalProperties": false,
+          "properties": {
+            "base64": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "base64",
+            "size",
+            "truncated"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "exitCode",
+        "durationMs"
+      ],
+      "type": "object"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "Hook protocol version; always 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "event",
+    "eventId",
+    "hookId",
+    "redactions",
+    "invocation",
+    "classification"
+  ],
+  "title": "ghok hook input",
+  "type": "object"
+}

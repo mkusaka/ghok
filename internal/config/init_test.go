@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 )
 
 func TestInitTemplates(t *testing.T) {
@@ -37,21 +35,14 @@ func TestInitTemplates(t *testing.T) {
 		t.Fatal("shared project template must not embed the creator's paths")
 	}
 	// Trusting the generated project file must load cleanly on top of the user config.
-	if _, _, notes, err := TrustProject(project, repo, env); err != nil {
+	if _, _, notes, _, err := TrustProject(project, repo, env, false, false); err != nil {
 		t.Fatalf("trust project template: %v (notes %v)", err, notes)
 	}
 	if _, notes, err := LoadEffective(user, repo, env); err != nil {
 		t.Fatalf("trusted project template: %v (notes %v)", err, notes)
 	}
 
-	for scope, path := range map[string]string{ScopeUser: user, ScopeProject: project} {
-		var doc any
-		if err := yaml.Unmarshal([]byte(mustRead(t, path)), &doc); err != nil {
-			t.Fatal(err)
-		}
-		if err := checkSchema(Schema(scope == ScopeProject), doc, "$"); err != nil {
-			t.Fatalf("%s template vs schema: %v", scope, err)
-		}
+	for _, scope := range []string{ScopeUser, ScopeProject} {
 		if _, err := Init(scope, repo, env); err == nil || !strings.Contains(err.Error(), "already exists") {
 			t.Fatalf("%s: second init must refuse to overwrite, got %v", scope, err)
 		}

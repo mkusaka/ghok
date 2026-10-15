@@ -60,7 +60,7 @@ const (
 
 // Result is the output of normalization for one gh invocation.
 type Result struct {
-	SchemaVersion  int            `json:"schemaVersion"`
+	SchemaVersion  int            `json:"schemaVersion" const:"1" doc:"Normalization and hook protocol version."`
 	Classification Classification `json:"classification"`
 	Operations     []Operation    `json:"operations"`
 	// Source is the original, redaction-safe description of what was invoked.
@@ -71,9 +71,9 @@ type Result struct {
 }
 
 type Classification struct {
-	Level      Level      `json:"level"`
-	Confidence Confidence `json:"confidence"`
-	Resolution Resolution `json:"resolution"`
+	Level      Level      `json:"level" enum:"none,L1,L2,L3" doc:"Normalization layer: native command, REST, GraphQL, or none."`
+	Confidence Confidence `json:"confidence" enum:"exact,heuristic,none" doc:"Certainty of operation identity, not execution success."`
+	Resolution Resolution `json:"resolution" enum:"complete,partial,deferred,unresolved" doc:"Completeness of targets and parameters; inspect unresolved entries."`
 	// MutationFree is true only when the normalizer *proved* that no write
 	// happens (e.g. a parsed GraphQL query document, a GET REST call, a known
 	// read-only command). It is false when unknown. Never set it on guesses.
@@ -91,16 +91,16 @@ type Operation struct {
 	// "pr.merge.auto.enable", "pr.merge.auto.disable", "pr.merge.queue.enqueue".
 	// Hook/policy operation globs match against Action.
 	Action     string         `json:"action"`
-	Effect     Effect         `json:"effect"`
+	Effect     Effect         `json:"effect" enum:"read,write,unknown" doc:"Side-effect classification; unknown never proves safety."`
 	Target     Target         `json:"target"`
-	Parameters map[string]any `json:"parameters,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty" doc:"Action- and layer-specific JSON values; keys are documented in docs/normalization.md."`
 	Texts      *Texts         `json:"texts,omitempty"`
-	Execution  Execution      `json:"execution"`
+	Execution  Execution      `json:"execution" enum:"will-run,maybe,not-selected,skipped" doc:"Requested execution state, not proof of server-side effects."`
 	// Evidence explains Execution != will-run, or other proofs.
 	Evidence   string       `json:"evidence,omitempty"`
 	Unresolved []Unresolved `json:"unresolved,omitempty"`
 	// UnknownReason is set (non-empty) iff Family == "unknown" or Effect == unknown.
-	UnknownReason UnknownReason `json:"unknownReason,omitempty"`
+	UnknownReason UnknownReason `json:"unknownReason,omitempty" enum:"unknown-command,unknown-flag,extension,shell-alias,alias-loop,unknown-endpoint,unknown-mutation,parse-error,input-unavailable,input-too-large,operation-ambiguous,malformed-request" doc:"Machine-readable reason for an unknown classification."`
 	// Detail is free-form human-readable explanation.
 	Detail string `json:"detail,omitempty"`
 	// Origin ties the operation back to its source (command path, REST route
@@ -122,9 +122,9 @@ type Texts struct {
 // Status explains unavailable stdin; zero Bytes then means an unknown size.
 type Text struct {
 	Value      string      `json:"value"`
-	Source     string      `json:"source"` // inline | file | stdin | editor | fill | template | unknown
+	Source     string      `json:"source" enum:"inline,file,stdin,editor,fill,template,unknown" doc:"Text input provenance; generated/editor text is not the final submitted value."`
 	Path       string      `json:"path,omitempty"`
-	Status     StdinStatus `json:"status,omitempty"`
+	Status     StdinStatus `json:"status,omitempty" enum:"not-captured,tty,too-large,timeout,error" doc:"Unavailable stdin status; omitted on successful capture."`
 	Truncated  bool        `json:"truncated,omitempty"`
 	Bytes      int64       `json:"bytes"`
 	Redactions int         `json:"redactions"` // credential substitutions in this text
@@ -157,12 +157,12 @@ const FamilyUnknown = "unknown"
 type Target struct {
 	// Kind describes the selected resource type; "unknown" marks an unresolved
 	// polymorphic subject rather than inferring its type from a node ID.
-	Kind       string `json:"kind,omitempty"`
+	Kind       string `json:"kind,omitempty" enum:"unknown,pullRequest,issue,repository,ref,comment,release,gist,branchProtectionRule,checkRun,checkSuite,deployment,discussion,draftIssue,enterprise,environment,ipAllowListEntry,issueType,linkedBranch,migration,milestone,organization,packageVersion,project,projectCard,projectColumn,pullRequestReview,pullRequestReviewThread,repositoryCustomProperty,repositoryRuleset,repositoryVulnerabilityAlert,sponsor,sponsorable,team,user,workflow,workflowRun" doc:"Selected resource kind, not necessarily the created result; unknown marks an unresolved polymorphic subject."`
 	Host       string `json:"host,omitempty"`
 	Owner      string `json:"owner,omitempty"`
 	Repository string `json:"repository,omitempty"` // "owner/name"
-	Number     *int   `json:"number,omitempty"`     // PR / issue number
-	NodeID     string `json:"nodeId,omitempty"`     // GraphQL global ID
+	Number     *int   `json:"number,omitempty" doc:"Known PR or issue number; omitted when unknown."`
+	NodeID     string `json:"nodeId,omitempty"` // GraphQL global ID
 	Branch     string `json:"branch,omitempty"`
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
@@ -186,12 +186,12 @@ type Origin struct {
 	Field     string   `json:"field,omitempty"`     // L3: schema field name, e.g. "mergePullRequest"
 	Alias     string   `json:"alias,omitempty"`     // L3: response alias if different from Field
 	Operation string   `json:"operation,omitempty"` // L3: GraphQL operation name ("" for anonymous)
-	OpType    string   `json:"opType,omitempty"`    // L3: query|mutation|subscription
+	OpType    string   `json:"opType,omitempty" enum:"query,mutation,subscription" doc:"GraphQL operation type."`
 }
 
 // Source is a redaction-safe description of the original invocation.
 type Source struct {
-	Kind    string   `json:"kind"`              // "command" | "rest" | "graphql" | "unknown"
+	Kind    string   `json:"kind" enum:"command,rest,graphql,unknown" doc:"Syntax source kind."`
 	Argv    []string `json:"argv,omitempty"`    // redacted argv (after alias expansion if any)
 	Alias   string   `json:"alias,omitempty"`   // alias name if expanded
 	Method  string   `json:"method,omitempty"`  // REST/GraphQL HTTP method

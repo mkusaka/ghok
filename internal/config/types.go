@@ -21,9 +21,10 @@ type Config struct {
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`
-	// IgnoredHooks are project hooks withheld by trust, for management reporting
-	// only. Execution paths must use Hooks, never this list.
-	IgnoredHooks []IgnoredHook `yaml:"-" json:"-"`
+	// IgnoredHooks are project hooks withheld by trust. Execution paths must use
+	// Hooks, never this reporting list.
+	IgnoredHooks   []IgnoredHook   `yaml:"-" json:"-"`
+	IgnoredProject *IgnoredProject `yaml:"-" json:"-"`
 	// Diagnostics are project load failures retained for invocation logging.
 	// Routine source/trust notes are returned separately by LoadEffective.
 	Diagnostics []string `yaml:"-" json:"-"`
@@ -143,8 +144,9 @@ type Runtime struct {
 }
 
 type Logging struct {
-	Enabled *bool  `yaml:"enabled" json:"enabled,omitempty"` // default true
-	Path    string `yaml:"path" json:"path,omitempty"`       // default <config dir>/logs/ghok.jsonl
+	Enabled             *bool  `yaml:"enabled" json:"enabled,omitempty"` // default true
+	IgnoredHooksWarning *bool  `yaml:"ignoredHooksWarning" json:"ignoredHooksWarning,omitempty" doc:"Warn on stderr about enabled project hooks withheld by trust, at most once per project manifest per ten minutes. Default true; user config only."`
+	Path                string `yaml:"path" json:"path,omitempty"` // default <config dir>/logs/ghok.jsonl
 	// Level: "info" logs every invocation; "decision" only non-allow decisions and errors.
 	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }

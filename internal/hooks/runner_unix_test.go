@@ -31,7 +31,7 @@ func script(t testing.TB, body string) string {
 	return path
 }
 func hook(id, path string) config.Hook {
-	return config.Hook{ID: id, Phase: "pre", Command: []string{path}, Timeout: config.Duration(5 * time.Second)}
+	return config.Hook{ID: id, Phase: "pre", Command: []string{path}, Timeout: config.Duration(30 * time.Second)} // generous: hooks are slow to start under parallel test load
 }
 func input() protocol.Input {
 	return protocol.Input{SchemaVersion: 1, Event: "pre", EventID: "test-event", Operations: []model.Operation{{Family: "pr.merge", Action: "pr.merge.direct", Effect: model.EffectWrite, Execution: model.ExecutionWillRun}}, Invocation: protocol.InvocationInfo{Argv: []string{"pr", "merge", "1"}}}

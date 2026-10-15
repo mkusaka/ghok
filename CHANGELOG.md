@@ -8,6 +8,27 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Breaking
+
+- Replace `ghok config schema [--project]` with `ghok schema config|project-config|hook-input|hook-response`. Empty typed hook arrays are now omitted instead of `null`; absent means empty.
+- Without a user config or applicable project `.ghok.yaml`, the shim now execs gh directly without logging, normalization, stdin capture, resolution, or hook warnings. Logging remains default-on once either config exists; machine-wide shim installation is the recommended adoption path.
+
+### Added
+
+- Generated hook input/response JSON Schemas, closed-value enums and documentation from Go tags, `schemaVersion: {const: 1}`, and TypeScript generation instructions. Regenerate all four contracts with `go generate ./internal/schema`.
+- Throttled stderr reminders for enabled project hooks ignored by trust, including up to three changed filenames; user `logging.ignoredHooksWarning: false` opts out.
+- Bounded private persistent manifest hash cache under `<config-dir>/state/`, invalidated by canonical path and file metadata; project YAML is always read fresh.
+- Repository-aware "what changed since trust" hints in `config trust`, `config validate` and `doctor`, with recorded HEAD/common-dir/normalized-origin provenance, changed/added/removed files and executable-bit changes; `config trust --dry-run` previews without state writes.
+
+### Changed
+
+- Trust review now compares exact stored trusted bytes, including dirty files, instead of the recorded commit. Private deduplicated copies are bounded to 1 MiB/file and 64 MiB total, integrity-checked and garbage-collected on trust/untrust; `untrust --all` purges them. Trust/dry-run show unredacted anchored unified diffs (`--no-diff` opts out); binary/large/missing/corrupt baselines show explanations. Removed Git object/pack-index lookup.
+
+### Fixed
+
+- A malformed trust-store entry is skipped with a named note instead of discarding other valid trusted digests.
+- Manifest hashes now remain cached across projects, with oldest-first eviction beyond 4096 entries. `doctor` explains no-config passthrough and skips unused log-path checks.
+
 ## [v0.0.5] - 2026-10-15
 
 ### Breaking

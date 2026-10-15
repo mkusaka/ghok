@@ -1,9 +1,7 @@
 package resolve
 
 import (
-	"encoding/hex"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path"
@@ -11,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mkusaka/ghok/internal/gitmeta"
 	"github.com/mkusaka/ghok/internal/model"
 )
 
@@ -22,124 +21,6 @@ type localInfo struct {
 }
 
 type remote struct{ name, fetch, push, resolved string }
-
-func readBounded(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
-	if err == nil && len(data) > maxBytes {
-		return nil, fmt.Errorf("git metadata exceeds 1 MiB")
-	}
-	return data, err
-}
-
-func absolute(base, p string) string {
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
-	}
-	return filepath.Join(base, p)
-}
-
-func gitDirectory(cwd string, env map[string]string) (string, error) {
-	if dir := env["GIT_DIR"]; dir != "" {
-		return absolute(cwd, dir), nil
-	}
-	if work := env["GIT_WORK_TREE"]; work != "" {
-		cwd = absolute(cwd, work)
-	}
-	ceilings := make(map[string]bool)
-	for _, dir := range filepath.SplitList(env["GIT_CEILING_DIRECTORIES"]) {
-		if filepath.IsAbs(dir) {
-			if real, err := filepath.EvalSymlinks(dir); err == nil {
-				dir = real
-			}
-			ceilings[filepath.Clean(dir)] = true
-		}
-	}
-	for dir := cwd; ; dir = filepath.Dir(dir) {
-		// Git does not search the ceiling itself; starting inside it is allowed.
-		if dir != cwd && ceilings[dir] {
-			break
-		}
-		candidate := filepath.Join(dir, ".git")
-		info, err := os.Stat(candidate)
-		if err == nil {
-			if info.IsDir() {
-				return candidate, nil
-			}
-			data, err := readBounded(candidate)
-			if err != nil {
-				return "", err
-			}
-			text := strings.TrimSpace(string(data))
-			if !strings.HasPrefix(text, "gitdir: ") || strings.TrimSpace(text[8:]) == "" {
-				return "", fmt.Errorf("malformed .git file")
-			}
-			return absolute(dir, strings.TrimSpace(text[8:])), nil
-		}
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
-	}
-	return "", fmt.Errorf("no git repository found")
-}
-
-func validSHA(s string) bool {
-	if len(s) != 40 && len(s) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(s)
-	return err == nil
-}
-
-func readRef(gitdir, common, ref string, depth int) (string, error) {
-	if depth > 10 {
-		return "", fmt.Errorf("git symbolic ref depth exceeded")
-	}
-	if !strings.HasPrefix(ref, "refs/") || strings.Contains(ref, "\\") || path.Clean(ref) != ref || strings.Contains(ref, "..") {
-		return "", fmt.Errorf("invalid git ref")
-	}
-	for _, dir := range []string{gitdir, common} {
-		data, err := readBounded(filepath.Join(dir, filepath.FromSlash(ref)))
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		value := strings.TrimSpace(string(data))
-		if strings.HasPrefix(value, "ref: ") {
-			return readRef(gitdir, common, strings.TrimSpace(value[5:]), depth+1)
-		}
-		if !validSHA(value) {
-			return "", fmt.Errorf("invalid git ref SHA")
-		}
-		return value, nil
-	}
-	data, err := readBounded(filepath.Join(common, "packed-refs"))
-	if os.IsNotExist(err) {
-		return "", fmt.Errorf("branch has no commit (unborn or missing ref)")
-	}
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[1] == ref {
-			if !validSHA(fields[0]) {
-				return "", fmt.Errorf("invalid packed ref SHA")
-			}
-			return fields[0], nil
-		}
-	}
-	return "", fmt.Errorf("branch has no commit (unborn or missing ref)")
-}
 
 func normalizeHost(host string) string {
 	host = strings.ToLower(host)
@@ -219,7 +100,7 @@ func sshHost(host, home string) (string, error) {
 	if home == "" {
 		return host, nil
 	}
-	data, err := readBounded(filepath.Join(home, ".ssh", "config"))
+	data, err := gitmeta.ReadBounded(filepath.Join(home, ".ssh", "config"))
 	if os.IsNotExist(err) {
 		return host, nil
 	}
@@ -294,22 +175,22 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 	if real, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = real
 	}
-	gitdir, gitErr := gitDirectory(cwd, env)
-	var entries []configEntry
+	gitdir, gitErr := gitmeta.Directory(cwd, env)
+	var entries []gitmeta.ConfigEntry
 	if gitErr == nil {
 		c.GitDir = gitdir
 		c.Sources["gitDir"] = "git"
 		common := gitdir
-		if data, err := readBounded(filepath.Join(gitdir, "commondir")); err == nil {
+		if data, err := gitmeta.ReadBounded(filepath.Join(gitdir, "commondir")); err == nil {
 			if dir := strings.TrimSpace(string(data)); dir != "" {
-				common = absolute(gitdir, dir)
+				common = gitmeta.Absolute(gitdir, dir)
 			} else {
 				gitErr = fmt.Errorf("empty git commondir")
 			}
 		} else if !os.IsNotExist(err) {
 			gitErr = err
 		}
-		if data, err := readBounded(filepath.Join(gitdir, "HEAD")); err == nil {
+		if data, err := gitmeta.ReadBounded(filepath.Join(gitdir, "HEAD")); err == nil {
 			head := strings.TrimSpace(string(data))
 			if strings.HasPrefix(head, "ref: ") {
 				ref := strings.TrimSpace(head[5:])
@@ -317,11 +198,11 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 					c.Branch = strings.TrimPrefix(ref, "refs/heads/")
 					c.Sources["branch"] = "git"
 				}
-				c.HeadSHA, err = readRef(gitdir, common, ref, 0)
+				c.HeadSHA, err = gitmeta.ReadRef(gitdir, common, ref, 0)
 				if err != nil {
 					unresolved("target.sha", err.Error(), "git")
 				}
-			} else if validSHA(head) {
+			} else if gitmeta.ValidSHA(head) {
 				c.HeadSHA = head
 			} else {
 				unresolved("target.sha", "invalid git HEAD", "git")
@@ -333,11 +214,11 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 			unresolved("target.sha", "cannot read git HEAD", "git")
 		}
 		if gitErr == nil {
-			entries, gitErr = readConfig(filepath.Join(common, "config"), env["HOME"], 0)
+			entries, gitErr = gitmeta.ReadConfig(filepath.Join(common, "config"), env["HOME"], 0)
 		}
 		for _, e := range entries {
-			if e.section == "extensions" && e.key == "worktreeconfig" && strings.EqualFold(e.value, "true") {
-				more, err := readConfig(filepath.Join(gitdir, "config.worktree"), env["HOME"], 0)
+			if e.Section == "extensions" && e.Key == "worktreeconfig" && strings.EqualFold(e.Value, "true") {
+				more, err := gitmeta.ReadConfig(filepath.Join(gitdir, "config.worktree"), env["HOME"], 0)
 				if !os.IsNotExist(err) && err != nil {
 					gitErr = err
 				} else {
@@ -348,8 +229,8 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 		}
 	}
 	for _, e := range entries {
-		if e.section == "branch" && e.subsection == c.Branch && e.key == "gh-merge-base" {
-			out.baseBranch = e.value
+		if e.Section == "branch" && e.Subsection == c.Branch && e.Key == "gh-merge-base" {
+			out.baseBranch = e.Value
 		}
 	}
 	if c.Branch == "" {
@@ -373,21 +254,21 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 	} else {
 		byName := make(map[string]*remote)
 		for _, e := range entries {
-			if e.section != "remote" {
+			if e.Section != "remote" {
 				continue
 			}
-			rem := byName[e.subsection]
+			rem := byName[e.Subsection]
 			if rem == nil {
-				rem = &remote{name: e.subsection}
-				byName[e.subsection] = rem
+				rem = &remote{name: e.Subsection}
+				byName[e.Subsection] = rem
 			}
-			switch e.key {
+			switch e.Key {
 			case "url":
-				rem.fetch = e.value
+				rem.fetch = e.Value
 			case "pushurl":
-				rem.push = e.value
+				rem.push = e.Value
 			case "gh-resolved":
-				rem.resolved = e.value
+				rem.resolved = e.Value
 			}
 		}
 		var remotes []*remote

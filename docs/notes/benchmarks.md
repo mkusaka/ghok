@@ -46,13 +46,12 @@ measurements, not cold disk-cache or first-install latency measurements.
   `pr view 123 -R org/repo` and waits for it. This is the process-launch baseline.
 - **`BenchmarkStartup/ShimNoConfig`** starts the same executable through the
   `gh -> ghok` shim, with the same arguments, environment, cwd, and empty stdin.
-  No config file exists. Defaults enable logging, so this includes config
-  discovery, normalization, observe-mode policy evaluation, and a local JSONL
-  log write before execution. It is deliberately **not** the explicit
-  `logging.enabled: false` direct-exec fast path. Normal rotation remains part
-  of repeated default-logging runs. Subtract the direct baseline to estimate
-  added wrapper latency; unpaired differences of medians are not paired samples.
-  Report both raw measurements as well.
+  No user config or applicable project config exists. The wrapper now performs
+  config-presence, real-gh discovery and recursion-depth checks, then execs gh
+  directly. No logger, normalizer, stdin spool, resolver, or hook-warning check
+  runs. The historical measurements below predate this direct-exec path and
+  included default logging. Report both direct and shim measurements; a
+  difference of medians is not a controlled paired overhead estimate.
 - **`BenchmarkNormalize/L1NativeMerge`** normalizes a native admin/squash merge
   with an explicit repository.
 - **`BenchmarkNormalize/L2RESTMerge`** normalizes the REST merge endpoint with
@@ -131,3 +130,60 @@ Retain both observations: **+6.488 ms** from the earlier Go benchmark medians,
 and **about +3.5 ms** from the separate Python run. Neither is a controlled
 paired estimate or a portable performance guarantee. Neither measures an
 active stdin producer or the explicit disabled-logging shortcut.
+
+## Round 3: no-config direct exec
+
+Before/after ordinary `go build ./cmd/ghok` binaries, with one unchanged
+`go build ./test/fakegh` fixture. Same machine/toolchain as above; shared
+working checkout during design round 3, no new commit. Python
+`subprocess.run` plus `time.perf_counter_ns`: five warm-up pairs, then
+60 alternating direct/shim pairs per binary; `statistics.median` per path.
+Arguments: `pr view 123 -R org/repo`; empty stdin, discarded stdout,
+captured stderr, wait for exit. Temporary isolated HOME/config/gh-config/TMPDIR
+and non-repository cwd; PATH contains only shim/fake gh, and GHOK_REAL_GH pins
+that fake gh. Host load was not controlled.
+
+| No-config startup | Before, median ms | After, median ms |
+| --- | ---: | ---: |
+| Direct fake gh | 2.932667 | 3.046417 |
+| Shim | 6.779583 | 6.660854 |
+| Difference of medians | 3.846917 | 3.614437 |
+
+This is a small observed startup change, not a zero-latency claim: Go process
+startup and presence/discovery/depth checks remain. The behavioral guarantee
+is no configured work: before, no-config starts created JSONL logs; after, the
+same 65 starts (five warm-ups plus 60 measured) created no log directory.
+Logger, normalization, stdin capture, resolution and ignored-hook warning
+processing are bypassed before loading effective config.
+
+## Round 3: 50-file LoadEffective manifest
+
+```sh
+go test ./internal/config -run '^$' \
+  -bench '^BenchmarkLoadEffectiveManifestCache$' -benchmem -benchtime=2s -count=3
+```
+
+`BenchmarkLoadEffectiveManifestCache` creates one trusted repository with
+`.ghok.yaml`, one 4 KiB hook and 48 4 KiB `trust.include` files: 50 hashed
+files total. No child processes or hooks run during measurement. Cold removes
+`state/manifest-cache.json` before every load (removal and atomic recreation
+are included); warm retains the persistent cache across independent loads.
+Same machine/toolchain as above, normal non-race build, GOMAXPROCS=16.
+
+The fixture was run before cache integration, then again after integration.
+Other design-round changes were concurrent, so the within-final-build
+cold/warm comparison isolates reuse better than claiming all before/after
+differences are cache-only.
+
+| Implementation / state | Three samples, ns/op | Median, ns/op | B/op | allocs/op |
+| --- | --- | ---: | ---: | ---: |
+| Before cache / cold label | 1628250, 1534373, 1682951 | 1628250 | 2047791–2047844 | 4312 |
+| Before cache / warm label | 1608751, 1651698, 1623457 | 1623457 | 2047467–2047486 | 4309 |
+| After / cold cache | 1996046, 2172671, 1950026 | 1996046 | 2118506–2120842 | 4506–4507 |
+| After / warm cache | 857828, 833826, 830496 | 833826 | 498508–498517 | 4119 |
+
+Warm final loads were 0.834 ms versus 1.996 ms with cache recreation, about
+58% lower elapsed time, and 0.834 ms versus 1.623 ms before integration.
+Cache misses add serialization/atomic-write work; small files still incur
+canonicalization and stat checks. Warm hits skip file reads and hashing,
+not YAML loading, manifest validation, or trust-store loading.

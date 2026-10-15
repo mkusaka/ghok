@@ -16,4 +16,4 @@ fuzz:
 bench:
 	go test -run '^$$' -bench . -benchmem ./...
 schema:
-	go generate ./internal/config
+	go generate ./internal/schema

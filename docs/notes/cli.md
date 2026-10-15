@@ -69,9 +69,10 @@ excluded from generated schemas.
 ### Regeneration and curation
 
 No management generator or new upstream snapshot is involved. Regenerate the
-existing config schemas with `go generate ./internal/config`; source metadata
-must not change either `schema/*.schema.json`. Native metadata remains pinned to
-gh v2.102.0; its generator/semantic curation is documented in [native.md](native.md).
+config and hook schemas with `go generate ./internal/schema`; config source
+metadata remains excluded from YAML schemas. `ghok schema` prints `config`,
+`project-config`, `hook-input`, or `hook-response`. Native metadata remains pinned
+to gh v2.102.0; its generator/semantic curation is documented in [native.md](native.md).
 The four merge Detail variants are curated alongside action selection in
 `internal/normalize/native/native.go`: request describes server-selected
 direct/queue/auto behavior, admin describes requirement/queue bypass with possible

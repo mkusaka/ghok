@@ -34,6 +34,9 @@ type trustEntry struct {
 	ManifestVersion int           `json:"manifestVersion"`
 	FirstPath       string        `json:"firstPath"`
 	ConfigPath      string        `json:"configPath"`
+	Commit          string        `json:"commit,omitempty"`
+	CommonDir       string        `json:"commonDir,omitempty"`
+	RemoteURL       string        `json:"remoteUrl,omitempty"`
 	TrustedAt       time.Time     `json:"trustedAt"`
 	HookIDs         []string      `json:"hookIds"`
 	Files           []trustedFile `json:"files"`
@@ -132,10 +135,11 @@ func manifestDigest(files []trustedFile) string {
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
-func projectManifest(data []byte, p *Config, root string, maxBytes int64) (string, []trustedFile, error) {
+func projectManifest(data []byte, p *Config, root string, maxBytes int64, env map[string]string, readOnly bool) (string, []trustedFile, error) {
 	var files []trustedFile
 	byPath := make(map[string]int)
 	total := int64(0)
+	cache := readManifestCache(env)
 	add := func(path, hookID string, externalOK bool) error {
 		resolved, err := resolveTrustPath(path, 0)
 		if err != nil {
@@ -183,6 +187,9 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64) (strin
 					return errors.New("trust manifest exceeds runtime.fileMaxBytes")
 				}
 				file.SHA256 = contentHash(data)
+			} else if hash, ok := cache.lookup(resolved, info); ok {
+				total += info.Size()
+				file.SHA256 = hash
 			} else {
 				input, err := os.Open(resolved)
 				if err != nil {
@@ -192,6 +199,7 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64) (strin
 				// The YAML has already consumed at least one byte, so +1
 				// cannot overflow, even with a MaxInt64 user limit.
 				n, readErr := io.Copy(hash, io.LimitReader(input, remaining+1))
+				after, statErr := input.Stat()
 				closeErr := input.Close()
 				if readErr != nil {
 					return readErr
@@ -204,6 +212,9 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64) (strin
 					return errors.New("trust manifest exceeds runtime.fileMaxBytes")
 				}
 				file.SHA256 = hex.EncodeToString(hash.Sum(nil))
+				if statErr == nil && n == info.Size() {
+					cache.remember(resolved, info, after, file.SHA256)
+				}
 			}
 		}
 		byPath[relative] = len(files)
@@ -234,6 +245,9 @@ func projectManifest(data []byte, p *Config, root string, maxBytes int64) (strin
 	for i := range files {
 		sort.Strings(files[i].HookIDs)
 	}
+	if !readOnly {
+		cache.save()
+	}
 	return manifestDigest(files), files, nil
 }
 
@@ -246,31 +260,52 @@ func trustStorePath(env map[string]string) string {
 	return filepath.Join(Dir(env), "trust.json")
 }
 
-func parseTrustStore(data []byte) (map[string]trustEntry, error) {
-	var store map[string]trustEntry
-	if err := json.Unmarshal(data, &store); err != nil {
-		return nil, err
+func parseTrustStore(data []byte) (map[string]trustEntry, []string, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, err
 	}
-	if store == nil {
-		return nil, errors.New("trust store must be a JSON object")
+	if raw == nil {
+		return nil, nil, errors.New("trust store must be a JSON object")
 	}
-	for key, entry := range store {
-		if !validDigest(key) || entry.ManifestVersion != 1 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.Files) == 0 || len(entry.Files) > maxTrustFiles {
-			return nil, fmt.Errorf("invalid trust entry for %q", key)
+	store := make(map[string]trustEntry, len(raw))
+	var notes []string
+	for key, value := range raw {
+		var entry trustEntry
+		err := json.Unmarshal(value, &entry)
+		if err == nil {
+			err = validateTrustEntry(key, entry)
 		}
-		for i, file := range entry.Files {
-			if !filepath.IsLocal(file.Path) || filepath.ToSlash(filepath.Clean(file.Path)) != file.Path || (file.Missing && (file.SHA256 != "" || file.Executable)) || (!file.Missing && !validDigest(file.SHA256)) || (i > 0 && entry.Files[i-1].Path >= file.Path) {
-				return nil, fmt.Errorf("invalid trusted file for %q", key)
+		if err != nil {
+			name := key
+			if len(name) > 12 {
+				name = name[:12] + "…"
 			}
+			notes = append(notes, fmt.Sprintf("Trust store: skipped malformed trust entry %q (%v)", name, err))
+			continue
 		}
-		if manifestDigest(entry.Files) != key {
-			return nil, fmt.Errorf("invalid manifest digest for %q", key)
-		}
+		store[key] = entry
 	}
-	return store, nil
+	sort.Strings(notes)
+	return store, notes, nil
 }
 
-// A malformed or unreadable store cannot grant even partially decoded trust.
+func validateTrustEntry(key string, entry trustEntry) error {
+	if !validDigest(key) || entry.ManifestVersion != 1 || !filepath.IsAbs(entry.FirstPath) || filepath.Clean(entry.FirstPath) != entry.FirstPath || entry.ConfigPath != ".ghok.yaml" || entry.TrustedAt.IsZero() || len(entry.Files) == 0 || len(entry.Files) > maxTrustFiles {
+		return errors.New("invalid trust entry")
+	}
+	for i, file := range entry.Files {
+		if !filepath.IsLocal(file.Path) || filepath.ToSlash(filepath.Clean(file.Path)) != file.Path || (file.Missing && (file.SHA256 != "" || file.Executable)) || (!file.Missing && !validDigest(file.SHA256)) || (i > 0 && entry.Files[i-1].Path >= file.Path) {
+			return errors.New("invalid trusted file")
+		}
+	}
+	if manifestDigest(entry.Files) != key {
+		return errors.New("invalid manifest digest")
+	}
+	return nil
+}
+
+// Invalid top-level JSON grants no trust; malformed individual entries are isolated.
 func readTrustStore(env map[string]string) (map[string]trustEntry, []string) {
 	path := trustStorePath(env)
 	info, err := os.Lstat(path)
@@ -281,17 +316,18 @@ func readTrustStore(env map[string]string) (map[string]trustEntry, []string) {
 		err = errors.New("trust store must be a regular file, not a symlink")
 	}
 	var store map[string]trustEntry
+	var notes []string
 	if err == nil {
 		var data []byte
 		data, err = os.ReadFile(path)
 		if err == nil {
-			store, err = parseTrustStore(data)
+			store, notes, err = parseTrustStore(data)
 		}
 	}
 	if err != nil {
 		return make(map[string]trustEntry), []string{fmt.Sprintf("Trust store: %s is invalid or unreadable (%v); no project hooks trusted; run ghok config trust", path, err)}
 	}
-	return store, nil
+	return store, notes
 }
 
 func writeTrustStore(env map[string]string, store map[string]trustEntry) error {
@@ -353,40 +389,47 @@ func trustProjectPath(path, cwd string, env map[string]string) (string, error) {
 	return project, nil
 }
 
-// TrustProject authorizes the exact bytes inspected here. It never runs hooks
-// and validates the effective configuration before granting hook execution.
-func TrustProject(path, cwd string, env map[string]string) (string, []Hook, []string, error) {
+// TrustProject validates and reports the exact content being authorized without
+// running hooks. dryRun skips all state writes; noDiff skips raw content output.
+// The byte result is an unredacted review diff, separate from diagnostic notes.
+func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool) (string, []Hook, []string, []byte, error) {
 	project, err := trustProjectPath(path, cwd, env)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 	var notes []string
 	c, err := load(DefaultPath(env), &notes)
 	if err != nil {
-		return "", nil, notes, err
+		return "", nil, notes, nil, err
 	}
 	data, canonical, err := readProjectData(project, c.Runtime.FileMaxBytes)
 	if err != nil {
-		return "", nil, notes, err
+		return "", nil, notes, nil, err
 	}
 	p, n, err := parseProject(data, project)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	var digest string
 	var files []trustedFile
 	if len(p.Hooks) != 0 {
-		digest, files, err = projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes)
+		digest, files, err = projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, dryRun)
 		if err != nil {
-			return "", nil, notes, err
+			return "", nil, notes, nil, err
 		}
 	}
 	if err := mergeProject(c, p, n, project, filepath.Dir(project), env, "", &notes); err != nil {
-		return "", nil, notes, err
+		return "", nil, notes, nil, err
 	}
 	if len(p.Hooks) == 0 {
-		return canonical, nil, append(notes, "No project hooks; no trust manifest stored."), nil
+		if !dryRun {
+			store, _ := readTrustStore(env)
+			if _, err := prepareTrustBlobs(env, store); err != nil {
+				return "", nil, notes, nil, err
+			}
+		}
+		return canonical, nil, append(notes, "No project hooks; no trust manifest stored."), nil, nil
 	}
 	hookIDs := make([]string, 0, len(p.Hooks))
 	for _, h := range p.Hooks {
@@ -395,11 +438,27 @@ func TrustProject(path, cwd string, env map[string]string) (string, []Hook, []st
 	sort.Strings(hookIDs)
 	store, storeNotes := readTrustStore(env)
 	notes = append(notes, storeNotes...)
-	if _, exists := store[digest]; !exists {
-		store[digest] = trustEntry{ManifestVersion: 1, FirstPath: canonical, ConfigPath: ".ghok.yaml", TrustedAt: time.Now().UTC(), HookIDs: hookIDs, Files: files}
+	current := currentTrustEntry(project, canonical, files, env)
+	comparison, previous := trustComparisonNotes(current, store)
+	notes = append(notes, comparison...)
+	var diff []byte
+	if !noDiff {
+		diff = trustContentDiff(project, current, previous, env)
 	}
-	if err := writeTrustStore(env, store); err != nil {
-		return "", nil, notes, err
+	if !dryRun {
+		if previous, exists := store[digest]; exists {
+			current.FirstPath = previous.FirstPath
+		}
+		current.TrustedAt, current.HookIDs = time.Now().UTC(), hookIDs
+		store[digest] = current
+		blobNotes, err := saveTrustContents(project, files, env, store)
+		notes = append(notes, blobNotes...)
+		if err != nil {
+			return "", nil, notes, diff, err
+		}
+		if err := writeTrustStore(env, store); err != nil {
+			return "", nil, notes, diff, err
+		}
 	}
 	notes = append(notes, "Trust digest: "+digest)
 	notes = append(notes, trustFileNotes(files)...)
@@ -410,7 +469,7 @@ func TrustProject(path, cwd string, env map[string]string) (string, []Hook, []st
 			active = append(active, h)
 		}
 	}
-	return canonical, active, notes, nil
+	return canonical, active, notes, diff, nil
 }
 
 // UntrustProject removes hook authorization without changing declarative policy.
@@ -433,21 +492,25 @@ func UntrustProject(path, cwd string, env map[string]string) (string, []string, 
 		return "", nil, err
 	}
 	if len(p.Hooks) == 0 {
-		return canonical, nil, nil
+		store, notes := readTrustStore(env)
+		_, err := prepareTrustBlobs(env, store)
+		return canonical, notes, err
 	}
-	digest, _, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes)
+	digest, _, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 	if err != nil {
 		return "", nil, err
 	}
 	store, notes := readTrustStore(env)
 	if _, exists := store[digest]; !exists {
-		return canonical, notes, nil
+		_, err := prepareTrustBlobs(env, store)
+		return canonical, notes, err
 	}
 	delete(store, digest)
 	if err := writeTrustStore(env, store); err != nil {
 		return "", notes, err
 	}
-	return canonical, notes, nil
+	_, err = prepareTrustBlobs(env, store)
+	return canonical, notes, err
 }
 
 func trustFileNotes(files []trustedFile) []string {
@@ -481,6 +544,7 @@ func ListProjectTrust(env map[string]string) []string {
 		entry := store[key]
 		notes = append(notes, "Trust digest: "+key, "firstPath: "+entry.FirstPath,
 			"trustedAt: "+entry.TrustedAt.Format(time.RFC3339), "hook IDs: "+strings.Join(entry.HookIDs, ", "))
+		notes = append(notes, "commit: "+entry.Commit, "commonDir: "+entry.CommonDir, "remoteUrl: "+entry.RemoteURL)
 		notes = append(notes, trustFileNotes(entry.Files)...)
 	}
 	if len(store) == 0 {
@@ -492,7 +556,12 @@ func ListProjectTrust(env map[string]string) []string {
 // UntrustAllProjects clears every content grant, independent of the current repo.
 func UntrustAllProjects(env map[string]string) ([]string, error) {
 	_, notes := readTrustStore(env)
-	return notes, writeTrustStore(env, make(map[string]trustEntry))
+	store := make(map[string]trustEntry)
+	if err := writeTrustStore(env, store); err != nil {
+		return notes, err
+	}
+	_, err := prepareTrustBlobs(env, store)
+	return notes, err
 }
 
 func changedTrustFiles(files, previous []trustedFile) []string {

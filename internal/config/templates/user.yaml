@@ -95,6 +95,7 @@ runtime: {}
 
 logging: {}
 #  enabled: true
+#  ignoredHooksWarning: true         # stderr reminder for untrusted/changed project hooks (10 min per manifest)
 #  path: /absolute/path/ghok.jsonl  # default: <config dir>/logs/ghok.jsonl
 #  level: info                       # info: every invocation | decision: non-allow only
 

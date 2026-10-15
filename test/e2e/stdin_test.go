@@ -111,11 +111,6 @@ func TestUnneededStdinAnalysisStartsGhBeforeEOF(t *testing.T) {
 						c.Policy.Rules = []config.Rule{{ID: "audit", Decision: "audit"}}
 					}
 				})
-				if setup == "default" {
-					if err := os.Remove(s.cfg); err != nil {
-						t.Fatal(err)
-					}
-				}
 				args := []string{"api", "graphql", "--input", "-"}
 				prefix, remainder := []byte(`{"query":"query {`), []byte(` viewer { login } }"}`)
 				if source == "field" {

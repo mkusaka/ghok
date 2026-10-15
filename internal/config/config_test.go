@@ -255,7 +255,7 @@ func TestProjectTrust(t *testing.T) {
 	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
 		t.Fatalf("untrusted policy overlay: %+v, notes %v", c, notes)
 	}
-	if _, _, _, err := TrustProject("", cwd, env); err != nil {
+	if _, _, _, _, err := TrustProject("", cwd, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	c, _, err = LoadEffective(global, cwd, env)
@@ -281,7 +281,7 @@ func TestProjectTrust(t *testing.T) {
 		}
 	}
 	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [./hook]}]")
-	if _, _, _, err := TrustProject("", cwd, env); err == nil {
+	if _, _, _, _, err := TrustProject("", cwd, env, false, false); err == nil {
 		t.Fatal("trust must reject an effective hook ID collision")
 	}
 	// A contained config symlink preserves repository-relative hook commands.
@@ -298,7 +298,7 @@ func TestProjectTrust(t *testing.T) {
 	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
 		t.Fatalf("new symlink target: %+v, %v", c, err)
 	}
-	canonical, _, _, err := TrustProject(project, cwd, env)
+	canonical, _, _, _, err := TrustProject(project, cwd, env, false, false)
 	if err != nil || canonical != target {
 		t.Fatalf("canonical trust path: %s, %v", canonical, err)
 	}

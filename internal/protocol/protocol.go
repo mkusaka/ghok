@@ -13,14 +13,14 @@ const (
 // Input is written as one JSON document to a hook's stdin, then stdin is closed.
 // Input is raw unless the current hook opts into redactInput.
 type Input struct {
-	SchemaVersion  int                    `json:"schemaVersion"`
-	Event          string                 `json:"event"` // pre|post
-	EventID        string                 `json:"eventId"`
-	HookID         string                 `json:"hookId"`
-	Redactions     int                    `json:"redactions"`
+	SchemaVersion  int                    `json:"schemaVersion" const:"1" doc:"Hook protocol version; always 1."`
+	Event          string                 `json:"event" enum:"pre,post" doc:"Hook phase."`
+	EventID        string                 `json:"eventId" doc:"Invocation correlation ID, shared across hooks and phases."`
+	HookID         string                 `json:"hookId" doc:"Current configured hook ID."`
+	Redactions     int                    `json:"redactions" doc:"Credential substitutions in this hook's input; zero for raw input."`
 	Invocation     InvocationInfo         `json:"invocation"`
 	Classification model.Classification   `json:"classification"`
-	Operations     []model.Operation      `json:"operations"`
+	Operations     []model.Operation      `json:"operations,omitempty" doc:"Normalized operations; absent means empty."`
 	Errors         []string               `json:"errors,omitempty"`
 	Context        *model.ResolvedContext `json:"context,omitempty"`
 	Policy         *PolicyInfo            `json:"policy,omitempty"`
@@ -30,7 +30,7 @@ type Input struct {
 }
 
 type InvocationInfo struct {
-	Argv     []string `json:"argv"` // original os.Args[1:]
+	Argv     []string `json:"argv,omitempty" doc:"Original arguments after argv[0]; absent means empty."`
 	Alias    string   `json:"alias,omitempty"`
 	Expanded []string `json:"expanded,omitempty"` // alias-expanded analysis argv
 	Cwd      string   `json:"cwd"`
@@ -39,12 +39,12 @@ type InvocationInfo struct {
 	RealGh   string   `json:"realGh,omitempty"`
 	// TokenKind is the kind of env token gh will use: app|user|unknown|none
 	// (see config match.token). The token itself is never included.
-	TokenKind string `json:"tokenKind,omitempty"`
+	TokenKind string `json:"tokenKind,omitempty" enum:"app,user,unknown,none" doc:"Credential kind from the environment token prefix; never the token itself."`
 }
 
 type PolicyInfo struct {
-	Mode     string   `json:"mode"`
-	Decision Decision `json:"decision"`
+	Mode     string   `json:"mode" enum:"observe,enforce" doc:"Policy enforcement mode."`
+	Decision Decision `json:"decision" enum:"allow,deny,abstain,audit" doc:"Policy decision; audit is not a hook response decision."`
 	Reasons  []string `json:"reasons,omitempty"`
 	Rules    []string `json:"rules,omitempty"` // matched rule IDs
 }
@@ -79,8 +79,8 @@ const (
 // Response is read from a hook's stdout. Empty stdout with exit 0 = abstain.
 // Non-zero exit is an error Outcome regardless of stdout.
 type Response struct {
-	SchemaVersion int      `json:"schemaVersion,omitempty"`
-	Decision      Decision `json:"decision"`
+	SchemaVersion int      `json:"schemaVersion,omitempty" const:"1" doc:"Hook protocol version; omit or use 1."`
+	Decision      Decision `json:"decision" enum:"allow,deny,abstain" doc:"Hook decision; allow cannot override another hook's denial."`
 	Reason        string   `json:"reason,omitempty"`
 	// Message is shown to the user on stderr when the final decision is deny.
 	Message string `json:"message,omitempty"`
@@ -101,13 +101,13 @@ const (
 // HookResult is the diagnostic record of one hook execution.
 type HookResult struct {
 	HookID   string   `json:"hookId"`
-	Phase    string   `json:"phase"`
-	Outcome  Outcome  `json:"outcome"`
-	Decision Decision `json:"decision,omitempty"` // valid when Outcome == ok
+	Phase    string   `json:"phase" enum:"pre,post" doc:"Hook execution phase."`
+	Outcome  Outcome  `json:"outcome" enum:"ok,error,timeout,canceled,invalid-response,skipped" doc:"Execution outcome, independent of the decision."`
+	Decision Decision `json:"decision,omitempty" enum:"allow,deny,abstain" doc:"Response decision, meaningful when outcome is ok."`
 	Reason   string   `json:"reason,omitempty"`
 	Message  string   `json:"message,omitempty"`
 	// Effective is the decision after applying onError (what aggregation used).
-	Effective  Decision `json:"effective,omitempty"`
+	Effective  Decision `json:"effective,omitempty" enum:"allow,deny,abstain" doc:"Decision used after phase and onError handling."`
 	ExitCode   int      `json:"exitCode"`
 	DurationMs int64    `json:"durationMs"`
 	Error      string   `json:"error,omitempty"`

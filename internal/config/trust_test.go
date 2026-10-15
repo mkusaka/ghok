@@ -28,7 +28,7 @@ func TestTrustStorePersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := time.Now().UTC()
-	canonical, hooks, _, err := TrustProject(".ghok.yaml", alias, env)
+	canonical, hooks, _, _, err := TrustProject(".ghok.yaml", alias, env, false, false)
 	if err != nil || canonical != project || len(hooks) != 1 || hooks[0].ID != "active" || hooks[0].Command[0] != filepath.Join(repo, "check") {
 		t.Fatalf("trust via repository symlink: %s, %+v, %v", canonical, hooks, err)
 	}
@@ -64,7 +64,7 @@ func TestTrustStorePersistence(t *testing.T) {
 	other := filepath.Join(root, "other")
 	writeFixture(t, filepath.Join(other, ".git"), "gitdir: elsewhere\n")
 	writeFixture(t, filepath.Join(other, ".ghok.yaml"), "version: 1\nhooks: [{id: other, phase: pre, command: [./other]}]\n")
-	if _, _, _, err := TrustProject("", other, env); err != nil {
+	if _, _, _, _, err := TrustProject("", other, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -95,7 +95,7 @@ func TestContentTrustAcrossWorktrees(t *testing.T) {
 		writeFixture(t, filepath.Join(repo, ".ghok.yaml"), body)
 		writeFixture(t, filepath.Join(repo, "scripts", "check"), "#!/bin/sh\nexit 0\n")
 	}
-	if _, _, _, err := TrustProject("", first, env); err != nil {
+	if _, _, _, _, err := TrustProject("", first, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	c, _, err := LoadEffective("", second, env)
@@ -104,15 +104,13 @@ func TestContentTrustAcrossWorktrees(t *testing.T) {
 	}
 	writeFixture(t, filepath.Join(second, "scripts", "check"), "#!/bin/sh\nexit 1\n")
 	c, _, err = LoadEffective("", second, env)
-	// second was never trusted from its own path: plain "untrusted", no file list
-	// borrowed from another checkout's trust record.
 	if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" || c.Policy.Mode != ModeEnforce || len(c.Policy.Rules) != 1 {
 		t.Fatalf("script edit must revoke hooks, not policy: %+v, %v", c, err)
 	}
 	writeFixture(t, filepath.Join(first, "scripts", "check"), "#!/bin/sh\nexit 2\n")
-	c, notes, err := LoadEffective("", first, env)
-	if err != nil || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || !strings.Contains(strings.Join(notes, "\n"), "from this path): scripts/check") {
-		t.Fatalf("edit in the trusted checkout must name the changed file: %+v, %v, %v", c, notes, err)
+	c, _, err = LoadEffective("", first, env)
+	if err != nil || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
+		t.Fatalf("edit in the trusted checkout must revoke hooks: %+v, %v", c, err)
 	}
 }
 
@@ -123,23 +121,17 @@ func TestCorruptTrustStore(t *testing.T) {
 	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
 	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\npolicy: {mode: enforce, rules: [{id: deny, decision: deny}]}\nhooks: [{id: project, phase: pre, command: [./hook]}]\n")
 	storePath := filepath.Join(env["GHOK_CONFIG_DIR"], "trust.json")
-	if _, _, _, err := TrustProject("", repo, env); err != nil {
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
-	good, err := os.ReadFile(storePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A corrupt entry invalidates the entire store, even alongside a valid grant.
-	mixed := strings.TrimSuffix(strings.TrimSpace(string(good)), "}") + ", \"/other/.ghok.yaml\": {\"sha256\":\"bad\"}}"
-	for _, data := range []string{"{", "null", "[]", `{"/repo/.ghok.yaml":{}}`, `{"/repo/.ghok.yaml":{"sha256":"` + strings.Repeat("a", 64) + `","trustedAt":"2026-10-15T00:00:00Z"}}`, mixed} {
+	for _, data := range []string{"{", "null", "[]", `{"/repo/.ghok.yaml":{}}`, `{"/repo/.ghok.yaml":{"sha256":"` + strings.Repeat("a", 64) + `","trustedAt":"2026-10-15T00:00:00Z"}}`} {
 		writeFixture(t, storePath, data)
 		c, notes, err := LoadEffective("", repo, env)
 		if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.Policy.Mode != ModeEnforce || len(c.Policy.Rules) != 1 || !strings.Contains(strings.Join(notes, "\n"), "Trust store:") {
 			t.Fatalf("corrupt %q: %+v, %v, %v", data, c, notes, err)
 		}
 	}
-	if _, _, _, err := TrustProject("", repo, env); err != nil {
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	c, _, err := LoadEffective("", repo, env)
@@ -148,12 +140,56 @@ func TestCorruptTrustStore(t *testing.T) {
 	}
 }
 
+func TestTrustStoreIsolatesMalformedEntries(t *testing.T) {
+	root := t.TempDir()
+	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
+	repo := filepath.Join(root, "repo")
+	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: project, phase: pre, command: [./hook]}]\n")
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
+		t.Fatal(err)
+	}
+	path := trustStorePath(env)
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mixed map[string]json.RawMessage
+	if err := json.Unmarshal(good, &mixed); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"bad-key":               `{}`,
+		strings.Repeat("a", 64): `{"manifestVersion":"wrong type"}`,
+		strings.Repeat("b", 64): `null`,
+		strings.Repeat("c", 64): `{"trustedAt":"not a timestamp"}`,
+		strings.Repeat("d", 64): `["not an entry"]`,
+	} {
+		mixed[key] = json.RawMessage(value)
+	}
+	data, err := json.Marshal(mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, path, string(data))
+	c, notes, err := LoadEffective("", repo, env)
+	if err != nil || len(c.Hooks) != 1 || c.Hooks[0].ID != "project" || len(c.IgnoredHooks) != 0 {
+		t.Fatalf("unrelated malformed entries revoked valid trust: %+v, %v, %v", c, notes, err)
+	}
+	for _, key := range []string{"bad-key", strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 64)} {
+		prefix := key[:min(12, len(key))]
+		if !strings.Contains(strings.Join(notes, "\n"), prefix) {
+			t.Fatalf("missing malformed entry prefix %q in notes: %v", prefix, notes)
+		}
+	}
+}
+
 func FuzzTrustStore(f *testing.F) {
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`null`))
 	f.Add([]byte(`{"/repo/.ghok.yaml":{"sha256":"bad","trustedAt":"2026-10-15T00:00:00Z"}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		store, err := parseTrustStore(data)
+		store, _, err := parseTrustStore(data)
 		if err != nil {
 			if store != nil {
 				t.Fatal("corrupt store must never return partial trust")
@@ -182,7 +218,7 @@ func TestTrustExecutableSelection(t *testing.T) {
 	body := "version: 1\nhooks:\n- {id: absolute, phase: pre, command: [" + external + "]}\n- {id: missing, phase: pre, command: [./scripts/missing]}\n"
 	writeFixture(t, project, body)
 	writeFixture(t, filepath.Join(repo, "check"), "not the PATH executable")
-	if _, _, _, err := TrustProject("", repo, env); err != nil {
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	writeFixture(t, filepath.Join(repo, "check"), "changed but not selected")
@@ -220,7 +256,7 @@ func TestTrustRejectsEscapingExecutables(t *testing.T) {
 				}
 			}
 			writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks: [{id: escape, phase: pre, command: ["+command+"]}]\n")
-			if _, _, _, err := TrustProject("", repo, env); err == nil || !strings.Contains(err.Error(), "escapes repository root") {
+			if _, _, _, _, err := TrustProject("", repo, env, false, false); err == nil || !strings.Contains(err.Error(), "escapes repository root") {
 				t.Fatalf("escaped executable accepted: %v", err)
 			}
 			if c, notes, err := LoadEffective("", repo, env); err != nil || len(c.Hooks) != 0 || !strings.Contains(strings.Join(notes, "\n"), "escapes repository root") {
@@ -267,7 +303,7 @@ func TestTrustManifestIncludesAndExecutableBits(t *testing.T) {
 	if err := os.Chmod(filepath.Join(repo, "hook"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := TrustProject("", repo, env); err != nil {
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	store, _ := readTrustStore(env)
@@ -292,7 +328,7 @@ func TestTrustManifestIncludesAndExecutableBits(t *testing.T) {
 		if err != nil || len(c.Hooks) != 0 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" || !strings.Contains(strings.Join(notes, "\n"), change.name) {
 			t.Fatalf("%s did not revoke and identify trust: %+v, %v, %v", change.name, c, notes, err)
 		}
-		if _, _, _, err := TrustProject("", repo, env); err != nil {
+		if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -317,7 +353,7 @@ func TestTrustManifestLimits(t *testing.T) {
 				}
 				body += "trust: {include: [" + strings.Join(paths, ",") + "]}\n"
 				writeFixture(t, project, body)
-				if _, _, _, err := TrustProject("", repo, env); err != nil {
+				if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 					t.Fatalf("256 files rejected: %v", err)
 				}
 				body = strings.Replace(body, "missing-000", "extra,missing-000", 1)
@@ -326,7 +362,7 @@ func TestTrustManifestLimits(t *testing.T) {
 				writeFixture(t, filepath.Join(repo, "hook"), strings.Repeat("x", 10))
 				writeFixture(t, DefaultPath(env), fmt.Sprintf("version: 1\nruntime: {fileMaxBytes: %d}\n", len(body)+10))
 				writeFixture(t, project, body)
-				if _, _, _, err := TrustProject("", repo, env); err != nil {
+				if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 					t.Fatalf("exact size limit rejected: %v", err)
 				}
 				writeFixture(t, filepath.Join(repo, "hook"), strings.Repeat("x", 11))
@@ -358,7 +394,7 @@ func TestTrustManifestLimits(t *testing.T) {
 			if kind != "config-symlink" {
 				writeFixture(t, project, body)
 			}
-			if _, _, _, err := TrustProject("", repo, env); err == nil || !strings.Contains(err.Error(), want) {
+			if _, _, _, _, err := TrustProject("", repo, env, false, false); err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("trust accepted %s: %v", kind, err)
 			}
 			if c, notes, err := LoadEffective("", repo, env); err != nil || len(c.Hooks) != 0 || !strings.Contains(strings.Join(notes, "\n"), want) {
@@ -379,7 +415,7 @@ func TestPolicyOnlyProjectSkipsManifest(t *testing.T) {
 	if err != nil || len(c.Policy.Rules) != 1 || strings.Contains(strings.Join(notes, "\n"), "Trust store:") {
 		t.Fatalf("policy-only project computed trust: %+v, %v, %v", c, notes, err)
 	}
-	if _, _, _, err := TrustProject("", repo, env); err != nil {
+	if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(trustStorePath(env))

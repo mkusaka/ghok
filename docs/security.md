@@ -147,22 +147,71 @@ covered. Changing any covered byte (including YAML comments) or executable bit,
 or creating a previously missing file, changes the digest and disables hooks
 for that content until re-trusted. Notes identify changed files.
 
+Non-YAML manifest hashes are cached in
+`<config-dir>/state/manifest-cache.json` (0600, atomic replacement; 0700 state
+directory). The cache retains at most 4096 entries across projects (8 MiB maximum),
+evicting the oldest computed hashes on overflow. Hits require identical canonical
+path, size, nanosecond mtime, device/inode, ctime and mode on macOS/Linux;
+unsupported platforms rehash.
+Corrupt, oversized, or nonprivate cache files are ignored. YAML is always read
+and hashed fresh, and path containment, regular-file, executable-bit and
+total-byte checks still run on hits. Warm hits do not rewrite cache state.
+Like the trust store, this is not protection against malicious same-user state
+changes or concurrent filesystem replacement.
+
 `<config-dir>/trust.json` retains a set of digests across versions, worktrees and
 clones. Records contain `firstPath`, `configPath`, `trustedAt`, hook IDs and file
-executable bits and hashes/missing markers. `ghok config trust --list` prints
-digests, first paths, timestamps, hook IDs, per-file metadata and store notes.
-Locations are diagnostic metadata, not digest inputs: identical content is
+executable bits and hashes/missing markers, plus HEAD `commit`, resolved Git
+`commonDir` and normalized, credential-free origin `remoteUrl`. Explicit re-trust
+refreshes the timestamp/provenance while retaining the digest's original
+`firstPath`. `ghok config trust --list` prints the retained metadata and store
+notes. Provenance is diagnostic, not a digest input: identical content is
 trusted anywhere, not authenticated as a repository identity. The store uses a
 0700 config directory and a 0600 temporary file atomically renamed to a 0600
-store. Invalid or old-format stores grant no hook trust and return a generic
-note; declarative policy still applies.
+store. Malformed entries are skipped individually with a note naming each key's
+digest prefix; other valid entries remain trusted. An unreadable or invalid top-level store
+grants no trust; declarative policy still applies.
+
+Trust comparisons select the newest record in the first matching tier:
+resolved Git common directory, `firstPath`, normalized origin URL, then at least
+two distinct shared file-content SHA256s, independent of filenames. One common
+include such as `.gitleaks.toml` is insufficient. These heuristics choose review
+hints only; they never authorize hooks. Remote normalization lowercases hosts,
+strips userinfo, ports 22/443 and trailing `/`/`.git`, and maps scp-like/SSH/HTTPS
+URLs to `host/owner/repo`; path case is retained and `insteadOf` is ignored.
+HEAD/refs/config are read from files without invoking git; HEAD is provenance
+for `trust --list`, never a diff baseline. No Git objects or network are needed.
+Trust/validate/doctor show file and executable-bit changes; mode labels
+`0644`/`0755` represent the manifest's executable bit rather than full permissions.
+Only `config trust` and `config trust --dry-run` render unified content diffs;
+`--no-diff` suppresses them. Dry-run writes no trust, blob or hash-cache state.
+
+Trust saves **exact, unredacted copies of trusted files**, including uncommitted
+contents, at `<config-dir>/trust/blobs/<sha256>`. These copies may contain secrets,
+just like the repository files. Config/trust/blob directories are 0700 and blob
+files are 0600; write-once temporary-file/rename publication deduplicates contents.
+SHA256 is verified on read; a corrupt copy reports `stored copy corrupt` and
+produces no diff. Files over 1 MiB stay hash-only (`no stored copy (over 1 MiB)`).
+At 64 MiB total retained copies, new blobs are skipped with a note; existing
+copies still work. Trust and untrust collect copies referenced by no trust entry
+in one directory walk; **`ghok config untrust --all` purges all stored copies**.
+Trust diffs bypass terminal redaction deliberately: redacting them would lie
+about the bytes reviewed. Treat their output as sensitive; do not attach it
+to tickets without inspection. NUL in the first 8 KiB produces a binary-change
+hash summary; over 20,000 lines per side produces `diff too large; files changed`.
+Other bytes are diffed as-is, splitting on LF only and displaying CR as `^M`.
 
 `ghok config untrust [PATH]` idempotently removes only the current digest without
 removing policy; other trusted versions remain. `ghok config untrust --all`
 clears all digests. Trust and current-only untrust reject missing configs and
 paths other than a repository-root `.ghok.yaml`. Validate, doctor and explain
 report trust notes; hook listings/explain identify ignored hooks as untrusted
-or changed since trust. Normal wrapper invocations keep trust notes off stderr.
+or changed since trust. The wrapper emits one actionable stderr line for enabled
+ignored hooks, at most once per canonical project path/current manifest digest
+per ten minutes, using the same private, locked warning mechanism as invalid
+config. Only three changed-file names are shown, followed by a remaining count.
+Set user `logging.ignoredHooksWarning: false` to opt out. Invalid-config,
+verified nested-token, disabled-hook-only and policy-only paths do not warn.
 
 Group/world-writable configs and hook files produce notes, not a mandatory
 refusal. No ownership/signature check authenticates hook code. Content hashes
@@ -215,8 +264,10 @@ state files 0600; existing directory permissions remain unchanged. Disable
 removes only owned shims, never real gh or foreign files. Concurrent external
 shim/state mutation is unsupported.
 
-Logs default to `<config-dir>/logs/ghok.jsonl` and are enabled even without a
-config file. A newly created log directory is 0700; a preexisting possibly
+Without a user config or applicable project config, the wrapper execs real gh
+without opening logs or warning state, normalizing, spooling stdin, or resolving.
+With any config, logs default to `<config-dir>/logs/ghok.jsonl` and are enabled.
+A newly created log directory is 0700; a preexisting possibly
 shared directory is left unchanged. Log and persistent `.lock` files are opened
 as regular files with modes tightened to 0600. Final-directory/file symlinks
 and nonregular log/lock files are rejected; ancestor symlinks are allowed.

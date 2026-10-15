@@ -618,7 +618,7 @@ func TestLoggedGraphQLStdinAnalysisEligibility(t *testing.T) {
 					c.Policy.Mode = config.ModeEnforce
 					c.Policy.Rules = []config.Rule{{ID: "no-comments", Decision: "deny", Match: config.Match{Operations: config.StringList{"comment.create"}}}}
 				})
-			} else if err := os.Remove(s.cfg); err != nil {
+			} else if err := os.WriteFile(s.cfg, []byte("version: 1\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			args := []string{"api", "graphql", "--input", "-"}
@@ -739,18 +739,6 @@ func TestInvalidConfigWarningThrottleAndLogging(t *testing.T) {
 }
 
 func TestNoConfigDefaultsAndLoggingFailures(t *testing.T) {
-	t.Run("no-config-logs", func(t *testing.T) {
-		s := newSandbox(t)
-		if err := os.Remove(s.cfg); err != nil {
-			t.Fatal(err)
-		}
-		result := s.gh(nil, "version")
-		result.code(t, 0)
-		s.onlyRecord([]string{"version"}, nil)
-		if len(result.stderr) != 0 || len(s.logs()) != 1 {
-			t.Fatal("default logging behavior changed")
-		}
-	})
 	for _, debug := range []bool{false, true} {
 		t.Run(fmt.Sprintf("log-failure/debug=%v", debug), func(t *testing.T) {
 			s := newSandbox(t)

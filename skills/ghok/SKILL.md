@@ -27,6 +27,11 @@ ghok doctor                          # PATH precedence, real gh, config, hook pe
 
 `~/.local/bin` must come before the real gh's directory on PATH (`ghok doctor` prints the
 fix). Undo with `ghok shim uninstall` (removes only ghok's own shim).
+Install the shim machine-wide rather than per repository: with neither a user
+config nor applicable project `.ghok.yaml`, gh is exec'd directly without logs,
+normalization, stdin capture, resolver, or warnings. A user config enables ghok
+globally. direnv/mise is only an optional human helper; non-interactive agent
+shells do not load direnv, and their allow lists are path-based, not hook trust.
 
 **Ask before running `ghok shim install` / `uninstall` on the user's machine** — it
 changes what `gh` means in every shell. Use `--bin-dir` for experiments.
@@ -42,7 +47,8 @@ from the docs.
 ghok config init                     # <repo root>/.ghok.yaml (project scope, the default)
 ghok config init --scope user        # global config.yaml (`ghok config path` shows where)
 ghok config validate                 # all errors at once; exit 1 if invalid
-ghok config schema [--project]       # JSON Schema (also referenced by the generated files)
+ghok schema config                  # global config JSON Schema
+ghok schema project-config          # project .ghok.yaml JSON Schema
 ```
 
 Generated files are commented and start with a `yaml-language-server` `$schema` line.
@@ -72,12 +78,30 @@ Never overwrite an existing config; edit it instead.
   Trust output lists every hashed file, hook IDs, resolved commands and coverage
   limits. `ghok config trust --list` shows digests, first paths, trusted timestamps,
   hook IDs, per-file executable bits and hashes/missing markers, plus store notes.
+  Re-trusting records HEAD, resolved Git common directory and normalized origin;
+  provenance never changes the digest. `ghok config trust --dry-run [PATH]`
+  validates and prints the proposed trust without writing trust/blob/cache state.
+  Trust, and validate/doctor when hooks are ignored, list changed/added/removed
+  files and executable-bit mode changes against the newest record in the first
+  matching tier: common directory, first path, normalized origin, then two
+  distinct shared content SHA256s (not paths). One shared `.gitleaks.toml` is
+  insufficient. Review the previous timestamp/path and, only in trust/dry-run,
+  the unified diff against exact stored trusted bytes, including dirty files.
+  `--no-diff` omits contents. Stored copies and diffs are unredacted and may
+  contain secrets: `<config-dir>/trust/blobs/<sha256>`, 0700 dirs/0600 files,
+  1 MiB per file/64 MiB total. Missing/corrupt/over-limit copies omit diffs with
+  notes. Binary files show short hashes; over-20,000-line sides omit the diff.
+  No Git executable, object lookup or fetch is used; HEAD is list-only provenance.
   `ghok config untrust [PATH]` idempotently removes only the current digest,
-  leaving policy and other versions; `ghok config untrust --all` clears all digests.
+  leaving policy and other versions; `ghok config untrust --all` clears all digests
+  and purges stored copies. Trust/untrust garbage-collect unreferenced copies.
   Trust/current-only untrust reject missing/non-repository-root configs.
-  Invalid or old-format stores grant no hook trust and emit a generic note;
-  declarative policy remains active. Validate/doctor/explain report notes;
-  hooks list/explain show ignored hooks. Ordinary wrapper stderr stays quiet.
+  Malformed store entries are skipped with named notes; other valid digests stay
+  trusted. Invalid top-level stores grant no trust; declarative policy stays.
+  Validate/doctor/explain report notes. The wrapper warns about enabled ignored
+  hooks once per canonical project path/manifest/ten minutes, at most three
+  changed filenames. User `logging.ignoredHooksWarning: false` opts out; nested,
+  invalid-config, disabled-hook-only and policy-only paths do not warn.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)
@@ -139,6 +163,17 @@ post hooks `result` with `exitCode`/`signal`). A pre-hook prints one JSON respon
 ```json
 {"schemaVersion": 1, "decision": "deny", "reason": "...", "message": "shown to the user"}
 ```
+
+Print the JSON contracts with `ghok schema hook-input` / `ghok schema hook-response`.
+In a source checkout, generate TypeScript types with:
+
+```sh
+npx json-schema-to-typescript schema/hook-input.schema.json > hook-input.d.ts
+npx json-schema-to-typescript schema/hook-response.schema.json > hook-response.d.ts
+```
+
+Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
+`schemaVersion` is `const: 1`: additive fields never bump it, renames/removals do.
 
 - `decision`: `allow` | `deny` | `abstain` (empty stdout with exit 0 also = abstain).
 - **Input is raw by default**, including original/expanded argv, normalized texts

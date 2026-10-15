@@ -35,6 +35,27 @@ func Wrapper(args []string) int {
 		_, _ = fmt.Fprintln(os.Stdout, "ghok-probe")
 		return 0
 	}
+	env := environment()
+	fatal := func(err error, code int) int {
+		fmt.Fprintln(os.Stderr, "ghok:", redact.New(env).String(err.Error()))
+		return code
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fatal(err, 1)
+	}
+	if !config.HasConfig(cwd, env) {
+		real, err := realGh(nil, env)
+		if err != nil {
+			return fatal(err, 127)
+		}
+		childEnv, _, err := install.NextDepth(os.Environ())
+		if err != nil {
+			return fatal(err, 1)
+		}
+		err = process.Exec(process.Options{Path: real, Args: append([]string{os.Args[0]}, args...), Env: childEnv})
+		return fatal(err, process.StartErrorExitCode(err))
+	}
 	started := time.Now()
 	// Snapshot before any Notify call changes the observable dispositions.
 	var helperSignals []os.Signal
@@ -43,16 +64,7 @@ func Wrapper(args []string) int {
 			helperSignals = append(helperSignals, sig)
 		}
 	}
-	env := environment()
 	redactor := redact.New(env)
-	fatal := func(err error, code int) int {
-		fmt.Fprintln(os.Stderr, "ghok:", redactor.String(err.Error()))
-		return code
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fatal(err, 1)
-	}
 	cfg, notes, configErr := config.LoadEffective(config.DefaultPath(env), cwd, env)
 	failClosed := config.FailClosed(configErr, env)
 	var real string
@@ -74,6 +86,12 @@ func Wrapper(args []string) int {
 		// An invalid effective config cannot be trusted, including its log path.
 		cfg = &config.Config{Dir: config.Dir(env)}
 		cfg.ApplyDefaults()
+	}
+	nested := configErr == nil && install.ValidNestedToken(config.Dir(env), env)
+	if configErr == nil && !nested {
+		if warning := ignoredHooksWarning(cfg, config.Dir(env), started); warning != "" {
+			fmt.Fprintln(os.Stderr, "ghok:", strings.Join(strings.Fields(redactor.String(warning)), " "))
+		}
 	}
 	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		err = process.Exec(opts)
@@ -133,7 +151,7 @@ func Wrapper(args []string) int {
 		record.Diagnostics = []string{"invalid config: " + configErr.Error()}
 		return execLogged()
 	}
-	if install.ValidNestedToken(config.Dir(env), env) {
+	if nested {
 		record.Decision = "passthrough-nested"
 		return execLogged()
 	}

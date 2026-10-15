@@ -14,6 +14,7 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/model` | Result, Operation, Invocation, APIRequest, ResolvedContext | Schema-version-1 shared contracts, not execution logic. |
 | `internal/protocol` | Hook Input/Response/HookResult and decisions/outcomes | JSON stdin/stdout protocol. |
 | `internal/config` | Defaults, strict YAML validation, alias reading, trusted project merge | No automatic execution of repository configuration. |
+| `internal/schema` | Tagged reflection generator for config/project-config/hook-input/hook-response JSON Schemas | Development generation and `ghok schema`; not runtime hook validation. |
 | `internal/install` | Real-gh discovery, owned shim lifecycle, depth guard, doctor | Stable PATH-facing paths; never modify real gh or shell rc files. |
 | `internal/normalize` | Alias expansion then native/REST/GraphQL dispatch | No ambient filesystem/network/stdin access; injected Invocation reads only. |
 | `internal/normalize/apiargs` | gh API flags and typed/raw nested fields | Shared reconstruction rules based on cli/cli 2.102.0. |
@@ -21,6 +22,8 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/normalize/rest` | Method + route matching, payload/target analysis | Not substring endpoint matching. |
 | `internal/normalize/graphql` | AST, selection, variables, directives, mutation registry | No full server-schema/type validation or execution confirmation. |
 | `internal/resolve` | Local metadata and explicitly needed read-only queries | Does not execute git/ssh; API calls use real gh directly. |
+| `internal/gitmeta` | Shared bounded Git directory/ref/config readers | Local metadata only; no git execution, Git object lookup or network. |
+| `internal/textdiff` | Anchored unified diff adapted from Go's BSD-3-Clause implementation | Exact trusted/current bytes; caller bounds size/lines and handles binary files. |
 | `internal/policy` | Pure matching/evaluation across every considered operation | No config loading, hooks, or API calls. |
 | `internal/hooks` | Trusted commands, dependency/concurrency scheduling, cancellation | Caller supplies raw Input; runner redacts only redactInput hooks. Diagnostics have a redaction callback. |
 | `internal/process` | Exec/supervision, Unix signals/TTY/job control, bounded stdin replay | Single child/wait/signal owner; no real-gh process-group separation. |
@@ -35,8 +38,11 @@ updates are source changes; there is no runtime normalizer-plugin loader.
 ## Wrapper data flow
 
 1. Handle installation probe before config/discovery/hooks.
-2. Load user config plus nearest-project config. Project failures discard only
-   the project overlay and retain user enforcement, notes, and log diagnostics.
+2. Probe config presence only. With no user config and no applicable project
+   `.ghok.yaml`, discover real gh, validate depth, and exec directly: no config
+   parsing, logger, normalizer, stdin spool, resolver, or hook-warning check.
+   Otherwise load user plus nearest-project config. Project failures discard
+   only the overlay and retain user enforcement, notes, and log diagnostics.
 3. Invalid user config with raw `policy.mode: enforce`, or any invalid config
    with `GHOK_FAIL_CLOSED=1`: log the failure, print an unthrottled error, and
    exit 1 without discovering/starting gh.
@@ -44,9 +50,10 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    candidates; validate recursion depth and supply incremented `GHOK_DEPTH`.
    Invalid observe/undetermined user config logs at the default path, emits a
    throttled warning, and execs gh without hooks/policy.
-5. In observe mode with no hooks/rules and logging explicitly disabled, exec
-   immediately without analysis. Missing config does not select this shortcut:
-   logging defaults on.
+5. For valid, non-nested invocations, warn once per project path/manifest/ten
+   minutes about ignored enabled project hooks unless disabled by user logging
+   config. Observe mode with no hooks/rules and logging explicitly disabled
+   then execs immediately without analysis. Logging defaults on with any config.
 6. Otherwise open best-effort logging. `GHOK_NESTED=1` plus a verified
    invocation token records passthrough and execs without analysis/policy/hooks.
 7. Load aliases only if needed. For an analyzable API stdin consumer, spool
@@ -99,6 +106,7 @@ own copy. Hook-input and log copies count credential substitutions independently
 
 | Path | Trigger | Observable behavior |
 | --- | --- | --- |
+| No-config exec | Neither user config nor applicable project config | Presence/discovery/depth checks only; no logger/parser/resolver/spool/warning state. |
 | No-analysis exec | Observe, no hooks/rules, logging disabled | Discovery/config/depth checks remain; no parser/resolver/spool. |
 | Checked exec | No selected post-hooks, no live stdin pump | Pre-checks finish, log written before exec, wrapper is replaced. No final child status in that log. |
 | Supervised inherited stdio | Selected post-hooks or live replay | Same process group and inherited stdio unless capture/spool requires pipes. Post-hooks receive exit/signal metadata. |

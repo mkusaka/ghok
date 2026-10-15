@@ -3,7 +3,8 @@
 `ghok` wraps the GitHub CLI with pre/post hooks, semantic operation
 normalization, local policy checks, and redacted JSONL diagnostics. It is a
 CGO-free Go binary for macOS and Linux, amd64 and arm64; the runtime dependency
-is an independently installed `gh`.
+is an independently installed `gh`. Install the shim machine-wide:
+repos without a ghok config are unaffected: gh is exec'd directly.
 
 **This is a convenience guardrail, not a security boundary.** Direct real-`gh`
 paths, `curl`, other clients, extensions, and credential helpers can bypass it.
@@ -150,6 +151,16 @@ npx skills add mkusaka/ghok
 
 ## Shim install, uninstall, upgrade
 
+Recommended: install the shim once on your normal machine-wide PATH, not per
+repository. With no user config and no applicable project `.ghok.yaml`,
+repos without a ghok config are unaffected: gh is exec'd directly.
+No logger, normalizer, stdin spool, resolver, or hook-warning state is opened.
+Creating a user config intentionally enables ghok in every repository.
+Scoped activation through your own PATH management is possible but unsupported.
+direnv/mise are optional human helpers only: agents' non-interactive shells do
+not load direnv, and their allow lists are path-based like the old trust model,
+not content-addressed hook trust.
+
 ```sh
 ghok shim install                    # owned symlink ~/.local/bin/gh -> ghok
 export PATH="$HOME/.local/bin:$PATH"
@@ -193,9 +204,9 @@ automatically, but cloning a repository never activates its hooks.
 The config format has a JSON Schema generated from ghok's Go config types:
 [`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and
 [`schema/project.schema.json`](schema/project.schema.json) for a project
-`.ghok.yaml`. Print it with `ghok config schema [--project]`; regenerate with
-`go generate ./internal/config` (also available as `make schema`). Curate field
-tags in `internal/config/types.go` and starter templates, not generated JSON.
+`.ghok.yaml`. Print them with `ghok schema config` or `ghok schema project-config`;
+regenerate all schemas with `go generate ./internal/schema` (also `make schema`).
+Curate field tags in the Go types and starter templates, not generated JSON.
 For editor completion, start the YAML file with:
 
 ```yaml
@@ -204,9 +215,10 @@ For editor completion, start the YAML file with:
 
 Global config: `GHOK_CONFIG_DIR/config.yaml`, otherwise
 `$XDG_CONFIG_HOME/ghok/config.yaml`, otherwise `~/.config/ghok/config.yaml`.
-Missing config defaults to **observe**, unknown-mutation **audit**, and logging
-**enabled**. Project policy can only tighten explicitly set mode/unknown handling
-and append rules/protected repositories; it never weakens global policy.
+With either config present, defaults are **observe**, unknown-mutation **audit**,
+and logging **enabled**. With neither present, the wrapper execs gh directly.
+Project policy can only tighten explicitly set mode/unknown handling and append
+rules/protected repositories; it never weakens global policy.
 Projects cannot set runtime or logging. `trust.include` is project-only; user
 configuration has no `trust.projects` setting.
 
@@ -218,15 +230,17 @@ user config remains strict. An invalid user config declaring
 `policy.mode: enforce` in raw YAML prints an error every time, exits 1, and never
 starts gh. Observe or undeterminable mode runs gh without hooks/policy with a
 warning throttled to once per ten minutes per error. `GHOK_FAIL_CLOSED=1` also
-rejects invalid project files and unreadable/unparseable user config; missing
-user config still uses defaults. Validate and doctor explain the selected
-failure behavior.
+rejects invalid project files and unreadable/unparseable user config. A missing
+user config uses defaults when a project config applies; with neither file,
+gh is exec'd directly. Validate and doctor explain the selected failure behavior.
 
 Inspect project hooks, then manage their activation:
 
 ```sh
 ghok config trust                   # current repository-root .ghok.yaml
 ghok config trust /path/to/repo/.ghok.yaml
+ghok config trust --dry-run          # review changes and proposed trust; writes nothing
+ghok config trust --no-diff          # keep file/mode summaries, omit raw content diffs
 ghok config trust --list             # all retained trusted digests and metadata
 ghok config untrust                 # remove only the current digest; policy remains
 ghok config untrust --all           # remove every trusted digest
@@ -260,19 +274,55 @@ trust output lists every hashed file, hook IDs and resolved commands, and explai
 these coverage limits.
 
 `<config-dir>/trust.json` stores each digest with `firstPath`, `configPath`,
-`trustedAt`, hook IDs and per-file executable bits and hashes/missing markers.
-`ghok config trust --list` shows retained digests, first paths, timestamps, hook IDs
-and file metadata, plus store notes. Locations are diagnostic metadata, not digest
-inputs. The store is written atomically with mode 0600 in a 0700 config directory.
-Invalid or old-format stores grant no hook trust and emit a generic note;
-declarative policy still applies.
+`trustedAt`, hook IDs, per-file executable bits and hashes/missing markers, plus
+`commit` (HEAD SHA), resolved `commonDir`, and normalized credential-free origin
+`remoteUrl`. Git metadata is read directly from files, never by executing git.
+`ghok config trust --list` shows retained digests and metadata, plus store notes.
+Provenance is diagnostic, not a digest input. The store is written atomically
+with mode 0600 in a 0700 config directory.
+Malformed entries are skipped individually with notes naming their keys; valid
+entries remain trusted. An unreadable or invalid top-level store grants no trust.
+Declarative policy still applies.
+
+Before re-trusting, use `ghok config trust --dry-run [PATH]`: it validates and
+prints the comparison, proposed digest/files and enabled commands without writing
+trust, blob or cache state. `config trust`, and `config validate`/`doctor` when
+hooks are ignored, show changed/added/removed manifest files, executable-bit
+changes (`mode 0644 → 0755`) and the previous record's timestamp/path. Modes
+describe the manifest's executable bit, not every filesystem permission bit.
+The baseline is the newest record in the first matching tier: same resolved Git
+common directory, same `firstPath`, same normalized origin, then at least two
+distinct shared file-content SHA256s (paths may differ). Sharing only
+`.gitleaks.toml` does not select an unrelated repository. Origins normalize
+scp-like/SSH/HTTPS spelling, lowercase hosts, remove userinfo, ports 22/443 and
+trailing `/`/`.git`; repository path case is retained and `insteadOf` is ignored.
+No match is reported as `no previous trust record for this repository`.
+These hints never grant trust.
+
+Only `config trust` and `config trust --dry-run` show unified diffs against
+**the exact bytes previously trusted**, including uncommitted files, not HEAD.
+Use `--no-diff` to omit content output. Diffs and stored copies are **unredacted**
+and may contain secrets. Copies live at `<config-dir>/trust/blobs/<sha256>`
+(0700 directories, 0600 files), deduplicated with 1 MiB per-file and 64 MiB total
+limits; larger files remain hash-only, and full stores skip new copies with a
+note. Missing/corrupt copies explain why no diff is shown; hashes are verified
+on read. Binary changes (NUL within the first 8 KiB) show short hashes instead
+of contents; diffs over 20,000 lines per side are omitted. Text splits on LF
+only and displays CR as `^M`. HEAD is provenance shown by `trust --list`; no
+Git object lookup, executable or fetch is needed for diffs. Trust/untrust
+collect copies no longer referenced by any retained digest; `untrust --all`
+purges all stored copies. See [security](docs/security.md#project-configuration-trust).
 
 Trust and current-only untrust reject missing configs and paths other than a
 repository-root `.ghok.yaml`. Untrust is idempotent and leaves other trusted
 versions intact; `--all` clears the entire digest set. Identical code is trusted
 anywhere, not a repository identity. This is not a security boundary against
 concurrent file replacement or malicious users. Validate, doctor and explain
-report trust notes; ordinary wrapper invocations do not print them to stderr.
+report trust notes. The wrapper prints one stderr line when enabled project hooks
+are ignored, throttled per canonical project path and current manifest digest
+for ten minutes. Changed-file lists show at most three names. Disable only this
+warning with user config `logging.ignoredHooksWarning: false` (default true);
+nested, invalid-config, and policy-only invocations do not emit it.
 
 ```yaml
 version: 1
@@ -326,6 +376,19 @@ or unavailable input when complete inspection matters, and on `redactions > 0` w
 masked content cannot be safely evaluated. Logs and displayed diagnostics remain
 redacted; JSONL records include their own `redactions` count.
 See the complete [hook protocol](docs/hook-protocol.md).
+
+Machine-readable contracts: [`schema/hook-input.schema.json`](schema/hook-input.schema.json)
+and [`schema/hook-response.schema.json`](schema/hook-response.schema.json), also
+printed by `ghok schema hook-input` and `ghok schema hook-response`. Generate
+TypeScript types for a hook with:
+
+```sh
+npx json-schema-to-typescript schema/hook-input.schema.json > hook-input.d.ts
+npx json-schema-to-typescript schema/hook-response.schema.json > hook-response.d.ts
+```
+
+Empty typed hook arrays are omitted, not `null`; treat absent arrays as empty.
+`schemaVersion` is fixed at 1. Additive fields do not bump it; renames/removals do.
 
 ### Policy and unknown handling
 
@@ -521,13 +584,15 @@ source is not a YAML setting.
 
 ## Performance
 
-No matching post-hook and no live stdin pump: exec replaces ghok after checks,
-with no lingering supervisor. Observe mode with no hooks/rules and
-`logging.enabled: false` also skips normalization, stdin capture, and resolution.
-Default no-config behavior does **not** take that no-analysis shortcut: it logs.
-Local context is lazy; observe never implicitly queries GitHub. Enforce only
-queries for missing fields relevant to enforcing matches, with per-invocation
-caching and timeouts.
+Without either config, gh is exec'd directly after config-presence,
+real-gh discovery and recursion-depth checks: no logger, normalization, stdin
+spool, resolver, or ignored-hooks check. With config, no matching post-hook and
+no live stdin pump means exec replaces ghok after checks, without a lingering
+supervisor. Observe mode with no hooks/rules and `logging.enabled: false` also
+skips normalization, stdin capture, and resolution.
+Manifest content hashes are cached under `<config-dir>/state/`, keyed by canonical
+path and file metadata; changed metadata forces rehashing. YAML is always read
+fresh. See [benchmarks](docs/notes/benchmarks.md) for before/after measurements.
 
 Earlier warm-cache Go benchmarks on Apple M4 Max, Go 1.26.5, macOS arm64:
 

@@ -21,7 +21,7 @@
 - Project commands require `./relative` or absolute executable paths; user hooks retain bare PATH names. Relative paths resolve under the repository root; manifest files and symlink targets must stay inside it and be regular files. At most 256 files and a global total of effective `runtime.fileMaxBytes` are allowed. Absolute external executables are not hashed. Interpreters, PATH tools, unlisted imports, dependencies and data are not covered; add repository-relative dependencies/data via `trust.include` (for example `.github/scripts/check-pr-description.ts` and `.gitleaks.toml`).
 - Group/world-writable config and hook files produce notes. Bare hook names are inspected through the supplied PATH; missing executables are left for the runner/doctor. Packages return notes without printing them; validate/doctor/explain present them, while ordinary wrapper stderr stays quiet.
 - Hooks are explicitly trusted code. Trust/path hashes and atomic writes are not a security boundary against concurrent filesystem replacement, competing writers or direct GitHub API access.
-- Schemas use the local standard-library reflection generator. Curate `types.go` tags and templates, not generated JSON; regenerate with `go generate ./internal/config`. No new upstream snapshot or generator dependency is needed.
+- Schemas use the standard-library reflection generator in `internal/schema`. Curate config/model/protocol tags and templates, not generated JSON; regenerate all four contracts with `go generate ./internal/schema`. No new upstream snapshot or generator dependency is needed.
 
 ## gh aliases: verified source behavior
 

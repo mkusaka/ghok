@@ -13,11 +13,22 @@ of a server-side merge or other side effect.
 
 ## Input schema
 
-Contract: `internal/protocol/protocol.go` and `internal/model/`. Non-optional
-fields are serialized even for zero values; optional fields below use omitempty
-and may be absent. JSON arrays can be null when their Go slice is nil; consumers
-should not require an empty array instead. Integers are JSON numbers; captured
-bytes are base64, never an assumed UTF-8 string.
+Contract: `internal/protocol/protocol.go` and `internal/model/`, published as
+[`hook-input.schema.json`](../schema/hook-input.schema.json) and
+[`hook-response.schema.json`](../schema/hook-response.schema.json). Print them with
+`ghok schema hook-input` / `ghok schema hook-response`; regenerate all schemas
+with `go generate ./internal/schema`. Enum/doc/const tags in Go are authoritative.
+
+Non-optional fields are serialized even for zero values. Optional fields use
+omitempty and may be absent. All typed arrays are non-nullable: empty slices are
+omitted, and **absent arrays mean empty**. This includes `operations` and
+`invocation.argv`; arbitrary values inside `parameters` may still be JSON null.
+Integers are JSON numbers; captured bytes are base64, never assumed UTF-8.
+
+`schemaVersion` has JSON Schema `const: 1`. Additive fields never bump the version;
+renames and removals bump it and are breaking changes. Consumers should tolerate
+new fields. Generated schemas describe the fields known to this build, not a
+runtime input-validation step.
 
 ### Top-level Input
 
@@ -30,7 +41,7 @@ bytes are base64, never an assumed UTF-8 string.
 | redactions | integer | no | Credential substitutions made in this hook's input; zero for raw input. Counts repeated representations separately, not unique secrets. |
 | invocation | InvocationInfo object | no | Original/expanded argv and execution context. |
 | classification | Classification object | no | Invocation-level normalization identity/resolution/proof. |
-| operations | Operation array/null | no | All normalized operations, including execution evidence. |
+| operations | Operation array | yes | All normalized operations, including execution evidence; absent means empty. |
 | errors | string array | yes | Nonfatal normalization problems; raw unless redactInput is enabled. |
 | context | ResolvedContext object | yes | Resolver context when requested. |
 | policy | PolicyInfo object | yes | CLI policy evaluation, not aggregate pre-hook decision. |
@@ -41,7 +52,7 @@ bytes are base64, never an assumed UTF-8 string.
 
 | Field | Type | Optional | Meaning |
 | --- | --- | --- | --- |
-| argv | string array/null | no | Original arguments after argv[0]; raw unless redactInput is enabled. |
+| argv | string array | yes | Original arguments after argv[0]; absent means empty; raw unless redactInput is enabled. |
 | alias | string | yes | First expanded plain alias name. |
 | expanded | string array | yes | Alias-expanded analysis argv; raw unless redactInput is enabled. Real gh still receives original argv. |
 | cwd | string | no | Invocation working directory. Hook inherits this cwd. |
@@ -76,7 +87,7 @@ Each Operation has these fields:
 | detail | string | yes | Human-readable explanation. |
 | origin | Origin object | no | Syntax linking operation to command/route/field. |
 
-Target fields are all optional: host, owner, repository (`owner/name`), nodeId,
+Target fields are all optional: kind, host, owner, repository (`owner/name`), nodeId,
 branch, baseBranch, headBranch, sha, ref, url are strings; number is an integer
 pointer serialized as a number when known. Unresolved records have required
 string field/reason and optional string source. Origin fields are optional:
@@ -196,7 +207,7 @@ go to logs.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| schemaVersion | integer | no | Absent/0/1 accepted; any other nonzero version invalid. |
+| schemaVersion | integer | no | Omit or use 1 (`const: 1`); the parser also tolerates explicit 0, outside the published schema. Other versions are invalid. |
 | decision | string | yes for nonempty response | Only `allow`, `deny`, `abstain`; policy-only `audit` is not a hook decision. |
 | reason | string | no | Recorded explanation; fallback denial diagnostic. |
 | message | string | no | User-facing denial message on stderr. |
