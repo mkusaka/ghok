@@ -15,10 +15,16 @@ broker, or server-side enforcement.
 
 - An absolute real-gh path, `curl`, SDK, browser, or another API client bypasses
   the shim. Shell aliases/functions can select a different executable.
-- `GHOK_NESTED=1` explicitly bypasses normalization/policy/hooks. Hooks receive
-  it to avoid recursive evaluation. The depth guard detects runaway activations,
-  not unauthorized execution: depths 1–4 are allowed; the fifth/malformed depth
-  fails.
+- Nested passthrough requires **both** `GHOK_NESTED=1` and an invocation-issued
+  `GHOK_NESTED_TOKEN`; the marker alone no longer bypasses normalization/policy/hooks.
+  Hooks and resolver gh children share a random 256-bit hex token. Its SHA256
+  names an exclusive 0600 file under private 0700 `<config-dir>/state/nested/`.
+  Validation rejects malformed tokens, symlinks, nonregular files, and public
+  state directories/files. The parent removes the file after its helpers finish,
+  before exec or process exit; SIGKILL or failed removal can leave a stale file.
+  The same user can create/read this state: it is recursion control, not
+  authentication against that user. Depths 1–4 remain allowed; the fifth or
+  malformed depth fails.
 - `GHOK_REAL_GH` overrides `runtime.realGh`; both are user-controlled absolute
   executable paths. Discovery excludes known wrappers using symlinks/identity
   and state, not code signature verification. An arbitrary renamed different
@@ -222,9 +228,11 @@ execution metadata when supervised. **Captured gh output bodies are omitted.**
 Each record includes `redactions`: credential substitutions made by the log
 redactor, not unique secrets or content summaries. Repeated representations may
 count separately; zero is not proof of secret-free input.
-Exec-path logs precede execution and cannot include final gh status. Info logs
-every invocation; decision logs retain non-allow decisions/errors/hook failures,
-not every ordinary nonzero child exit.
+Exec-path logs precede execution and cannot include final gh status after a
+successful exec. If exec returns, a second record with the same invocation ID
+records `exec-error`, `exec.startError`, and the shell-style exit code (126/127).
+Info logs every invocation; decision logs retain non-allow decisions/errors/hook
+failures, not every ordinary nonzero child exit.
 
 **Content minimization is log-only.** Known prose flags/keys (`body`, `title`,
 `message`, `description`, `subject`, `commitHeadline`, `commitBody`, `comment`,

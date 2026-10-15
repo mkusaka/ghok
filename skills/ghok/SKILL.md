@@ -188,5 +188,9 @@ Full protocol: <https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md>
   Validate/doctor explain the behavior; project failures also appear in explain.
 - Logs (JSONL, credential-redacted): `<config dir>/logs/ghok.jsonl`.
   `GHOK_DEBUG=1` prints internal logging errors to stderr.
-- Bypass for one command: run the real gh by absolute path. Hooks themselves run with
-  `GHOK_NESTED=1`, so `gh` calls inside a hook skip hooks.
+- Bypass for one command: run the real gh by absolute path. `GHOK_NESTED=1` alone
+  no longer bypasses hooks. Hook/resolver helpers receive it with an invocation
+  token verified under `<config dir>/state/nested/`; normal cleanup removes it.
+- `runtime.resolveAPI: auto` may resolve repository/host criteria for rules or
+  enabled pre/post hooks in either mode; logging alone never queries. `never`
+  disables implicit API resolution without treating unresolved targets as safe.

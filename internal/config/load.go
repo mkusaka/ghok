@@ -17,6 +17,7 @@ const (
 	DefaultVersion                   = 1
 	DefaultMode                      = ModeObserve
 	DefaultUnknownMutation           = UnknownAudit
+	DefaultUnknownInput              = UnknownAudit
 	DefaultProtectedUnknown          = UnknownDeny
 	DefaultHookTimeout               = 10 * time.Second
 	MaxHookTimeout                   = 10 * time.Minute
@@ -25,10 +26,10 @@ const (
 	DefaultEnabled                   = true
 	DefaultHookConcurrency           = 1
 	DefaultStdinMaxBytes       int64 = 8 << 20
-	DefaultStdinTimeout              = 30 * time.Second
+	DefaultStdinTimeout              = 3 * time.Second
 	DefaultFileMaxBytes        int64 = 8 << 20
 	DefaultCaptureLimit        int64 = 1 << 20
-	DefaultResolveTimeout            = 5 * time.Second
+	DefaultResolveTimeout            = 2 * time.Second
 	DefaultHookMaxOutputBytes  int64 = 1 << 20
 	DefaultLoggingLevel              = "info"
 	DefaultLoggingRelativePath       = "logs/ghok.jsonl"
@@ -56,6 +57,9 @@ func (c *Config) ApplyDefaults() {
 	if c.Policy.UnknownMutation == "" {
 		c.Policy.UnknownMutation = DefaultUnknownMutation
 	}
+	if c.Policy.UnknownInput == "" {
+		c.Policy.UnknownInput = DefaultUnknownInput
+	}
 	if c.Policy.ProtectedUnknown == "" {
 		c.Policy.ProtectedUnknown = DefaultProtectedUnknown
 	}
@@ -76,6 +80,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.Runtime.ResolveTimeout == 0 {
 		c.Runtime.ResolveTimeout = Duration(DefaultResolveTimeout)
+	}
+	if c.Runtime.ResolveAPI == "" {
+		c.Runtime.ResolveAPI = "auto"
 	}
 	if c.Logging.Enabled == nil {
 		b := DefaultEnabled

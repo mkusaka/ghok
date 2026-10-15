@@ -47,8 +47,8 @@ updates are source changes; there is no runtime normalizer-plugin loader.
 5. In observe mode with no hooks/rules and logging explicitly disabled, exec
    immediately without analysis. Missing config does not select this shortcut:
    logging defaults on.
-6. Otherwise open best-effort logging. `GHOK_NESTED=1` records passthrough and
-   execs without analysis/policy/hooks; it is an intentional helper bypass.
+6. Otherwise open best-effort logging. `GHOK_NESTED=1` plus a verified
+   invocation token records passthrough and execs without analysis/policy/hooks.
 7. Load aliases only if needed. For an analyzable API stdin consumer, spool
    non-TTY stdin only if a potentially enforcing denial or enabled pre-hook
    can need it; preserve every consumed byte. Observe logging/post-hooks alone
@@ -115,10 +115,13 @@ Go's inherited signal dispositions, and core-dump reporting.
 - **Arguments and environment:** parser target selectors, GH_REPO/GH_HOST.
 - **Local metadata:** lazy repository-local git files/refs/config and basic SSH
   aliases, with provenance in ResolvedContext.Sources. No git/ssh executable.
-- **Read-only API:** only requested missing fields relevant to enforcing checks;
-  real gh absolute path, nested bypass, bounded output, timeout, per-invocation
-  success/failure cache. Observe never implicitly queries GitHub. Management
-  needs `--resolve --allow-api`.
+- **Read-only API:** only requested missing fields relevant to a rule or enabled
+  pre/post hook's repository/host criteria (either mode), or protected repositories
+  in enforce mode; never for logging alone. `runtime.resolveAPI` defaults to
+  `auto`; `never` disables implicit lookups. Helpers use the real gh absolute path,
+  an invocation-scoped nested token, bounded output, and the resolve timeout.
+  Failure retains maybe-matching and produces diagnostics. Management needs
+  explicit `--allow-api`.
 
 The resolver can look up an omitted PR number from a branch with exactly one
 open match, or node-ID repository/number through a fixed GraphQL query. It

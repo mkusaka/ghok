@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -210,7 +211,7 @@ func stoppedWithin(t *testing.T, pid int, want syscall.Signal) {
 }
 
 func TestChildStopContinue(t *testing.T) {
-	for _, sig := range []syscall.Signal{syscall.SIGSTOP, syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
+	for _, sig := range []syscall.Signal{syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
 		for _, ignoreContinue := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/ignored-cont=%v", sig, ignoreContinue), func(t *testing.T) {
 				cfg := childConfig(t, "block", 0)
@@ -266,6 +267,58 @@ func TestChildStopContinue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestChildSIGSTOPContinueDoesNotStopWrapper(t *testing.T) {
+	for _, ignoreContinue := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ignored-cont=%v", ignoreContinue), func(t *testing.T) {
+			cfg := childConfig(t, "block", 0)
+			cfg.ResultFile = filepath.Join(t.TempDir(), "result")
+			if ignoreContinue {
+				cfg.Mode = "run-ignore-cont"
+			}
+			w, r, input := startPiped(t, cfg)
+			var pid int
+			if _, err := fmt.Sscanf(lineWithin(t, r), "READY %d", &pid); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+				t.Fatal(err)
+			}
+			// Keep the child stopped while the supervisor processes its wait event.
+			// No CONT is ever sent to the wrapper, including during cleanup.
+			if err := w.waitWithin(200 * time.Millisecond); err != os.ErrDeadlineExceeded {
+				t.Fatalf("wrapper exited before child CONT: %v", err)
+			}
+			if !childStillStopped(pid) {
+				t.Fatal("child did not remain stopped")
+			}
+			if childStillStopped(w.Process.Pid) {
+				t.Fatal("wrapper mirrored child-only SIGSTOP")
+			}
+			if err := syscall.Kill(pid, syscall.SIGCONT); err != nil {
+				t.Fatal(err)
+			}
+			_ = input.Close()
+			if status := waitCommand(t, w); !status.Exited() || status.ExitStatus() != 0 {
+				t.Fatalf("wrapper failed to complete after child-only CONT: %v", status)
+			}
+			b, err := os.ReadFile(cfg.ResultFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct{ Code, Signal int }
+			if err := json.Unmarshal(b, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Code != 0 || result.Signal != 0 {
+				t.Fatalf("Run result: %+v", result)
+			}
+			if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+				t.Fatalf("child not reaped: %v", err)
+			}
+		})
 	}
 }
 

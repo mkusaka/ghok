@@ -35,6 +35,20 @@ func environment() map[string]string {
 	return env
 }
 
+// Helpers share one invocation token, never injected into the user's gh command.
+func nestedEnvironment(env map[string]string) (map[string]string, func(), error) {
+	token, cleanup, err := install.NewNestedToken(config.Dir(env))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create nested invocation token: %w", err)
+	}
+	values := make(map[string]string, len(env)+2)
+	for k, v := range env {
+		values[k] = v
+	}
+	values["GHOK_NESTED"], values["GHOK_NESTED_TOKEN"] = "1", token
+	return values, cleanup, nil
+}
+
 func realGh(c *config.Config, env map[string]string) (string, error) {
 	self, err := os.Executable()
 	if err != nil {

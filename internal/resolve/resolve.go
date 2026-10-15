@@ -12,7 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 // Resolver belongs to one invocation. Configure its public fields before use
@@ -26,10 +29,12 @@ type Resolver struct {
 	RealGh  string
 	Timeout time.Duration
 
-	mu    sync.Mutex
-	env   map[string]string
-	local *localInfo
-	cache map[string]apiResult
+	mu          sync.Mutex
+	env         map[string]string
+	local       *localInfo
+	cache       map[string]apiResult
+	nodes       map[string]nodeEntry
+	nodesLoaded bool
 }
 
 type apiResult struct {
@@ -74,6 +79,8 @@ func (r *Resolver) Local() model.ResolvedContext {
 
 func targetValue(t model.Target, field string) bool {
 	switch field {
+	case "target.kind":
+		return t.Kind != "" && t.Kind != "unknown"
 	case "target.repository":
 		return t.Repository != ""
 	case "target.owner":
@@ -112,10 +119,11 @@ func setUnresolved(op *model.Operation, field, reason, source string) {
 }
 
 // Fill fills local deferred targets first. API calls require both allowAPI and
-// a missing target field explicitly named in need (target.repository, owner,
-// or target.number). It never executes the user's original command.
-// Diagnostics are returned, not appended to Result.Errors. Unknown operation
-// identity/effect and unrelated unresolved parameters are never cleared.
+// a missing target field explicitly named in need (target.kind, repository,
+// owner, or number). A node lookup fills all known identity fields and specializes
+// generic actions. It never executes the user's original command.
+// Diagnostics are returned, not appended to Result.Errors. Unknown operations
+// and unrelated unresolved parameters are never cleared.
 func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, allowAPI bool) []string {
 	if res == nil {
 		return nil
@@ -198,7 +206,7 @@ func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, a
 		}
 		if allowAPI {
 			nodeNeeded := false
-			for _, field := range []string{"target.repository", "target.owner", "target.number"} {
+			for _, field := range []string{"target.kind", "target.repository", "target.owner", "target.number"} {
 				if requested[field] && !targetValue(*t, field) {
 					nodeNeeded = true
 				}
@@ -212,11 +220,16 @@ func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, a
 					}
 				} else {
 					node, err := r.node(ctx, t.Host, t.NodeID)
-					if err == nil && strings.HasPrefix(op.Family, "pr.") && node.Type != "PullRequest" {
-						err = fmt.Errorf("node is not a PullRequest")
+					expectedKind := t.Kind
+					if expectedKind == "" {
+						if strings.HasPrefix(op.Family, "pr.") {
+							expectedKind = "pullRequest"
+						} else if strings.HasPrefix(op.Family, "issue.") {
+							expectedKind = "issue"
+						}
 					}
-					if err == nil && strings.HasPrefix(op.Family, "issue.") && node.Type != "Issue" {
-						err = fmt.Errorf("node is not an Issue")
+					if err == nil && expectedKind != "" && expectedKind != "unknown" && node.Kind != expectedKind {
+						err = fmt.Errorf("node kind %s differs from expected %s", node.Kind, expectedKind)
 					}
 					if err == nil && t.Repository != "" && !strings.EqualFold(t.Repository, node.Repository) {
 						err = fmt.Errorf("node repository differs from explicit target")
@@ -229,13 +242,19 @@ func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, a
 							}
 						}
 					} else {
-						if requested["target.repository"] && t.Repository == "" {
+						if t.Kind == "" || t.Kind == "unknown" {
+							t.Kind = node.Kind
+						}
+						if specialized := normalize.Specialize(op.Action, t.Kind); specialized != op.Action {
+							actions.Apply(op, specialized)
+						}
+						if t.Repository == "" {
 							t.Repository = node.Repository
 						}
-						if (requested["target.owner"] || t.Repository != "") && t.Owner == "" {
+						if t.Owner == "" {
 							t.Owner, _, _ = strings.Cut(node.Repository, "/")
 						}
-						if requested["target.number"] && t.Number == nil && node.Number > 0 {
+						if t.Number == nil && node.Number > 0 {
 							t.Number = model.IntPtr(node.Number)
 						}
 						for _, field := range need {
@@ -308,14 +327,18 @@ func updateResolution(res *model.Result) {
 	}
 }
 
-const nodeQuery = `query($id:ID!){node(id:$id){__typename ... on PullRequest{number repository{nameWithOwner}} ... on Issue{number repository{nameWithOwner}} ... on Ref{name repository{nameWithOwner}} ... on Repository{nameWithOwner}}}`
+const nodeQuery = `query($id:ID!){node(id:$id){__typename ... on PullRequest{number repository{nameWithOwner}} ... on Issue{number repository{nameWithOwner}} ... on Ref{name repository{nameWithOwner}} ... on Repository{nameWithOwner} ... on IssueComment{repository{nameWithOwner}}}}`
 
 type nodeResult struct {
-	Type, Repository string
-	Number           int
+	Kind       string
+	Repository string
+	Number     int
 }
 
 func (r *Resolver) node(ctx context.Context, host, id string) (nodeResult, error) {
+	if cached, ok := r.cachedNode(host, id); ok {
+		return cached, nil
+	}
 	data, err := r.call(ctx, []string{"api", "graphql", "--hostname", host, "-f", "query=" + nodeQuery, "-f", "id=" + id})
 	if err != nil {
 		return nodeResult{}, err
@@ -344,15 +367,25 @@ func (r *Resolver) node(ctx context.Context, host, id string) (nodeResult, error
 		return nodeResult{}, fmt.Errorf("node lookup: node not found")
 	}
 	repo := n.Repository.NameWithOwner
+	kind := ""
 	switch n.Type {
 	case "Repository":
+		kind = "repository"
 		repo = n.NameWithOwner
 	case "PullRequest", "Issue":
+		if n.Type == "PullRequest" {
+			kind = "pullRequest"
+		} else {
+			kind = "issue"
+		}
 		if n.Number <= 0 {
 			return nodeResult{}, fmt.Errorf("node lookup: invalid number")
 		}
 	case "Ref":
+		kind = "ref"
 		// A Ref's name alone does not distinguish a branch from a tag.
+	case "IssueComment":
+		kind = "comment"
 	default:
 		return nodeResult{}, fmt.Errorf("node lookup: unsupported node type")
 	}
@@ -360,7 +393,9 @@ func (r *Resolver) node(ctx context.Context, host, id string) (nodeResult, error
 	if err != nil {
 		return nodeResult{}, fmt.Errorf("node lookup: invalid repository")
 	}
-	return nodeResult{Type: n.Type, Repository: repo, Number: n.Number}, nil
+	result := nodeResult{Kind: kind, Repository: repo, Number: n.Number}
+	r.storeNode(host, id, result)
+	return result, nil
 }
 
 func (r *Resolver) prNumber(ctx context.Context, t model.Target) (int, error) {
@@ -402,7 +437,7 @@ func (r *Resolver) call(ctx context.Context, args []string) ([]byte, error) {
 	} else {
 		timeout := r.Timeout
 		if timeout <= 0 {
-			timeout = 5 * time.Second
+			timeout = config.DefaultResolveTimeout
 		}
 		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		result.data, result.err = runAPI(callCtx, r.RealGh, r.Cwd, r.env, args)

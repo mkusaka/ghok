@@ -128,6 +128,7 @@ func TestValidationPaths(t *testing.T) {
 		{"runtime.fileMaxBytes", func(c *Config) { c.Runtime.FileMaxBytes = -1 }},
 		{"runtime.captureLimit", func(c *Config) { c.Runtime.CaptureLimit = 0 }},
 		{"runtime.resolveTimeout", func(c *Config) { c.Runtime.ResolveTimeout = 0 }},
+		{"runtime.resolveAPI", func(c *Config) { c.Runtime.ResolveAPI = "invalid" }},
 		{"logging.level", func(c *Config) { c.Logging.Level = "debug" }},
 	}
 	for _, tc := range cases {

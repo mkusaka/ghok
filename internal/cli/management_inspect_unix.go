@@ -60,13 +60,20 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 	}
 	a := &managementAnalysis{config: c, notes: notes, cwd: cwd, env: env, invocation: inv, result: normalize.Normalize(inv)}
 	if resolveTargets {
+		helperEnv := env
 		if allowAPI {
 			a.real, err = realGh(c, env)
 			if err != nil {
 				return nil, err
 			}
+			var cleanup func()
+			helperEnv, cleanup, err = nestedEnvironment(env)
+			if err != nil {
+				return nil, err
+			}
+			defer cleanup()
 		}
-		r := &resolve.Resolver{Env: env, Cwd: cwd, RealGh: a.real, Timeout: c.Runtime.ResolveTimeout.D()}
+		r := &resolve.Resolver{Env: helperEnv, Cwd: cwd, RealGh: a.real, Timeout: c.Runtime.ResolveTimeout.D()}
 		local := r.Local()
 		a.context = &local
 		var need []string
@@ -189,6 +196,14 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		subject.Outcome = input.Result
 	}
 	selected := runner.Select(phase, subject)
+	if len(selected) > 0 {
+		helperEnv, cleanup, err := nestedEnvironment(a.env)
+		if err != nil {
+			return managementFailure(err)
+		}
+		defer cleanup()
+		runner.Env = append(os.Environ(), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	aggregate := runner.Run(ctx, phase, selected, input)
 	cancel()

@@ -16,10 +16,14 @@ policy:
   # enforce: deny according to rules, unknown handling and pre-hooks.
   mode: observe
 
-  # Write/unknown operations ghok could not classify (unknown gh subcommand,
-  # unmapped REST route or GraphQL mutation, unreadable --input ...):
+  # Readable write/unknown operations ghok could not classify (unknown gh
+  # subcommand, unmapped REST route or GraphQL mutation):
   # allow | audit (allow, but flag in the log; default) | deny
   unknownMutation: audit
+
+  # Request input could not be read, was too large, or stdin analysis timed out.
+  # Independent of unknownMutation; allow | audit (default) | deny.
+  unknownInput: audit
 
   # owner/repo globs. In enforce mode, unclassified writes to these repos, and
   # writes whose target repository cannot be resolved, use protectedUnknown.
@@ -42,6 +46,7 @@ policy:
   #      # token: app                   # app (GitHub App token: gain, Actions) | user | unknown | none
   #      # hosts: ["github.com"]
   #    decision: deny
+  #    onUnresolved: deny             # deny (default): conservative target match | ignore: skip
   #    reason: merge via the merge queue instead of bypassing it
 
 # Executables run before (pre) or after (post) the real gh. They receive a
@@ -81,10 +86,11 @@ hooks: []
 runtime: {}
 #  hookConcurrency: 1                # hooks run in parallel up to this many
 #  stdinMaxBytes: 8388608            # stdin analysed for `gh api --input -` (8 MiB)
-#  stdinTimeout: 30s
+#  stdinTimeout: 3s
 #  fileMaxBytes: 8388608             # --input FILE / -F k=@FILE read limit
 #  captureLimit: 1048576             # captured gh output per stream for post-hooks
-#  resolveTimeout: 5s                # read-only GitHub API lookups for targets
+#  resolveTimeout: 2s                # read-only GitHub API lookups for targets
+#  resolveAPI: auto                  # auto: actionable target lookups | never: no implicit API
 #  realGh: /opt/homebrew/bin/gh      # pin the real gh instead of PATH discovery
 
 logging: {}

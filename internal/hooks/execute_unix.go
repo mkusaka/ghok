@@ -51,9 +51,13 @@ func (r *Runner) environment(h config.Hook, in protocol.Input) []string {
 		}
 		values[k] = v
 	}
+	var nestedToken string
 	for _, entry := range base {
 		if k, v, ok := strings.Cut(entry, "="); ok {
 			set(k, v)
+			if k == "GHOK_NESTED_TOKEN" {
+				nestedToken = v
+			}
 		}
 	}
 	for k, v := range h.Env {
@@ -63,6 +67,7 @@ func (r *Runner) environment(h config.Hook, in protocol.Input) []string {
 	set("GHOK_EVENT_ID", in.EventID)
 	set("GHOK_HOOK_ID", h.ID)
 	set("GHOK_NESTED", "1")
+	set("GHOK_NESTED_TOKEN", nestedToken)
 	if r.RealGh != "" {
 		set("GHOK_REAL_GH", r.RealGh)
 	}

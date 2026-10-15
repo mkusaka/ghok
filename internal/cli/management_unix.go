@@ -15,6 +15,7 @@ import (
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/install"
+	"github.com/mkusaka/ghok/internal/normalize"
 	"github.com/mkusaka/ghok/internal/protocol"
 	"github.com/mkusaka/ghok/internal/redact"
 	"github.com/spf13/cobra"
@@ -404,7 +405,8 @@ func managementConfig(command, file string) int {
 	if err != nil {
 		return managementFailure(err)
 	}
-	_, notes, err := config.LoadEffective(path, cwd, env)
+	c, notes, err := config.LoadEffective(path, cwd, env)
+	notes = append(notes, operationPatternWarnings(c)...)
 	for _, note := range notes {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
 	}
@@ -414,6 +416,30 @@ func managementConfig(command, file string) int {
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "Configuration valid")
 	return 0
+}
+
+func operationPatternWarnings(c *config.Config) []string {
+	if c == nil {
+		return nil
+	}
+	var warnings []string
+	check := func(location string, m config.Match) {
+		for i, pattern := range m.Operations {
+			if !normalize.KnownActionPattern(pattern) {
+				warnings = append(warnings, fmt.Sprintf("warning: %s.match.operation[%d]: pattern %q matches no known action", location, i, pattern))
+			}
+		}
+	}
+	for i, rule := range c.Policy.Rules {
+		check(fmt.Sprintf("policy.rules[%d] (%s)", i, rule.ID), rule.Match)
+	}
+	for i, hook := range c.Hooks {
+		check(fmt.Sprintf("hooks[%d] (%s)", i, hook.ID), hook.Match)
+	}
+	for i, hook := range c.IgnoredHooks {
+		check(fmt.Sprintf("ignoredHooks[%d] (%s)", i, hook.ID), hook.Match)
+	}
+	return warnings
 }
 
 func configFailureBehavior(err error, env map[string]string) string {
@@ -433,6 +459,7 @@ func managementDoctor(asJSON bool, version string) int {
 		return managementFailure(err)
 	}
 	c, notes, _, loadErr := managementLoad(env)
+	notes = append(notes, operationPatternWarnings(c)...)
 	override := env["GHOK_REAL_GH"]
 	if override == "" && c != nil {
 		override = c.Runtime.RealGh

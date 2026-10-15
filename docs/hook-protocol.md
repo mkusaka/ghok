@@ -416,9 +416,15 @@ overrides both:
 | GHOK_EVENT | pre/post |
 | GHOK_EVENT_ID | Input.eventId |
 | GHOK_HOOK_ID | Configured ID |
-| GHOK_NESTED | 1; bypass recursive wrapper analysis/hooks |
+| GHOK_NESTED | 1; recursive passthrough only with a valid GHOK_NESTED_TOKEN |
+| GHOK_NESTED_TOKEN | Random invocation token, verified by a private hash-named file under the user config directory's state/nested/; hook env cannot override it |
 | GHOK_REAL_GH | Discovered real path when available |
 | GHOK_DEPTH | Inherited current wrapper activation depth; nested wrapper increments it |
+
+The CLI keeps the token file until resolver/hooks finish and removes it before
+exec/exit. The original gh command does not receive the newly issued token.
+`GHOK_NESTED=1` alone runs normal analysis/policy/hooks. See [security](security.md)
+for file permissions, cleanup limits, and the non-security-boundary model.
 
 Hooks inherit invocation cwd, not the config directory. Executable resolution
 against the config directory does not rewrite arguments or cwd. Bare executable
@@ -444,7 +450,8 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 | runtime.captureLimit | 1 MiB retained per gh stdout/stderr stream when capture enabled. |
 | runtime.stdinMaxBytes / fileMaxBytes | 8 MiB analysis bounds. |
 | runtime.stdinTimeout | 30s. |
-| runtime.resolveTimeout | 5s for context API calls. |
+| runtime.resolveTimeout | 2s for context API calls. |
+| runtime.resolveAPI | auto: implicit read-only API only for actionable repository/host matches, in observe or enforce; never: no implicit API. Logging alone does not resolve. |
 
 The bare Runner API, when MaxOutputBytes <=0, defensively uses stdout 1 MiB and
 stderr 64 KiB. **Loaded CLI config supplies a positive default 1 MiB to both**;

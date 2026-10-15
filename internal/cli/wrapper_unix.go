@@ -106,6 +106,16 @@ func Wrapper(args []string) int {
 		}
 	}
 	defer closeLog()
+	execLogged := func() int {
+		logRecord()
+		execStarted := time.Now()
+		execErr := process.Exec(opts)
+		code := process.StartErrorExitCode(execErr)
+		record.Decision = "exec-error"
+		record.Exec = execInfo(process.Result{ExitCode: code, StartErr: execErr, Duration: time.Since(execStarted)})
+		logRecord()
+		return fatal(execErr, code)
+	}
 	if configErr != nil {
 		if failClosed {
 			warning := strings.Join(strings.Fields(redactor.String(configErr.Error())), " ")
@@ -121,16 +131,11 @@ func Wrapper(args []string) int {
 		}
 		record.Decision = "passthrough-invalid-config"
 		record.Diagnostics = []string{"invalid config: " + configErr.Error()}
-		logRecord()
-		closeLog()
-		err = process.Exec(opts)
-		return fatal(err, process.StartErrorExitCode(err))
+		return execLogged()
 	}
-	if env["GHOK_NESTED"] == "1" {
+	if install.ValidNestedToken(config.Dir(env), env) {
 		record.Decision = "passthrough-nested"
-		logRecord()
-		err = process.Exec(opts)
-		return fatal(err, process.StartErrorExitCode(err))
+		return execLogged()
 	}
 	inv := invocation(cfg, args, env, cwd, model.StdinData{Status: model.StdinNotCaptured})
 	result := normalize.Normalize(inv)
@@ -145,22 +150,32 @@ func Wrapper(args []string) int {
 		result = normalize.Normalize(inv)
 	}
 	fillTextSizes(&result, cwd)
-	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: childEnv, RealGh: real, Redact: redactor.String}
 	subject := policy.Subject{Result: result, Argv: result.Source.Argv, Token: policy.TokenKind(env), Env: env}
 	var resolved *model.ResolvedContext
 	localNeeded := needsLocal(cfg, subject)
-	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || cfg.Policy.Mode == config.ModeEnforce && localNeeded)
+	helperEnv, hookEnv := env, childEnv
+	releaseNested := func() {}
+	if len(cfg.Hooks) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never" {
+		helperEnv, releaseNested, err = nestedEnvironment(env)
+		if err != nil {
+			return fatal(err, 1)
+		}
+		hookEnv = append(childEnv, "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
+	}
+	defer releaseNested()
+	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String}
+	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never")
 	if localNeeded {
-		resolver := &resolve.Resolver{Env: env, Cwd: cwd, RealGh: real, Timeout: cfg.Runtime.ResolveTimeout.D()}
+		resolver := &resolve.Resolver{Env: helperEnv, Cwd: cwd, RealGh: real, Timeout: cfg.Runtime.ResolveTimeout.D()}
 		local := resolver.Local()
 		resolved = &local
 		record.Diagnostics = append(record.Diagnostics, resolver.Fill(ctx, &result, nil, false)...)
 		subject.Result, subject.Context = result, resolved
-		if cfg.Policy.Mode == config.ModeEnforce {
-			// Request only fields relevant to an enforcing match, and only on that
-			// operation; Fill's need list otherwise applies to every operation.
+		if cfg.Runtime.ResolveAPI != "never" {
+			// Fill only the operation whose unresolved repository/host could
+			// affect this invocation's rules or enabled pre/post hooks.
 			for i, op := range result.Operations {
-				need := enforcementNeeds(cfg, subject, i)
+				need := resolutionNeeds(cfg, subject, i)
 				if len(need) == 0 {
 					continue
 				}
@@ -193,64 +208,24 @@ func Wrapper(args []string) int {
 		if opts.Stdin != nil {
 			_ = opts.Stdin.Close()
 		}
+		releaseNested()
 		process.Result{ExitCode: -1, Signal: caught}.Exit()
 	}
-	wouldDeny := evaluation.WouldDeny || evaluation.Decision == protocol.DecisionDeny || pre.Decision == protocol.DecisionDeny
-	if wouldDeny {
-		if cfg.Policy.Mode == config.ModeEnforce {
-			record.Decision = "deny"
-			reason := strings.Join(evaluation.DenyReasons, "; ")
-			if pre.Decision == protocol.DecisionDeny {
-				hookReason := ""
-				for _, h := range pre.Results {
-					if h.Effective == protocol.DecisionDeny {
-						hookReason = h.Reason
-						if hookReason == "" {
-							hookReason = h.Error
-						}
-						break
-					}
-				}
-				if hookReason != "" {
-					if reason != "" {
-						reason += "; "
-					}
-					reason += hookReason
-				}
-				if pre.Message != "" && pre.Message != hookReason {
-					if reason != "" {
-						reason += "; "
-					}
-					reason += pre.Message
-				}
-			}
-			if reason == "" {
-				reason = "pre-execution policy"
-			}
-			prefix := "ghok: denied:"
-			if evaluation.Decision == protocol.DecisionDeny {
-				prefix = "ghok: denied by policy:"
-			}
-			fmt.Fprintln(os.Stderr, prefix, redactor.String(reason))
-			logRecord()
-			return 1
-		}
-		record.Decision = "would-deny"
-	} else if evaluation.Decision == protocol.DecisionAudit {
-		record.Decision = "audit"
+	decision := decide(cfg.Policy.Mode, evaluation, pre, stdinSkipped)
+	record.Decision = decision.Decision
+	if decision.Decision == "deny" {
+		fmt.Fprintln(os.Stderr, decision.Prefix, redactor.String(decision.Reason))
+		logRecord()
+		return 1
 	}
-	if stdinSkipped && len(evaluation.Rules) == 0 && pre.Decision != protocol.DecisionDeny {
-		// This is deliberate passthrough, not an audit of unavailable input.
-		// Keep the unknown operation and original analysis for transparency.
-		record.Decision = "allow"
+	if decision.RelabelPolicy {
 		logPolicy := *record.Policy
 		logPolicy.Decision = protocol.DecisionAllow
 		record.Policy = &logPolicy
 	}
 	if len(post) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
-		logRecord()
-		err = process.Exec(opts)
-		return fatal(err, process.StartErrorExitCode(err))
+		releaseNested()
+		return execLogged()
 	}
 	for _, h := range post {
 		opts.Capture = opts.Capture || h.CaptureOutput
@@ -276,6 +251,7 @@ func Wrapper(args []string) int {
 	record.Exec = input.Result
 	logRecord()
 	closeLog()
+	releaseNested()
 	execution.Exit()
 	return 0
 }
@@ -309,7 +285,7 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 		return yes
 	}
 	if api && c.Policy.Mode == config.ModeEnforce {
-		if c.Policy.UnknownMutation == config.UnknownDeny ||
+		if c.Policy.UnknownInput == config.UnknownDeny || c.Policy.UnknownMutation == config.UnknownDeny ||
 			len(c.Policy.ProtectedRepositories) > 0 && c.Policy.ProtectedUnknown == config.UnknownDeny {
 			return true, false
 		}
@@ -364,7 +340,7 @@ func fillTextSizes(result *model.Result, cwd string) {
 }
 
 func needsLocal(c *config.Config, s policy.Subject) bool {
-	if len(c.Policy.ProtectedRepositories) > 0 {
+	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 {
 		for _, op := range s.Result.Operations {
 			if consideredOperation(op) && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
 				return true
@@ -392,13 +368,13 @@ func consideredOperation(op model.Operation) bool {
 	return op.Execution != model.ExecutionSkipped && op.Execution != model.ExecutionNotSelected
 }
 
-func enforcementNeeds(c *config.Config, s policy.Subject, index int) []string {
+func resolutionNeeds(c *config.Config, s policy.Subject, index int) []string {
 	op := s.Result.Operations[index]
 	if !consideredOperation(op) {
 		return nil
 	}
 	repo, host := false, false
-	if len(c.Policy.ProtectedRepositories) > 0 && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
+	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
 		repo = true
 	}
 	match := func(m config.Match) {
@@ -414,12 +390,10 @@ func enforcementNeeds(c *config.Config, s policy.Subject, index int) []string {
 		}
 	}
 	for _, rule := range c.Policy.Rules {
-		if rule.Decision == string(protocol.DecisionDeny) {
-			match(rule.Match)
-		}
+		match(rule.Match)
 	}
 	for _, h := range c.Hooks {
-		if h.Phase == config.PhasePre && (h.Enabled == nil || *h.Enabled) {
+		if h.Enabled == nil || *h.Enabled {
 			match(h.Match)
 		}
 	}

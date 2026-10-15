@@ -230,6 +230,7 @@ func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[strin
 		value string
 	}{
 		{"unknownMutation", &c.Policy.UnknownMutation, p.Policy.UnknownMutation},
+		{"unknownInput", &c.Policy.UnknownInput, p.Policy.UnknownInput},
 		{"protectedUnknown", &c.Policy.ProtectedUnknown, p.Policy.ProtectedUnknown},
 	} {
 		if field(policy, pair.key) == nil {

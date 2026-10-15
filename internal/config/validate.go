@@ -83,6 +83,7 @@ func (c *Config) Validate() error {
 	}
 	enum("policy.mode", c.Policy.Mode, ModeObserve, ModeEnforce)
 	enum("policy.unknownMutation", c.Policy.UnknownMutation, UnknownAllow, UnknownAudit, UnknownDeny)
+	enum("policy.unknownInput", c.Policy.UnknownInput, UnknownAllow, UnknownAudit, UnknownDeny)
 	enum("policy.protectedUnknown", c.Policy.ProtectedUnknown, UnknownAllow, UnknownAudit, UnknownDeny)
 	globs("policy.protectedRepositories", c.Policy.ProtectedRepositories, true)
 	rules := map[string]bool{}
@@ -96,6 +97,9 @@ func (c *Config) Validate() error {
 		}
 		rules[r.ID] = true
 		enum(p+".decision", r.Decision, "deny", "audit")
+		if r.OnUnresolved != "" {
+			enum(p+".onUnresolved", r.OnUnresolved, "deny", "ignore")
+		}
 		match(p+".match", r.Match)
 		outcomeOnlyPost(p+".match", r.Match)
 	}
@@ -191,6 +195,7 @@ func (c *Config) Validate() error {
 			add(limit.p, "must be positive")
 		}
 	}
+	enum("runtime.resolveAPI", c.Runtime.ResolveAPI, "auto", "never")
 	enum("logging.level", c.Logging.Level, "info", "decision")
 	return errors.Join(errs...)
 }

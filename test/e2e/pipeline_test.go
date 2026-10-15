@@ -378,34 +378,6 @@ func TestResolverLazinessOnUnmatchedRead(t *testing.T) {
 }
 
 func TestNestedRecursionProbeAndInvalidConfig(t *testing.T) {
-	t.Run("nested", func(t *testing.T) {
-		s := newSandbox(t)
-		s.configure(func(c *config.Config) {
-			c.Policy.Mode = "enforce"
-			c.Policy.Rules = []config.Rule{{ID: "all", Match: config.Match{}, Decision: "deny"}}
-			h := s.hook("pre", "pre")
-			h.Env["FAKEGH_HOOK_DECISION"] = "deny"
-			c.Hooks = []config.Hook{h}
-			yes := true
-			c.Logging.Enabled = &yes
-		})
-		s.env["GHOK_NESTED"] = "1"
-		s.env["GHOK_DEPTH"] = "2"
-		args := []string{"pr", "merge", "1"}
-		result := s.gh(nil, args...)
-		result.code(t, 0)
-		r := s.onlyRecord(args, nil)
-		if envMap(r.Env)["GHOK_DEPTH"] != "3" {
-			t.Fatal("nested depth not incremented")
-		}
-		if _, err := os.Stat(filepath.Join(s.root, "pre.json")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatal("nested invocation ran hook")
-		}
-		records := s.logs()
-		if len(records) != 1 || records[0].Decision != "passthrough-nested" {
-			t.Fatalf("nested log=%+v", records)
-		}
-	})
 	t.Run("shim-only-PATH", func(t *testing.T) {
 		s := newSandbox(t)
 		s.env["PATH"] = s.bin

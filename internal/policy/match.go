@@ -150,6 +150,12 @@ func targetValues(op model.Operation, ctx *model.ResolvedContext) (repo, host st
 			host = ctx.Host
 		}
 	}
+	if unresolvedRepo {
+		repo = ""
+	}
+	if unresolvedHost {
+		host = ""
+	}
 	return
 }
 

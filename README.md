@@ -333,15 +333,31 @@ See the complete [hook protocol](docs/hook-protocol.md).
 | --- | --- |
 | `mode: observe` (default) | Run hooks and record would-deny; never block gh on policy/hook denial. |
 | `mode: enforce` | Any policy or effective pre-hook deny prevents execution. Allow cannot override deny. |
-| `unknownMutation: allow/audit/deny` | Handling of unclassified potentially writing operations anywhere; default audit. |
+| `unknownMutation: allow/audit/deny` | Readable requests whose potentially writing operation could not be classified; default audit. |
+| `unknownInput: allow/audit/deny` | Requests that could not be read (`input-unavailable`, `input-too-large`, including stdin timeouts); default audit, independent of unknownMutation. |
 | `protectedUnknown: allow/audit/deny` | Unknown writes/unresolved potentially writing targets with a protected list; default deny. |
 
 Known writes with resolved protected targets are **not automatically denied**:
 add matching rules/hooks for your desired policy. Unresolved repository/host
-matches are considered conservatively. Every considered operation in a
+matches apply conservatively by default. Set a rule's `onUnresolved: ignore`
+to skip that rule when its target criteria cannot be evaluated; the default
+`deny` retains conservative matching. Other rules and protected-target handling
+still apply. Explain and `hooks test --json` identify deciding maybe-matches as
+`matched conservatively (target unresolved)`. Every considered operation in a
 multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
+
+`runtime.resolveAPI: auto` (default) permits bounded read-only API lookups when
+repository/host criteria could affect a rule or enabled pre/post hook, in either
+mode, or protected-repository handling in enforce mode. Logging alone never
+triggers a lookup. `never` disables implicit wrapper API resolution; explicit
+management `--allow-api` remains available. Lookup failure retains conservative
+maybe-matching and adds a log diagnostic.
+Resolver requests default to a 2s timeout. Successful node identities are cached
+for 24h in `<config-dir>/state/nodes.json` (0600, at most 5,000 entries); corrupt
+or expired entries are ignored. Node lookups populate kind/repository/number and
+specialize generic comment/lock actions when the subject type is known.
 
 Actions specialize only as far as resolution permits. GraphQL `addComment` and
 the shared REST issue-comment endpoint can retain `comment.create` with
@@ -363,6 +379,8 @@ Native `pr comment` / `issue comment` now use `pr.comment.create` /
 `issue.comment.create` (or `.edit` / `.delete` for last-comment flags), not the
 old exact `pr.comment` / `issue.comment` names. See the
 [cross-layer taxonomy and safe matching](docs/normalization.md#matching-safely).
+`config validate` and `doctor` warn for each operation pattern matching no known
+action, including obsolete exact names; warnings do not invalidate the config.
 
 
 `match.env` applies to rules and pre/post hooks using the caller's invocation
@@ -549,10 +567,12 @@ measured; startup allocations describe the parent, not the child. Methodology:
 - `GHOK_REAL_GH=/absolute/path/to/gh` overrides `runtime.realGh`; invalid
   overrides fail rather than falling back. Avoid a shim path and shim-valued
   `GH_PATH`; ghok preserves `GH_PATH` and doctor warns about recursion risks.
-- `GHOK_NESTED=1 gh ...` intentionally bypasses normalization, policy, and
-  hooks, retaining discovery/depth checks and optional passthrough logging.
-  Hooks get this variable automatically for nested commands. This is another
-  reason ghok is not a security boundary.
+- `GHOK_NESTED=1` alone does **not** bypass hooks. Hooks and resolver helpers get
+  it together with a random `GHOK_NESTED_TOKEN`, verified against a private
+  invocation file under `<config-dir>/state/nested/` and removed after helpers
+  finish. For a deliberate one-command bypass, use the real gh's absolute path.
+  Discovery/depth checks and optional passthrough logging still apply to valid
+  nested invocations. This remains a guardrail, not a security boundary.
 - Unknown new syntax: inspect `ghok normalize`/`explain` and its unresolved
   reasons. Do not treat a nonempty candidate repository as confirmed.
 - Denial returns 1 before gh starts. Real-gh spawn failures return 126/127;

@@ -486,6 +486,14 @@
                 },
                 "type": "object"
               },
+              "onUnresolved": {
+                "description": "deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match.",
+                "enum": [
+                  "deny",
+                  "ignore"
+                ],
+                "type": "string"
+              },
               "reason": {
                 "type": "string"
               }
@@ -498,8 +506,17 @@
           },
           "type": "array"
         },
+        "unknownInput": {
+          "description": "Handling of input-unavailable/input-too-large operations, including stdin analysis timeouts; default audit.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        },
         "unknownMutation": {
-          "description": "Handling of write/unknown operations that could not be classified.",
+          "description": "Handling of readable write/unknown operations that could not be classified; unreadable input uses unknownInput.",
           "enum": [
             "allow",
             "deny",
@@ -524,6 +541,14 @@
         },
         "realGh": {
           "description": "Absolute path of the real gh; discovered on PATH when empty.",
+          "type": "string"
+        },
+        "resolveAPI": {
+          "description": "auto (default): read-only API resolution only for actionable repository/host matches; never: disable implicit wrapper API lookups. Explicit management --allow-api still applies.",
+          "enum": [
+            "auto",
+            "never"
+          ],
           "type": "string"
         },
         "resolveTimeout": {

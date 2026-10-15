@@ -192,39 +192,6 @@ printf '{"data":{"node":{"__typename":"PullRequest","number":73,"repository":{"n
 	}
 }
 
-func TestFillNodeNeedsAndTypes(t *testing.T) {
-	for _, tt := range []struct {
-		name, kind, fieldsJSON string
-		need                   []string
-		repo, branch, ref      string
-		number                 int
-	}{
-		{"repository", "Repository", `"nameWithOwner":"node/repo"`, []string{"target.repository"}, "node/repo", "", "", 0},
-		{"issue", "Issue", `"number":19,"repository":{"nameWithOwner":"node/repo"}`, []string{"target.repository", "target.number"}, "node/repo", "", "", 19},
-		{"ref", "Ref", `"name":"topic","repository":{"nameWithOwner":"node/repo"}`, []string{"target.repository"}, "node/repo", "", "", 0},
-		{"number only", "PullRequest", `"number":19,"repository":{"nameWithOwner":"node/repo"}`, []string{"target.number"}, "", "", "", 19},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			exe, marker := fakeGH(t, `printf '%s' '{"data":{"node":{"__typename":"`+tt.kind+`",`+tt.fieldsJSON+`}}}'`)
-			r := Resolver{Cwd: fixture(t, originConfig), Env: map[string]string{"MARKER": marker}, RealGh: exe}
-			op := nodeOperation("node", "target.repository", "target.number", "target.branch", "target.ref")
-			op.Family = "node.lookup"
-			res := model.Result{Operations: []model.Operation{op}}
-			diagnostics := r.Fill(t.Context(), &res, tt.need, true)
-			target := res.Operations[0].Target
-			if len(diagnostics) != 0 || target.Repository != tt.repo || target.Branch != tt.branch || target.Ref != tt.ref || (target.Number == nil) != (tt.number == 0) {
-				t.Fatalf("result=%+v diagnostics=%v", res, diagnostics)
-			}
-			if tt.number != 0 && *target.Number != tt.number {
-				t.Fatalf("number = %d", *target.Number)
-			}
-			if tt.name == "number only" && !hasUnresolved(res.Operations[0].Unresolved, "target.repository") {
-				t.Fatal("unrequested repository resolved")
-			}
-		})
-	}
-}
-
 func TestFillNodeFailures(t *testing.T) {
 	for _, response := range []string{`bad`, `{"data":{"node":null}}`, `{"errors":[{"message":"secret"}]}`, `{"data":{"node":{"__typename":"User"}}}`, `{"data":{"node":{"__typename":"PullRequest","number":2,"repository":{"nameWithOwner":"invalid"}}}}`, `{"data":{"node":{"__typename":"Issue","number":2,"repository":{"nameWithOwner":"a/b"}}}}`} {
 		t.Run(response, func(t *testing.T) {

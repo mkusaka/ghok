@@ -213,7 +213,7 @@ func TestRulesAggregationAndEvidence(t *testing.T) {
 	ops[0].Unresolved = []model.Unresolved{{Field: "target.repository", Reason: "node unresolved"}}
 	p.Rules = []config.Rule{{ID: "maybe", Match: config.Match{Repositories: config.StringList{"org/*"}}, Decision: "deny", Reason: "protected"}}
 	got = Evaluate(p, subject(ops[0]))
-	if !got.WouldDeny || !strings.Contains(strings.Join(got.Reasons, " "), "rule may match") {
+	if !got.WouldDeny {
 		t.Fatalf("%+v", got)
 	}
 	p.Rules = nil

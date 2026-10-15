@@ -253,11 +253,18 @@ issue or PR, so it emits family `comment`, action `comment.create`,
 `target.kind: unknown`, and unresolved `target.kind` even if the ID has a familiar
 prefix. The shared REST issue-comment endpoint is equally ambiguous. Known
 comment IDs used to edit/delete have `kind: comment`, without claiming a parent type.
-`normalize.Specialize(action, kind)` supplies the future subject-resolution table:
+`normalize.Specialize(action, kind)` supplies the subject-resolution table:
 `comment.create` plus `pullRequest` becomes `pr.comment.create`; plus `issue`
 becomes `issue.comment.create`. Unknown/unrelated kinds leave the action unchanged,
-and already specialized actions never fall back to generic names. The resolver
-does not yet fetch `__typename` or apply this table.
+and already specialized actions never fall back to generic names. Read-only node
+resolution fetches `__typename` and repository/number, fills `target.kind`, and
+applies the table to action/family/effect together. The default API timeout is 2s;
+failures leave targets unresolved and return a diagnostic. Successful identities
+are cached per invocation and in `<config-dir>/state/nodes.json` (0600), with a
+24h TTL and a 5,000-entry bound that evicts oldest fetched entries. Host identity
+must match before reusing an opaque node ID. Corrupt, expired, and invalid entries
+are ignored; cache I/O failures do not prevent live resolution. Concurrent writers
+atomically replace the cache; a competing write can discard cache entries.
 
 ### Matching safely
 
@@ -1337,7 +1344,7 @@ hook gating: they never execute the requested gh command. TTY stdin remains unto
 | `timeout` | No complete analysis bytes; producer did not finish before deadline. |
 | `error` | Read error; diagnostic in the injected stdin error field. |
 
-Runtime defaults are `stdinMaxBytes: 8388608` (8 MiB), `stdinTimeout: 30s`, and
+Runtime defaults are `stdinMaxBytes: 8388608` (8 MiB), `stdinTimeout: 3s`, and
 `fileMaxBytes: 8388608`. GraphQL's internal **1 MiB** bound still applies even if
 these runtime limits are raised. REST has no additional equivalent document cap;
 it uses the caller's bounded reader/capture.
@@ -1365,6 +1372,11 @@ variables remain unresolved. Timeout/TTY is input-unavailable for GraphQL, and
 size/depth/selection bounds are input-too-large. How an unknown is allowed,
 denied, or observed is a policy decision, not an automatic safety assertion by
 normalization.
+Operations with `input-unavailable` or `input-too-large` use `policy.unknownInput`
+(`allow|audit|deny`, default `audit`) instead of `unknownMutation`. Denials include
+the input failure cause, including stdin timeout. Readable but unclassified
+requests still use `unknownMutation`; independent rules/protected-target handling
+can deny either category.
 
 ## Coverage summary and implementation references
 

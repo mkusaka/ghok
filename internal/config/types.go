@@ -47,7 +47,8 @@ type Policy struct {
 	// UnknownMutation applies to operations with Effect write/unknown that
 	// could not be normalized (Family unknown) — anywhere. allow|deny|audit
 	// (default audit).
-	UnknownMutation string `yaml:"unknownMutation" json:"unknownMutation" enum:"allow,deny,audit" doc:"Handling of write/unknown operations that could not be classified."`
+	UnknownMutation string `yaml:"unknownMutation" json:"unknownMutation" enum:"allow,deny,audit" doc:"Handling of readable write/unknown operations that could not be classified; unreadable input uses unknownInput."`
+	UnknownInput    string `yaml:"unknownInput,omitempty" json:"unknownInput" enum:"allow,deny,audit" doc:"Handling of input-unavailable/input-too-large operations, including stdin analysis timeouts; default audit."`
 	// ProtectedRepositories are "owner/repo" globs (path.Match). For these,
 	// unknown/unresolved write operations are denied in enforce mode unless
 	// ProtectedUnknown says otherwise (default deny = fail-closed).
@@ -58,10 +59,11 @@ type Policy struct {
 }
 
 type Rule struct {
-	ID       string `yaml:"id" json:"id" required:"true"`
-	Match    Match  `yaml:"match" json:"match"`
-	Decision string `yaml:"decision" json:"decision" enum:"deny,audit" required:"true"` // deny|audit (allow rules cannot override deny)
-	Reason   string `yaml:"reason" json:"reason"`
+	ID           string `yaml:"id" json:"id" required:"true"`
+	Match        Match  `yaml:"match" json:"match"`
+	Decision     string `yaml:"decision" json:"decision" enum:"deny,audit" required:"true"` // deny|audit (allow rules cannot override deny)
+	Reason       string `yaml:"reason" json:"reason"`
+	OnUnresolved string `yaml:"onUnresolved,omitempty" json:"onUnresolved,omitempty" enum:"deny,ignore" doc:"deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match."`
 }
 
 // Match selects operations/invocations. All non-empty criteria must match
@@ -131,10 +133,11 @@ type Hook struct {
 type Runtime struct {
 	HookConcurrency int      `yaml:"hookConcurrency" json:"hookConcurrency"` // default 1 (sequential)
 	StdinMaxBytes   int64    `yaml:"stdinMaxBytes" json:"stdinMaxBytes"`     // analysis spool limit, default 8 MiB
-	StdinTimeout    Duration `yaml:"stdinTimeout" json:"stdinTimeout"`       // default 30s
+	StdinTimeout    Duration `yaml:"stdinTimeout" json:"stdinTimeout"`       // default 3s
 	FileMaxBytes    int64    `yaml:"fileMaxBytes" json:"fileMaxBytes"`       // --input/@file read limit, default 8 MiB
 	CaptureLimit    int64    `yaml:"captureLimit" json:"captureLimit"`       // post-hook stdout/stderr capture, default 1 MiB
-	ResolveTimeout  Duration `yaml:"resolveTimeout" json:"resolveTimeout"`   // resolver API calls, default 5s
+	ResolveTimeout  Duration `yaml:"resolveTimeout" json:"resolveTimeout"`   // resolver API calls, default 2s
+	ResolveAPI      string   `yaml:"resolveAPI" json:"resolveAPI" enum:"auto,never" doc:"auto (default): read-only API resolution only for actionable repository/host matches; never: disable implicit wrapper API lookups. Explicit management --allow-api still applies."`
 	// RealGh optionally pins the real gh path (otherwise discovered on PATH).
 	RealGh string `yaml:"realGh" json:"realGh,omitempty" doc:"Absolute path of the real gh; discovered on PATH when empty."`
 }

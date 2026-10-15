@@ -12,6 +12,7 @@ import (
 const (
 	DefaultMode             = config.ModeObserve
 	DefaultUnknownMutation  = config.UnknownAudit
+	DefaultUnknownInput     = config.UnknownAudit
 	DefaultProtectedUnknown = config.UnknownDeny
 )
 
@@ -131,13 +132,13 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		}
 		for i, op := range s.Result.Operations {
 			yes, maybe := opMatch(rule.Match, s, op)
-			if !yes {
+			if !yes || maybe && rule.OnUnresolved == config.OnErrorIgnore {
 				continue
 			}
 			matched = true
 			reason := "rule " + rule.ID + ": " + rule.Reason
 			if maybe {
-				reason += " (repository or host unresolved; rule may match)"
+				reason += "; matched conservatively (target unresolved)"
 			}
 			add(i, decision, reason)
 		}
@@ -150,7 +151,13 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 			continue
 		}
 		unknown := unclassified(op)
-		if unknown {
+		if op.UnknownReason == model.UnknownInputUnavailable || op.UnknownReason == model.UnknownInputTooLarge {
+			cause := string(op.UnknownReason)
+			if op.Detail != "" {
+				cause += ": " + op.Detail
+			}
+			add(i, handling(p.UnknownInput, DefaultUnknownInput), "unknownInput policy: "+cause)
+		} else if unknown {
 			add(i, handling(p.UnknownMutation, DefaultUnknownMutation), "unclassified-write: unknownMutation policy")
 		}
 		if len(p.ProtectedRepositories) == 0 || op.Effect == model.EffectRead {

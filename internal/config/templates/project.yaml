@@ -32,9 +32,10 @@ version: 1
 
 policy:
   # Only a stricter value than the user config takes effect:
-  # mode: observe < enforce; unknownMutation / protectedUnknown: allow < audit < deny
+  # mode: observe < enforce; unknownMutation / unknownInput / protectedUnknown: allow < audit < deny
   # mode: enforce
   # unknownMutation: deny
+  # unknownInput: deny
 
   # owner/repo globs this project wants protected (added to the user list).
   protectedRepositories: []
@@ -45,6 +46,7 @@ policy:
   #    match:
   #      operation: pr.merge.direct     # action glob; see `ghok explain -- <gh args>`
   #    decision: deny                   # deny | audit
+  #    onUnresolved: deny               # deny (default): conservative target match | ignore: skip
   #    reason: use the merge queue
 
 # Hook IDs must not collide with hooks in the user config. Project commands must

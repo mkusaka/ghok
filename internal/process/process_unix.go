@@ -183,10 +183,7 @@ func Run(ctx context.Context, opts Options) (result Result) {
 			<-continues
 		}
 		runtime.LockOSThread()
-		var err error
-		if sig != syscall.SIGSTOP {
-			err = defaultSignal(sig)
-		}
+		err := defaultSignal(sig)
 		if err == nil {
 			// Raise on this thread: a process-directed kill can return before
 			// another thread takes the stop, letting us continue the child early.
@@ -229,10 +226,15 @@ func Run(ctx context.Context, opts Options) (result Result) {
 		}
 		if got != 0 {
 			if sig := stoppedSignal(status); sig != 0 {
-				if childStillStopped(pid) {
-					if err := suspend(sig); err != nil {
-						result.WaitErr = errors.Join(result.WaitErr, err)
-						_ = syscall.Kill(pid, syscall.SIGKILL)
+				// A pid-directed SIGSTOP does not suspend the wrapper: a later
+				// child-only CONT must let us reap and return to post-hooks.
+				switch sig {
+				case syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU:
+					if childStillStopped(pid) {
+						if err := suspend(sig); err != nil {
+							result.WaitErr = errors.Join(result.WaitErr, err)
+							_ = syscall.Kill(pid, syscall.SIGKILL)
+						}
 					}
 				}
 				continue

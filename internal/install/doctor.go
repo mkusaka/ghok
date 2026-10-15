@@ -100,7 +100,7 @@ func Checks(o DoctorOptions) []Check {
 			checks = append(checks, ownership)
 		}
 	}
-	recursion := Check{Name: "recursion-risk", Status: StatusOK, Detail: "Discovery excludes self and ghok-named executables; nesting is bounded by GHOK_DEPTH."}
+	recursion := Check{Name: "recursion-risk", Status: StatusOK, Detail: "Discovery excludes self and ghok-named executables; nesting is bounded by GHOK_DEPTH. GHOK_NESTED=1 alone does not bypass analysis; helper bypass requires a live invocation token in GHOK_NESTED_TOKEN."}
 	var risks []string
 	if _, _, err := NextDepth(env); err != nil {
 		risks = append(risks, err.Error())

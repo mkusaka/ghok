@@ -467,6 +467,14 @@
                 },
                 "type": "object"
               },
+              "onUnresolved": {
+                "description": "deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match.",
+                "enum": [
+                  "deny",
+                  "ignore"
+                ],
+                "type": "string"
+              },
               "reason": {
                 "type": "string"
               }
@@ -479,8 +487,17 @@
           },
           "type": "array"
         },
+        "unknownInput": {
+          "description": "Handling of input-unavailable/input-too-large operations, including stdin analysis timeouts; default audit.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        },
         "unknownMutation": {
-          "description": "Handling of write/unknown operations that could not be classified.",
+          "description": "Handling of readable write/unknown operations that could not be classified; unreadable input uses unknownInput.",
           "enum": [
             "allow",
             "deny",
