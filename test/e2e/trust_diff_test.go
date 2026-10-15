@@ -68,15 +68,28 @@ func TestTrustDryRunAndReviewHints(t *testing.T) {
 			}
 		}
 		if args[1] == "trust" {
-			for _, want := range []string{"-dirty trusted " + secret, "+new content " + secret, "+# inspect this change"} {
+			// Credentials are masked in the displayed diff by default (agents keep
+			// this output in their transcripts); the diff itself is still shown.
+			for _, want := range []string{"-dirty trusted [REDACTED]", "+new content [REDACTED]", "+# inspect this change"} {
 				if !strings.Contains(text, want) {
-					t.Fatalf("review must show exact trusted/current bytes %q: %s", want, text)
+					t.Fatalf("review must show the masked diff %q: %s", want, text)
 				}
+			}
+			if strings.Contains(text, secret) {
+				t.Fatalf("default trust diff exposed a credential: %s", text)
 			}
 		} else if strings.Contains(text, secret) || strings.Contains(text, "--- trusted/") {
 			t.Fatalf("diagnostics must not expose content diffs: %s", text)
 		}
 	}
+	result = s.management(nil, "config", "trust", "--dry-run", "--show-secrets")
+	result.code(t, 0)
+	for _, want := range []string{"UNREDACTED", "-dirty trusted " + secret, "+new content " + secret} {
+		if !strings.Contains(string(result.stdout), want) {
+			t.Fatalf("--show-secrets must show exact trusted/current bytes %q: %s", want, result.stdout)
+		}
+	}
+	s.management(nil, "config", "trust", "--no-diff", "--show-secrets").code(t, 2)
 	result = s.management(nil, "config", "trust", "--dry-run", "--no-diff")
 	result.code(t, 0)
 	if bytes.Contains(result.stdout, []byte(secret)) || bytes.Contains(result.stdout, []byte("--- trusted/")) || !bytes.Contains(result.stdout, []byte("Changed files since trust:")) {
@@ -89,8 +102,8 @@ func TestTrustDryRunAndReviewHints(t *testing.T) {
 	assertIgnoredProjectHook(t, s, "changed since trust")
 	result = s.management(nil, "config", "trust")
 	result.code(t, 0)
-	if !bytes.Contains(result.stdout, []byte("-dirty trusted "+secret)) || !bytes.Contains(result.stdout, []byte("+new content "+secret)) {
-		t.Fatalf("trust must show the stored baseline before replacing it: %s", result.stdout)
+	if !bytes.Contains(result.stdout, []byte("-dirty trusted [REDACTED]")) || !bytes.Contains(result.stdout, []byte("+new content [REDACTED]")) || bytes.Contains(result.stdout, []byte(secret)) {
+		t.Fatalf("trust must show the (masked) stored baseline before replacing it: %s", result.stdout)
 	}
 	s.management(nil, "config", "untrust", "--all").code(t, 0)
 	blobs, err := os.ReadDir(filepath.Join(filepath.Dir(s.cfg), "trust", "blobs"))

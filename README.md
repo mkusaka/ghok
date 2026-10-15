@@ -301,8 +301,9 @@ These hints never grant trust.
 
 Only `config trust` and `config trust --dry-run` show unified diffs against
 **the exact bytes previously trusted**, including uncommitted files, not HEAD.
-Use `--no-diff` to omit content output. Diffs and stored copies are **unredacted**
-and may contain secrets. Copies live at `<config-dir>/trust/blobs/<sha256>`
+The displayed diff masks credentials (tokens, keys) like `explain` does; pass
+`--show-secrets` to see it raw, or `--no-diff` to omit content output. Stored copies
+are **unredacted** (byte-exact) and may contain secrets. Copies live at `<config-dir>/trust/blobs/<sha256>`
 (0700 directories, 0600 files), deduplicated with 1 MiB per-file and 64 MiB total
 limits; larger files remain hash-only, and full stores skip new copies with a
 note. Missing/corrupt copies explain why no diff is shown; hashes are verified

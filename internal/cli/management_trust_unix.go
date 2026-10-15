@@ -32,7 +32,7 @@ func managementConfigTrustStore(all bool) int {
 	return 0
 }
 
-func managementConfigTrust(command, path string, dryRun, noDiff bool) int {
+func managementConfigTrust(command, path string, dryRun, noDiff, showSecrets bool) int {
 	env := environment()
 	r := redact.New(env)
 	cwd, err := os.Getwd()
@@ -52,8 +52,15 @@ func managementConfigTrust(command, path string, dryRun, noDiff bool) int {
 		_, _ = fmt.Fprintln(os.Stdout, r.String(note))
 	}
 	if len(diff) != 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "Content diff (unredacted trusted bytes → current files):")
-		_, _ = os.Stdout.Write(diff)
+		// Like explain: credentials are masked for display (agents' transcripts
+		// keep this output); the stored copies themselves stay byte-exact.
+		if showSecrets {
+			_, _ = fmt.Fprintln(os.Stdout, "Content diff (trusted bytes → current files, UNREDACTED):")
+			_, _ = os.Stdout.Write(diff)
+		} else {
+			_, _ = fmt.Fprintln(os.Stdout, "Content diff (trusted bytes → current files; credentials masked, --show-secrets to reveal):")
+			_, _ = fmt.Fprint(os.Stdout, r.String(string(diff)))
+		}
 	}
 	if err != nil {
 		return managementFailure(err)

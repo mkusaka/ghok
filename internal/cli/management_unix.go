@@ -216,7 +216,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			noDiff, _ := cmd.Flags().GetBool("no-diff")
-			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff)
+			showSecrets, _ := cmd.Flags().GetBool("show-secrets")
+			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff, showSecrets)
 		})
 		flag := "list"
 		if name == "untrust" {
@@ -225,9 +226,11 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		cmd.Flags().Bool(flag, false, "manage all stored project trust without PATH")
 		if name == "trust" {
 			cmd.Flags().Bool("dry-run", false, "show changes and what would be trusted without writing anything")
-			cmd.Flags().Bool("no-diff", false, "omit the unredacted stored-content diff")
+			cmd.Flags().Bool("no-diff", false, "omit the stored-content diff")
+			cmd.Flags().Bool("show-secrets", false, "show the diff unredacted (credentials are masked by default)")
 			cmd.MarkFlagsMutuallyExclusive("list", "dry-run")
 			cmd.MarkFlagsMutuallyExclusive("list", "no-diff")
+			cmd.MarkFlagsMutuallyExclusive("no-diff", "show-secrets")
 		}
 		cmd.Args = func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {

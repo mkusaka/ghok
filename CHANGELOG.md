@@ -22,7 +22,7 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Changed
 
-- Trust review now compares exact stored trusted bytes, including dirty files, instead of the recorded commit. Private deduplicated copies are bounded to 1 MiB/file and 64 MiB total, integrity-checked and garbage-collected on trust/untrust; `untrust --all` purges them. Trust/dry-run show unredacted anchored unified diffs (`--no-diff` opts out); binary/large/missing/corrupt baselines show explanations. Removed Git object/pack-index lookup.
+- Trust review now compares exact stored trusted bytes, including dirty files, instead of the recorded commit. Private deduplicated copies are bounded to 1 MiB/file and 64 MiB total, integrity-checked and garbage-collected on trust/untrust; `untrust --all` purges them. Trust/dry-run show anchored unified diffs with credentials masked (`--show-secrets` reveals, `--no-diff` opts out); binary/large/missing/corrupt baselines show explanations. Removed Git object/pack-index lookup.
 
 ### Fixed
 

@@ -87,7 +87,9 @@ Never overwrite an existing config; edit it instead.
   distinct shared content SHA256s (not paths). One shared `.gitleaks.toml` is
   insufficient. Review the previous timestamp/path and, only in trust/dry-run,
   the unified diff against exact stored trusted bytes, including dirty files.
-  `--no-diff` omits contents. Stored copies and diffs are unredacted and may
+  The displayed diff masks credentials by default; when an agent runs
+  `ghok config trust`, never add `--show-secrets` (the output stays in the
+  transcript); `--no-diff` omits contents entirely. Stored copies are unredacted and may
   contain secrets: `<config-dir>/trust/blobs/<sha256>`, 0700 dirs/0600 files,
   1 MiB per file/64 MiB total. Missing/corrupt/over-limit copies omit diffs with
   notes. Binary files show short hashes; over-20,000-line sides omit the diff.

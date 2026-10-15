@@ -184,7 +184,9 @@ for `trust --list`, never a diff baseline. No Git objects or network are needed.
 Trust/validate/doctor show file and executable-bit changes; mode labels
 `0644`/`0755` represent the manifest's executable bit rather than full permissions.
 Only `config trust` and `config trust --dry-run` render unified content diffs;
-`--no-diff` suppresses them. Dry-run writes no trust, blob or hash-cache state.
+The displayed diff masks credentials with the same redactor as `explain`
+(`--show-secrets` shows it raw); `--no-diff` suppresses it. Dry-run writes no trust,
+blob or hash-cache state.
 
 Trust saves **exact, unredacted copies of trusted files**, including uncommitted
 contents, at `<config-dir>/trust/blobs/<sha256>`. These copies may contain secrets,
