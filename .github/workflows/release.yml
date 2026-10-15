@@ -61,15 +61,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Select release notes header
+      - name: Extract release notes from CHANGELOG.md
         id: notes
-        # docs/releases/<tag>.md (breaking changes, migration notes) goes above the
-        # generated changelog when present.
+        # The tag's CHANGELOG.md section (breaking changes first) goes above the
+        # generated changelog. scripts/release.sh creates that section.
         run: |
-          header="docs/releases/${GITHUB_REF_NAME}.md"
-          if [[ -f "$header" ]]; then
-            echo "args=--release-header $header" >> "$GITHUB_OUTPUT"
+          header="$RUNNER_TEMP/release-header.md"
+          scripts/changelog-section.sh "$GITHUB_REF_NAME" > "$header"
+          if ! grep -q '[^[:space:]#]' "$header"; then
+            echo "::error::CHANGELOG.md has no section for ${GITHUB_REF_NAME}; release with scripts/release.sh"
+            exit 1
           fi
+          echo "args=--release-header $header" >> "$GITHUB_OUTPUT"
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:

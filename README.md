@@ -624,6 +624,21 @@ bash is unavailable. Runtime tests require supported Unix process/PTY
 facilities, not only cross-compilation. CI runs native tests, race checks, five
 10-second fuzz smokes, and all four cross-builds on each platform.
 
+## Releasing
+
+Record user-visible changes in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`
+(changes that require users to update config, hooks or scripts go under
+**Breaking**). Then, from an up-to-date, clean `main`:
+
+```sh
+scripts/release.sh patch        # or minor | major | vX.Y.Z
+```
+
+The script turns `[Unreleased]` into the new version section, commits, tags and
+pushes. The release workflow builds with GoReleaser, attests, publishes an
+immutable release with that CHANGELOG section above the generated notes, and
+updates the Homebrew tap. It refuses to release a tag without a CHANGELOG section.
+
 ## Technical references
 
 - [Architecture](docs/architecture.md)
