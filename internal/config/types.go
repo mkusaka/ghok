@@ -17,7 +17,7 @@ type Config struct {
 	Hooks   []Hook  `yaml:"hooks" json:"hooks"`
 	Runtime Runtime `yaml:"runtime" json:"runtime"`
 	Logging Logging `yaml:"logging" json:"logging"`
-	Trust   Trust   `yaml:"trust" json:"trust" deprecated:"true" doc:"Deprecated and ignored. Use ghok config trust to authorize project hooks by file content."`
+	Trust   Trust   `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`
@@ -77,7 +77,8 @@ type Match struct {
 	ExitCodes []int      `yaml:"exitCode" json:"exitCode,omitempty" doc:"Post hooks only: gh exit codes (0-255) to run for."`
 	// Tokens matches the kind of credential gh will use, derived from the
 	// GH_TOKEN/GITHUB_TOKEN prefix (the token itself is never recorded).
-	Tokens StringList `yaml:"token" json:"token,omitempty" enum:"app,user,unknown,none" doc:"Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login)."`
+	Tokens StringList        `yaml:"token" json:"token,omitempty" enum:"app,user,unknown,none" doc:"Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login)."`
+	Env    map[string]string `yaml:"env" json:"env,omitempty" doc:"Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary."`
 }
 
 // Match.Results values.
@@ -141,10 +142,9 @@ type Logging struct {
 	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }
 
-// Trust is retained for v0.0.1 configuration compatibility only. Its entries
-// are ignored; project hook authorization lives in trust.json.
+// Trust adds explicitly selected repository files to project hook trust.
 type Trust struct {
-	Projects []string `yaml:"projects" json:"projects,omitempty" deprecated:"true" doc:"Deprecated and ignored. Run ghok config trust [PATH]; any edit to .ghok.yaml requires re-trust."`
+	Include []string `yaml:"include" json:"include,omitempty" doc:"Repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing."`
 }
 
 // StringList accepts either a YAML scalar or a sequence.

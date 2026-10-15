@@ -52,6 +52,7 @@ func redactRecord(r *redact.Redactor, record Record) Record {
 		if record.Operations[i].Parameters != nil {
 			res.Operations[i].Parameters = minimizeValue(r, record.Operations[i].Parameters, res.Operations[i].Parameters, "").(map[string]any)
 		}
+		minimizeTexts(record.Operations[i].Texts, res.Operations[i].Texts)
 	}
 	record.Operations = res.Operations
 	record.InvocationID = r.String(record.InvocationID)

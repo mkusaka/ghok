@@ -46,6 +46,7 @@ func (r *Redactor) operations(in []model.Operation) []model.Operation {
 		if op.Parameters != nil {
 			out[i].Parameters = r.Value(op.Parameters).(map[string]any)
 		}
+		out[i].Texts = r.texts(op.Texts)
 		out[i].Execution = model.Execution(r.String(string(op.Execution)))
 		out[i].Evidence = r.String(op.Evidence)
 		out[i].Unresolved = r.unresolved(op.Unresolved)
@@ -60,6 +61,25 @@ func (r *Redactor) operations(in []model.Operation) []model.Operation {
 		out[i].Origin.OpType = r.String(op.Origin.OpType)
 	}
 	return out
+}
+
+func (r *Redactor) texts(in *model.Texts) *model.Texts {
+	if in == nil {
+		return nil
+	}
+	return &model.Texts{Title: r.text(in.Title), Body: r.text(in.Body), Notes: r.text(in.Notes)}
+}
+
+func (r *Redactor) text(in *model.Text) *model.Text {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Value = r.String(in.Value)
+	out.Source = r.String(in.Source)
+	out.Path = r.String(in.Path)
+	out.Status = model.StdinStatus(r.String(string(in.Status)))
+	return &out
 }
 
 func (r *Redactor) target(in model.Target) model.Target {

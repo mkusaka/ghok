@@ -77,6 +77,13 @@
                   }
                 ]
               },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                "type": "object"
+              },
               "exitCode": {
                 "description": "Post hooks only: gh exit codes (0-255) to run for.",
                 "items": {
@@ -343,6 +350,13 @@
                       }
                     ]
                   },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                    "type": "object"
+                  },
                   "exitCode": {
                     "description": "Post hooks only: gh exit codes (0-255) to run for.",
                     "items": {
@@ -518,22 +532,6 @@
         "stdinTimeout": {
           "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "trust": {
-      "additionalProperties": false,
-      "deprecated": true,
-      "description": "Deprecated and ignored. Use ghok config trust to authorize project hooks by file content.",
-      "properties": {
-        "projects": {
-          "deprecated": true,
-          "description": "Deprecated and ignored. Run ghok config trust [PATH]; any edit to .ghok.yaml requires re-trust.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         }
       },
       "type": "object"

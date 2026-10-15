@@ -247,6 +247,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	if c.extractor != nil {
 		c.extractor(&op, c, p, inv)
 	}
+	extractTexts(&op, c, p, inv)
 	confidence := model.ConfidenceExact
 	if len(p.unknown) > 0 {
 		confidence = model.ConfidenceHeuristic

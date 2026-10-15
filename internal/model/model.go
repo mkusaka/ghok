@@ -2,8 +2,8 @@
 // ghok layer: normalizer output (Result/Operation), the invocation handed to
 // normalizers, and parsed `gh api` requests.
 //
-// This package is a contract. Changing a field here changes the hook JSON
-// protocol (schemaVersion) and every normalizer.
+// This package is the hook JSON contract. Optional additive fields preserve
+// schemaVersion; incompatible changes require a new protocol version.
 package model
 
 // SchemaVersion of Result and of the hook protocol.
@@ -94,6 +94,7 @@ type Operation struct {
 	Effect     Effect         `json:"effect"`
 	Target     Target         `json:"target"`
 	Parameters map[string]any `json:"parameters,omitempty"`
+	Texts      *Texts         `json:"texts,omitempty"`
 	Execution  Execution      `json:"execution"`
 	// Evidence explains Execution != will-run, or other proofs.
 	Evidence   string       `json:"evidence,omitempty"`
@@ -105,6 +106,27 @@ type Operation struct {
 	// Origin ties the operation back to its source (command path, REST route
 	// template, GraphQL field/alias).
 	Origin Origin `json:"origin"`
+}
+
+// Texts contains normalized prose supplied by a command or API request.
+// Nil fields mean that no text was supplied or identified for that purpose.
+type Texts struct {
+	Title *Text `json:"title,omitempty"`
+	Body  *Text `json:"body,omitempty"`
+	Notes *Text `json:"notes,omitempty"`
+}
+
+// Text describes prose available before gh runs. Bytes counts original bytes
+// before redaction, including the full size of truncated input when known.
+// Unavailable input has an empty Value and an Operation.Unresolved entry.
+// Status explains unavailable stdin; zero Bytes then means an unknown size.
+type Text struct {
+	Value     string      `json:"value"`
+	Source    string      `json:"source"` // inline | file | stdin | editor | fill | template | unknown
+	Path      string      `json:"path,omitempty"`
+	Status    StdinStatus `json:"status,omitempty"`
+	Truncated bool        `json:"truncated,omitempty"`
+	Bytes     int64       `json:"bytes"`
 }
 
 // UnknownReason is a machine-readable reason for an unknown classification.

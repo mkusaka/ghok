@@ -66,6 +66,7 @@ Each Operation has these fields:
 | effect | string | no | `read`, `write`, `unknown`. |
 | target | Target object | no | Known selector metadata; unknown values omitted. |
 | parameters | object | yes | Action-specific JSON-like parameters, redacted. |
+| texts | Texts object | yes | Normalized title/body/notes and input provenance; existing parameters remain unchanged. |
 | execution | string | no | `will-run`, `maybe`, `not-selected`, `skipped`. |
 | evidence | string | yes | Proof/explanation of execution state. |
 | unresolved | Unresolved array | yes | Needed values that analysis could not establish. |
@@ -81,6 +82,51 @@ command is a string array; method, route, field, alias, operation and opType
 are strings. opType describes query/mutation/subscription; field is the schema
 field, not a response alias. Exact meanings, action tables and unknown-reason
 values: [normalization](normalization.md).
+
+### Normalized texts
+
+`operations[].texts` is additive in schemaVersion 1. Its optional `title`, `body`,
+and `notes` fields each contain a Text object. Absent means no corresponding
+text was supplied or identified; an explicitly empty inline string is present.
+Merge commit subjects/headlines use `title`, commit bodies use `body`; release
+notes use `notes` (including REST release `body`).
+
+| Text field | Type | Optional | Meaning |
+| --- | --- | --- | --- |
+| value | string | no | Available prose with credentials redacted; empty when unavailable/generated. |
+| source | string | no | `inline`, `file`, `stdin`, `editor`, `fill`, `template`, or `unknown`. |
+| path | string | yes | Input file path as supplied, when applicable. |
+| status | string | yes | Unavailable native stdin: `not-captured`, `tty`, `too-large`, `timeout`, or `error`; omitted on successful capture. |
+| truncated | boolean | yes | Analysis hit a known size limit; do not treat the available value as complete. |
+| bytes | integer | no | Original text byte count before redaction, not character count. For truncated native wrapper input, full regular-file size (remaining bytes for redirected stdin) when known; zero if unavailable/unknown. |
+
+For example, `gh pr create -t T -b B` supplies:
+
+```json
+{"texts":{"title":{"value":"T","source":"inline","bytes":1},"body":{"value":"B","source":"inline","bytes":1}}}
+```
+
+`--body-file path` uses the bounded injected file reader. Native `--body-file -`,
+`-F -` (including bundled shorthands), and `--notes-file -` request stdin
+capture only when an enabled pre-hook could match. Capture uses the existing
+bounded spool and replays every stdin byte to gh unchanged, including the
+unread remainder after a limit or timeout. TTY stdin is never read.
+
+Unavailable file/stdin values retain provenance and add `unresolved` for
+`texts.body`/`texts.notes`; native stdin also carries `status`. For example,
+over-limit piped input reports
+`{"value":"","source":"stdin","status":"too-large","truncated":true,"bytes":0}`:
+the stream's full size is not known before gh starts. **Secret-scanning hooks
+should deny when `truncated` is true**, and reject other unavailable inputs if
+complete inspection is required. Editor, web, fill, and template flows do not
+claim to know their final submitted text.
+
+Hooks retain ordinary prose while credentials are redacted. JSONL logs replace
+every text value with `[content: N bytes]` (N is the available value's byte count
+before redaction), retaining source/path/status/original-size metadata. See
+[normalization](normalization.md#normalized-texts) for per-layer mappings and
+limits. Texts describe input available before execution, not GitHub's stored
+content or an editor's eventual result.
 
 ### ResolvedContext and PolicyInfo
 
@@ -249,6 +295,23 @@ Command prefixes are token-delimited, using alias-expanded argv and canonical
 native origin after global flags. Skipped/unselected operations are ignored.
 Unresolved repository/host constraints are selected conservatively.
 
+`env: {NAME: "value-glob"}` applies to rules and both hook phases. It reads the
+caller's invocation environment, not hook-specific `env` overrides. Names must
+match `[A-Za-z_][A-Za-z0-9_]*`; values use case-sensitive `path.Match` syntax.
+`"*"` means set and non-empty, including values containing `/`; `""` means
+unset or empty. All map entries must hold, ANDed with the other criteria.
+Environment is caller-controlled: a guardrail against mistakes, **not a
+security boundary**.
+
+```yaml
+policy:
+  mode: enforce
+  rules:
+    - id: no-worker-merges
+      match: {env: {MALL_GH_WORKER: "1"}, operation: "pr.merge.*"}
+      decision: deny
+```
+
 `token: app | user | unknown | none` matches the kind of credential in
 `GH_TOKEN`/`GITHUB_TOKEN` (prefix only; the value is never logged). Wrappers such
 as gain call `gh` through PATH with a GitHub App token, so they pass through
@@ -282,6 +345,15 @@ Post-hook candidates are selected before gh runs (which decides supervision and
 output capture) and filtered by these criteria once the result is known; hooks
 that do not match the result are not started. `ghok hooks test --phase post
 --exit-code N -- <gh args>` exercises this selection with a synthetic result.
+
+`ghok hooks test --expect allow|deny|abstain|audit -- <gh args>` compares the
+printed/JSON Aggregate decision after policy and configured-mode handling, not
+the runner's raw aggregate or `wouldDeny`. Observe-mode would-deny is `audit`;
+an abstaining hook normally leaves the effective decision `allow`. A match
+exits 0 even on denial/hook execution error; a mismatch exits 1 with a stderr
+diagnostic. Without `--expect`, an effective deny or hook execution error
+(nonzero exit/spawn failure, timeout, invalid response, cancellation) exits 1,
+otherwise 0. Configuration/analysis failures exit 1; usage errors exit 2.
 
 - Lower priority runs first; equal priority follows config order. Dependencies
   are ordered before dependents; among ready nodes priority/config order wins.

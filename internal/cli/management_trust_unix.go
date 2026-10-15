@@ -10,6 +10,28 @@ import (
 	"github.com/mkusaka/ghok/internal/redact"
 )
 
+func managementConfigTrustStore(all bool) int {
+	env := environment()
+	r := redact.New(env)
+	var lines []string
+	var err error
+	if all {
+		lines, err = config.UntrustAllProjects(env)
+	} else {
+		lines = config.ListProjectTrust(env)
+	}
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(os.Stdout, r.String(line))
+	}
+	if err != nil {
+		return managementFailure(err)
+	}
+	if all {
+		_, _ = fmt.Fprintln(os.Stdout, "All project hook trust removed.")
+	}
+	return 0
+}
+
 func managementConfigTrust(command, path string) int {
 	env := environment()
 	r := redact.New(env)

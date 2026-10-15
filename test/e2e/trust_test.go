@@ -4,8 +4,10 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,12 +16,15 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func writeTrustProject(t *testing.T, s *sandbox) (string, []byte) {
+func writeTrustProject(t *testing.T, s *sandbox, command ...string) (string, []byte) {
 	t.Helper()
 	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	h := s.hook("project", "pre")
+	if len(command) != 0 {
+		h.Command = command
+	}
 	defaults := config.Config{Hooks: []config.Hook{h}}
 	defaults.ApplyDefaults()
 	h = defaults.Hooks[0]
@@ -104,27 +109,97 @@ func TestProjectHookTrustTransitions(t *testing.T) {
 	s.management(nil, "config", "trust", project).code(t, 0)
 	s.management(nil, "config", "untrust", project).code(t, 0)
 	s.management(nil, "config", "untrust", project).code(t, 0)
-	assertIgnoredProjectHook(t, s, "untrusted")
+	assertIgnoredProjectHook(t, s, "changed since trust")
 	s.gh(nil, "version").code(t, 0)
 	assertNoProjectHook(t, s)
+	// Removing the current digest must not remove the earlier trusted version.
+	if err := os.WriteFile(project, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.gh(nil, "version").code(t, 0)
+	s.hookInput("project")
 }
 
-func TestProjectTrustCorruptionAndDeprecatedKey(t *testing.T) {
+func TestProjectTrustRelativeExecutableAcrossWorktrees(t *testing.T) {
 	s := newSandbox(t)
-	project, _ := writeTrustProject(t, s)
-	s.configure(func(c *config.Config) { c.Trust.Projects = []string{project} })
-	result := s.management(nil, "config", "validate")
-	result.code(t, 0)
-	if !bytes.Contains(result.stdout, []byte("deprecated")) {
-		t.Fatalf("missing deprecated trust key note: %s", result.stdout)
+	project, body := writeTrustProject(t, s, "./hooks/project")
+	if err := os.Remove(filepath.Join(s.cwd, ".git")); err != nil {
+		t.Fatal(err)
 	}
+	executable, err := os.ReadFile(fakeBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedGit := filepath.Join(s.root, "shared.git")
+	if err := os.Mkdir(sharedGit, 0700); err != nil {
+		t.Fatal(err)
+	}
+	second := filepath.Join(s.root, "other-worktree")
+	if err := os.Mkdir(second, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Both worktrees use identical config and executable bytes; neither path
+	// nor the external git directory should affect content-addressed trust.
+	for _, worktree := range []string{s.cwd, second} {
+		if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+sharedGit+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(worktree, "hooks"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(worktree, "hooks", "project"), executable, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(worktree, ".ghok.yaml"), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := s.management(nil, "config", "trust", project)
+	result.code(t, 0)
+	for _, want := range []string{".ghok.yaml", "hooks/project", "project command:"} {
+		if !bytes.Contains(result.stdout, []byte(want)) {
+			t.Fatalf("trust output omitted %q: %s", want, result.stdout)
+		}
+	}
+	assertNoProjectHook(t, s)
+	s.gh(nil, "version").code(t, 0)
+	s.hookInput("project")
+	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
+		t.Fatal(err)
+	}
+	s.cwd = second
+	s.gh(nil, "version").code(t, 0)
+	s.hookInput("project")
+	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "hooks", "project"), append(executable, []byte("\nchanged executable\n")...), 0700); err != nil {
+		t.Fatal(err)
+	}
+	assertIgnoredProjectHook(t, s, "changed since trust")
+	result = s.gh(nil, "version")
+	result.code(t, 0)
+	if len(result.stderr) != 0 {
+		t.Fatalf("changed-executable wrapper must remain silent: %s", result.stderr)
+	}
+	assertNoProjectHook(t, s)
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	assertNoProjectHook(t, s)
+	if len(s.records()) != 3 {
+		t.Fatal("changed executable bypassed project deny rule")
+	}
+}
+
+func TestProjectTrustCorruption(t *testing.T) {
+	s := newSandbox(t)
+	writeTrustProject(t, s)
 	s.gh(nil, "version").code(t, 0)
 	assertNoProjectHook(t, s)
 	s.management(nil, "config", "trust").code(t, 0)
 	if err := os.WriteFile(filepath.Join(filepath.Dir(s.cfg), "trust.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result = s.gh(nil, "version")
+	result := s.gh(nil, "version")
 	result.code(t, 0)
 	if len(result.stderr) != 0 {
 		t.Fatalf("corrupt-store wrapper must remain silent: %s", result.stderr)
@@ -146,12 +221,11 @@ func TestProjectTrustCorruptionAndDeprecatedKey(t *testing.T) {
 		Detail string `json:"detail"`
 	}
 	decodeJSON(t, result.stdout, &checks)
-	var corrupt, deprecated bool
+	var corrupt bool
 	for _, check := range checks {
 		corrupt = corrupt || bytes.Contains([]byte(check.Detail), []byte("trust.json"))
-		deprecated = deprecated || bytes.Contains([]byte(check.Detail), []byte("trust.projects"))
 	}
-	if !corrupt || !deprecated {
+	if !corrupt {
 		t.Fatalf("doctor omitted trust diagnostics: %+v", checks)
 	}
 }
@@ -162,6 +236,11 @@ func TestProjectTrustPathsAndUsage(t *testing.T) {
 		s.management(nil, "config", command).code(t, 1)
 		s.management(nil, "config", command, "missing.yaml").code(t, 1)
 		s.management(nil, "config", command, "one", "two").code(t, 2)
+		flag := "--list"
+		if command == "untrust" {
+			flag = "--all"
+		}
+		s.management(nil, "config", command, flag, "one").code(t, 2)
 		outside := filepath.Join(s.root, ".ghok.yaml")
 		if err := os.WriteFile(outside, []byte("version: 1\n"), 0600); err != nil {
 			t.Fatal(err)
@@ -210,7 +289,7 @@ func TestProjectTrustCommandRedaction(t *testing.T) {
 func TestProjectTrustSymlinkFile(t *testing.T) {
 	s := newSandbox(t)
 	project, _ := writeTrustProject(t, s)
-	target := filepath.Join(s.root, "project-config.yaml")
+	target := filepath.Join(s.cwd, "project-config.yaml")
 	if err := os.Rename(project, target); err != nil {
 		t.Fatal(err)
 	}
@@ -225,5 +304,82 @@ func TestProjectTrustSymlinkFile(t *testing.T) {
 	}
 	s.management(nil, "config", "untrust", project).code(t, 0)
 	s.gh(nil, "version").code(t, 0)
+	assertNoProjectHook(t, s)
+}
+
+func TestProjectTrustListAndClearAll(t *testing.T) {
+	s := newSandbox(t)
+	project, body := writeTrustProject(t, s)
+	project, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.management(nil, "config", "trust").code(t, 0)
+	first := s.management(nil, "config", "trust", "--list")
+	first.code(t, 0)
+	for _, want := range []string{"Trust digest: ", "firstPath: " + project, "hook IDs: project", "trustedAt: ", "exec:0", "sha256:" + fmt.Sprintf("%x", sha256.Sum256(body))} {
+		if !bytes.Contains(first.stdout, []byte(want)) {
+			t.Fatalf("trust list omitted %q: %s", want, first.stdout)
+		}
+	}
+	if err := os.WriteFile(project, append(body, []byte("\n# second digest\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.management(nil, "config", "trust").code(t, 0)
+	second := s.management(nil, "config", "trust", "--list")
+	second.code(t, 0)
+	if bytes.Count(second.stdout, []byte("trustedAt")) != 2 {
+		t.Fatalf("trust did not retain both digests: %s", second.stdout)
+	}
+	s.management(nil, "config", "untrust", "--all").code(t, 0)
+	empty := s.management(nil, "config", "trust", "--list")
+	empty.code(t, 0)
+	if bytes.Contains(empty.stdout, []byte("trustedAt")) {
+		t.Fatalf("untrust --all retained entries: %s", empty.stdout)
+	}
+	for _, version := range [][]byte{body, append(append([]byte(nil), body...), []byte("\n# second digest\n")...)} {
+		if err := os.WriteFile(project, version, 0600); err != nil {
+			t.Fatal(err)
+		}
+		s.gh(nil, "version").code(t, 0)
+		assertNoProjectHook(t, s)
+	}
+}
+
+func TestProjectTrustIncludeEditRetainsRules(t *testing.T) {
+	s := newSandbox(t)
+	project, body := writeTrustProject(t, s)
+	body = append(body, []byte("\ntrust:\n  include: [policy-data.txt, optional.txt]\n")...)
+	if err := os.WriteFile(project, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	included := filepath.Join(s.cwd, "policy-data.txt")
+	if err := os.WriteFile(included, []byte("reviewed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.management(nil, "config", "trust").code(t, 0)
+	list := s.management(nil, "config", "trust", "--list")
+	list.code(t, 0)
+	for _, want := range []string{"policy-data.txt", "optional.txt", "missing"} {
+		if !bytes.Contains(list.stdout, []byte(want)) {
+			t.Fatalf("trust list omitted included file %q: %s", want, list.stdout)
+		}
+	}
+	s.gh(nil, "version").code(t, 0)
+	s.hookInput("project")
+	if err := os.Remove(filepath.Join(s.root, "project.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(included, []byte("changed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	assertIgnoredProjectHook(t, s, "changed since trust")
+	s.gh(nil, "version").code(t, 0)
+	assertNoProjectHook(t, s)
+	before := len(s.records())
+	s.gh(nil, "pr", "merge", "12", "-R", "acme/project").code(t, 1)
+	if len(s.records()) != before {
+		t.Fatal("included-file edit bypassed project deny rule")
+	}
 	assertNoProjectHook(t, s)
 }

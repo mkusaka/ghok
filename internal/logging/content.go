@@ -9,11 +9,23 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mkusaka/ghok/internal/model"
 	"github.com/mkusaka/ghok/internal/redact"
 )
 
 func contentSummary(s string) string {
 	return fmt.Sprintf("[content: %d bytes]", len(s))
+}
+
+func minimizeTexts(original, safe *model.Texts) {
+	if original == nil {
+		return
+	}
+	for _, pair := range [3][2]*model.Text{{original.Title, safe.Title}, {original.Body, safe.Body}, {original.Notes, safe.Notes}} {
+		if pair[0] != nil {
+			pair[1].Value = contentSummary(pair[0].Value)
+		}
+	}
 }
 
 func graphQLSummary(s string) string {

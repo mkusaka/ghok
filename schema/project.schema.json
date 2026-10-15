@@ -77,6 +77,13 @@
                   }
                 ]
               },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                "type": "object"
+              },
               "exitCode": {
                 "description": "Post hooks only: gh exit codes (0-255) to run for.",
                 "items": {
@@ -324,6 +331,13 @@
                       }
                     ]
                   },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                    "type": "object"
+                  },
                   "exitCode": {
                     "description": "Post hooks only: gh exit codes (0-255) to run for.",
                     "items": {
@@ -469,6 +483,20 @@
             "audit"
           ],
           "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "trust": {
+      "additionalProperties": false,
+      "description": "Project-only files added to the hook trust manifest.",
+      "properties": {
+        "include": {
+          "description": "Repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"

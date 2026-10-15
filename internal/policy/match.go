@@ -21,6 +21,8 @@ type Subject struct {
 	Outcome *protocol.ExecResult
 	// Token is TokenKind of the invocation environment ("" is treated as none).
 	Token string
+	// Env is the caller's invocation environment, before hook-specific overrides.
+	Env map[string]string
 }
 
 // outcomeMatches applies match.result / match.exitCode.
@@ -68,6 +70,16 @@ func exact(pattern, value string) bool { return pattern == value }
 func invocationMatches(m config.Match, s Subject) bool {
 	if !outcomeMatches(m, s.Outcome) {
 		return false
+	}
+	for name, pattern := range m.Env {
+		value := s.Env[name]
+		if pattern == "*" {
+			if value == "" {
+				return false
+			}
+		} else if ok, err := path.Match(pattern, value); err != nil || !ok {
+			return false
+		}
 	}
 	token := s.Token
 	if token == "" {

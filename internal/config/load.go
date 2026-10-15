@@ -139,14 +139,12 @@ func load(path string, notes *[]string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", absolute, err)
 	}
-	if notes != nil {
-		n, err := document(data)
-		if err != nil {
-			return nil, err
-		}
-		if field(field(n, "trust"), "projects") != nil {
-			*notes = append(*notes, "trust.projects is deprecated and ignored; run ghok config trust to authorize project hooks")
-		}
+	n, err := document(data)
+	if err != nil {
+		return nil, err
+	}
+	if field(n, "trust") != nil {
+		return nil, fmt.Errorf("config %s: trust is only allowed in project configs", absolute)
 	}
 	for i := range c.Hooks {
 		c.Hooks[i].Source = absolute

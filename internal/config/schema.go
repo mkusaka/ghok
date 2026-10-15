@@ -16,7 +16,7 @@ const SchemaID = "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/con
 const ProjectSchemaID = "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/project.schema.json"
 
 // projectForbidden are the top-level sections a project .ghok.yaml may not set.
-var projectForbidden = []string{"runtime", "logging", "trust"}
+var projectForbidden = []string{"runtime", "logging"}
 
 // The schema is derived from the Config types alone (like zod's toJSONSchema):
 // field names come from `yaml` tags, and constraints from these tags:
@@ -24,21 +24,22 @@ var projectForbidden = []string{"runtime", "logging", "trust"}
 //	enum:"a,b"       allowed values (integers when they parse as such)
 //	doc:"..."        description
 //	required:"true"  property must be present
-//	deprecated:"true" property is retained only for migration
 
 // Schema returns the JSON Schema (draft 2020-12) for the global config.yaml,
 // or, with project set, for a project .ghok.yaml (which may not set
-// runtime, logging or trust).
+// runtime or logging). Trust includes are project-only.
 func Schema(project bool) map[string]any {
 	s := schemaFor(reflect.TypeFor[Config](), "")
 	s["$schema"] = "https://json-schema.org/draft/2020-12/schema"
 	s["$id"], s["title"] = SchemaID, "ghok config.yaml"
+	props := s["properties"].(map[string]any)
 	if project {
 		s["$id"], s["title"] = ProjectSchemaID, "ghok project .ghok.yaml"
-		props := s["properties"].(map[string]any)
 		for _, k := range projectForbidden {
 			delete(props, k)
 		}
+	} else {
+		delete(props, "trust")
 	}
 	return s
 }
@@ -99,9 +100,6 @@ func schemaFor(t reflect.Type, tag reflect.StructTag) map[string]any {
 			p := schemaFor(f.Type, f.Tag)
 			if d := f.Tag.Get("doc"); d != "" {
 				p["description"] = d
-			}
-			if f.Tag.Get("deprecated") == "true" {
-				p["deprecated"] = true
 			}
 			if f.Tag.Get("required") == "true" {
 				required = append(required, name)

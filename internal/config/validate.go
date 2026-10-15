@@ -9,6 +9,7 @@ import (
 )
 
 var hookID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var matchEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Validate aggregates independent failures with paths suitable for diagnostics.
 func (c *Config) Validate() error {
@@ -41,6 +42,15 @@ func (c *Config) Validate() error {
 		globs(p+".command", m.Commands, false)
 		globs(p+".repositories", m.Repositories, true)
 		globs(p+".hosts", m.Hosts, false)
+		for name, pattern := range m.Env {
+			key := fmt.Sprintf("%s.env[%q]", p, name)
+			if !matchEnvName.MatchString(name) {
+				add(key, "invalid environment variable name: must match [A-Za-z_][A-Za-z0-9_]*")
+			}
+			if _, err := path.Match(pattern, ""); err != nil {
+				add(key, "invalid glob: "+err.Error())
+			}
+		}
 		for i, v := range m.Effects {
 			enum(fmt.Sprintf("%s.effect[%d]", p, i), v, "read", "write", "unknown")
 		}

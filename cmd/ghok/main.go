@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/mkusaka/ghok/internal/cli"
 )
@@ -12,9 +13,29 @@ import (
 var version = "dev"
 var commit string
 
+func resolveBuildInfo(version, commit string, info *debug.BuildInfo) (string, string) {
+	if info == nil {
+		return version, commit
+	}
+	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	if commit == "" {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				commit = setting.Value
+				break
+			}
+		}
+	}
+	return version, commit
+}
+
 func main() {
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(cli.Wrapper(os.Args[1:]))
 	}
-	os.Exit(cli.Management(os.Args[1:], version, commit))
+	info, _ := debug.ReadBuildInfo()
+	resolvedVersion, resolvedCommit := resolveBuildInfo(version, commit, info)
+	os.Exit(cli.Management(os.Args[1:], resolvedVersion, resolvedCommit))
 }

@@ -641,7 +641,7 @@ func TestManagementConfigValidateSelectedFileAndNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := filepath.Join(s.cwd, ".ghok.yaml")
-	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: pre, command: [missing-hook]}]\n"), 0600); err != nil {
+	if err := os.WriteFile(project, []byte("version: 1\nhooks: [{id: project, phase: pre, command: [./missing-hook]}]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result = s.management(nil, "config", "validate")

@@ -52,6 +52,7 @@ Every operation has the following fields. Optional fields are omitted when empty
 | `effect` | `read`, `write`, or `unknown`; a classification, not a success/outcome report. |
 | `target` | Known host/repository/resource selectors. An empty target does not prove a target does not exist. |
 | `parameters` | Optional map of relevant argv/request/input values; representation and canonical keys depend on the layer. |
+| `texts` | Optional normalized `title`, `body`, and `notes` prose with provenance; complements rather than replaces parameters. |
 | `execution` | `will-run`, `maybe`, `not-selected`, or `skipped`; see below. |
 | `evidence` | Optional explanation of non-default execution or other proofs. |
 | `unresolved` | Optional list of missing/ambiguous values, each with `field`, `reason`, and optional `source` such as `git`, `api`, `variable`, `stdin`, or `file`. |
@@ -86,6 +87,78 @@ copies retain it. Prose fields and whitespace-containing/over-64-byte values
 are summarized, structural targets remain readable, and GraphQL source becomes
 a byte-count/SHA256 fingerprint. Deliberately unexamined stdin can be logged as
 `allow` while its operation remains unknown; this does not prove mutation-free.
+
+### Normalized texts
+
+`operations[].texts` exposes prose without requiring a hook to re-parse argv,
+REST fields, or GraphQL input. It is an additive, optional schemaVersion 1 field.
+Each optional `title`, `body`, or `notes` is a Text object with required `value`,
+`source`, and `bytes`, plus optional `path`, `status`, and `truncated`. `bytes`
+counts original text bytes before output redaction, not Unicode characters or
+the eventual server-side content. Missing fields mean no corresponding text
+was supplied/identified. Explicit empty inline values remain present.
+
+Sources are `inline`, `file`, `stdin`, `editor`, `fill`, `template`, or `unknown`.
+Unavailable/generated prose has an empty value; a failed file/stdin read also
+adds an unresolved `texts.*` entry. Native unavailable stdin carries `status`:
+`not-captured`, `tty`, `too-large`, `timeout`, or `error`. Successful capture
+omits status. Known size-limit failures set `truncated`; **secret-scanning hooks
+should deny truncated input** rather than assume the empty value is complete.
+Hooks needing complete inspection should also reject unavailable/generated text.
+
+File reads use the injected bounded `Invocation.ReadFile`, normally limited by
+`runtime.fileMaxBytes` (8 MiB by default). Native `--body-file -`, `-F -`, and
+`--notes-file -` use the existing bounded stdin spool when an enabled pre-hook
+could match. TTY stdin is never read. Disabled/unrelated hooks, logging, and
+post-hooks alone do not trigger capture. The full original stream is replayed
+byte-exactly to gh, even after over-limit or timed-out analysis.
+
+`bytes` is the available value's size on successful reads. For truncated native
+wrapper input, regular-file sizes are reported in full (remaining bytes from the
+original offset for redirected stdin); a stream's total is unknown before execution.
+Unavailable values with unknown sizes report zero bytes. Truncated values are
+withheld, not silently presented as complete text.
+
+| Layer/input | Normalized text |
+| --- | --- |
+| L1 PR/issue create/edit `--title`, `--body`, `--body-file` | `title`, `body`. |
+| L1 PR/issue comment and PR review `--body`/`--body-file` | `body`. |
+| L1 issue close/reopen (and corresponding PR commands) `--comment` | `body`, when supplied. |
+| L1 PR merge `--subject`, `--body`, `--body-file` | Commit `title`, `body`. |
+| L1 release create/edit `--title`, `--notes`, `--notes-file` | `title`, `notes`. |
+| L2 known PR/issue/comment/review request bodies | String `title`/`body` mapped by route semantics. |
+| L2 release request `name`, `body` | `title`, `notes`. |
+| L2 PR merge `commit_title`, `commit_message` | Commit `title`, `body`. |
+| L2 review dismissal `message` | `body`. |
+| L3 PR/issue/comment/review create/update inputs | String `title`/`body`, when applicable. |
+| L3 merge/auto-merge `commitHeadline`, `commitBody` | Commit `title`, `body`. |
+| L3 review dismissal `message` | `body`. |
+
+L1 uses the existing pflag parse, so `-db "text"`, `--body=text`, and separate
+`-b text` all expose the same body. Explicit text takes precedence over fill
+defaults, but explicit editor/web flows report `editor` because initial text can
+change. Commit-derived fill inputs and templates likewise are not final prose.
+Generated/tag-derived release notes report `fill`, including when supplied notes
+would only be a prefix. File paths retain their supplied spelling. No gist file
+content is extracted.
+
+L2 extracts from the actual reconstructed body, not URL query strings or
+`--input` companion query fields. `-f body=...` is inline;
+`-F body=@path` is file-backed; `@-` is stdin-backed; JSON `--input` values retain
+the body's file/stdin provenance. No second file read is needed for texts.
+GraphQL extracts semantic values after AST/variable resolution; its provenance
+describes the input transport, not an editor or a server-generated message.
+
+Hook/normalize/explain output retains ordinary prose while applying credential
+redaction. JSONL text values become `[content: N bytes]`, where N counts the
+available value before redaction; original size/provenance/status metadata is
+preserved. Existing `parameters.body`, `parameters.bodyFile`, and other flags
+retain their previous representations.
+For example, `gh pr create -t T -b B` adds:
+
+```json
+{"texts":{"title":{"value":"T","source":"inline","bytes":1},"body":{"value":"B","source":"inline","bytes":1}}}
+```
 
 ### Level, confidence, resolution, and execution
 
@@ -593,9 +666,10 @@ repeating every descendant.
 
 ### L1 limitations
 
-No native file/body/stdin content, interactive choice, local git/API resolution,
-complete Cobra positional-count validation, enum validation, or actual outcome is
-inferred. Numeric/duration values use generated pflag types, but gh's custom string
+Native prose extraction is limited to the mapped text-bearing commands above.
+Interactive choices, generated/final editor text, local git/API resolution,
+complete Cobra positional-count validation, enum validation, and actual outcomes
+are not inferred. Numeric/duration values use generated pflag types, but gh's custom string
 enum validators are not reconstructed from Value.Type().
 Known leaves with unknown flags keep intent but have heuristic confidence.
 Unknown flag evidence comes from strict pflag errors; a fresh parse uses pflag's
@@ -1170,8 +1244,8 @@ repository/variable/input gaps are not necessarily resolvable by context lookup.
 The normalizer has no ambient stdin/filesystem/network/environment reads. Its
 `Invocation` supplies argv, environment map, cwd, aliases, captured `StdinData`,
 and an optional bounded `ReadFile` callback. "Pure" here means I/O is injected,
-not that analyzing an explicitly provided file cannot call that reader. L1 does
-not call it; L2/L3 can. Missing data remains unresolved/unknown.
+not that analyzing an explicitly provided file cannot call that reader. All three
+layers can use it. Missing data remains unresolved/unknown.
 
 The wrapper/inspection CLI checks alias-expanded API arguments for `--input -`
 or a typed `-F key=@-`. It does not pre-read native interactive input such as
@@ -1186,6 +1260,12 @@ Observe logging, audit-only policies, and post-hooks alone do not pre-read stdin
 normalization/logs retain `stdin not captured` uncertainty while gh starts
 without waiting for producer EOF. `ghok normalize`/`explain` still read requested
 non-TTY input independently of configured enforcement.
+
+For native text flags, wrapper capture instead requires a potentially matching
+enabled pre-hook. The existing parsed text provenance identifies stdin, including
+bundled `-F` shorthands; known native operation/effect/target matches may exclude
+irrelevant hooks before capture. Inspection commands do not pre-read native
+stdin; their native stdin texts remain explicitly `not-captured`.
 
 | Stdin status | Analysis behavior |
 | --- | --- |
@@ -1229,7 +1309,7 @@ normalization.
 
 | Area | Supported | Partial / deliberately not inferred | Unsupported / unknown |
 | --- | --- | --- | --- |
-| Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; plain alias chains. | Context lookup, interactive values, body contents, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
+| Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; normalized prose on mapped commands; plain alias chains. | Context lookup, interactive/generated text, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
 | REST | All 1,242 pinned public OpenAPI operations; 206 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
 | GraphQL | AST selection/variables/aliases/fragments/directives; 278 schema-backed writes including 39 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
 

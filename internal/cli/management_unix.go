@@ -15,6 +15,7 @@ import (
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/install"
+	"github.com/mkusaka/ghok/internal/protocol"
 	"github.com/mkusaka/ghok/internal/redact"
 	"github.com/spf13/cobra"
 )
@@ -96,16 +97,25 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	var testJSON bool
 	var testOptions managementInspectOptions
 	var exitCode int
+	var expect string
 	phase := config.PhasePre
-	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(_ *cobra.Command, args []string) int {
-		return managementHooksTest(args, phase, exitCode, testJSON, testOptions)
+	test := managementCommand("test [flags] -- <gh args>", "Run the hooks matching a gh command (never runs gh itself)", code, func(cmd *cobra.Command, args []string) int {
+		if cmd.Flags().Changed("expect") {
+			switch protocol.Decision(expect) {
+			case protocol.DecisionAllow, protocol.DecisionDeny, protocol.DecisionAbstain, protocol.DecisionAudit:
+			default:
+				return managementUsageError("--expect must be allow, deny, abstain or audit")
+			}
+		}
+		return managementHooksTest(args, phase, exitCode, testJSON, testOptions, expect)
 	})
-	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe original gh command. Local context is resolved by default; --allow-api permits\nread-only API resolution. Post hooks receive a synthetic result (exit 0 unless --exit-code)."
+	test.Long = "Run the hooks that match <gh args> for real, as the wrapper would, but never start\nthe original gh command. Local context is resolved by default; --allow-api permits\nread-only API resolution. Post hooks receive a synthetic result (exit 0 unless --exit-code).\n\n--expect compares the printed/JSON Aggregate decision after policy and configured-mode\nhandling, not the raw hook decision or would-deny (observe-mode would-deny is audit).\nWith --expect, exit 0 on a match, overriding normal denial/hook-error status, or 1\non a mismatch. Without --expect, exit 1 on an effective Aggregate deny or hook\nexecution error (nonzero exit/spawn failure, timeout, invalid response, cancellation),\notherwise 0. Configuration/analysis failures exit 1; usage errors exit 2."
 	test.Example = "  ghok hooks test -- pr merge 123 --admin\n  ghok hooks test --no-resolve -- pr merge 123\n  ghok hooks test --phase post --exit-code 1 -- pr merge 123 -R org/repo"
 	test.Args = managementInvocationArgs
 	test.Flags().BoolVar(&testJSON, "json", false, "print JSON")
 	test.Flags().StringVar(&phase, "phase", config.PhasePre, "hook phase: pre or post")
 	test.Flags().IntVar(&exitCode, "exit-code", 0, "post phase: synthetic gh exit code (selects match.result/exitCode hooks)")
+	test.Flags().StringVar(&expect, "expect", "", "expect the effective Aggregate decision: allow, deny, abstain or audit")
 	managementResolutionFlags(test, &testOptions)
 	hookCommands.AddCommand(list, test)
 
@@ -157,9 +167,28 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 			if len(args) != 0 {
 				path = args[0]
 			}
+			list, _ := cmd.Flags().GetBool("list")
+			all, _ := cmd.Flags().GetBool("all")
+			if list || all {
+				return managementConfigTrustStore(all)
+			}
 			return managementConfigTrust(cmd.Name(), path)
 		})
-		cmd.Args = cobra.MaximumNArgs(1)
+		flag := "list"
+		if name == "untrust" {
+			flag = "all"
+		}
+		cmd.Flags().Bool(flag, false, "manage all stored project trust without PATH")
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
+			enabled, _ := cmd.Flags().GetBool(flag)
+			if enabled && len(args) != 0 {
+				return fmt.Errorf("--%s cannot be combined with PATH", flag)
+			}
+			return nil
+		}
 		configCommands.AddCommand(cmd)
 	}
 	configCommands.AddCommand(initCmd, validate, path, schema)

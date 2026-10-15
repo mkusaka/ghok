@@ -101,6 +101,7 @@ func Normalize(inv model.Invocation, req model.APIRequest) model.Result {
 			}
 			input, _ := args["input"].(map[string]any)
 			op := mutationOperation(root.field.Name, input)
+			extractTexts(&op, root.field, input, req, resolver)
 			if input == nil {
 				op.Unresolved = append(op.Unresolved, model.Unresolved{Field: "parameters.input", Source: "variable", Reason: "mutation input unavailable or not an object"})
 			}

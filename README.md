@@ -89,8 +89,12 @@ go install github.com/mkusaka/ghok/cmd/ghok@latest
 ghok version
 ```
 
-Put `$(go env GOPATH)/bin` (or your `GOBIN`) on PATH. Plain `go install` does not
-inject the release version/commit: `ghok version` reports `dev`.
+Put `$(go env GOPATH)/bin` (or your `GOBIN`) on PATH. Without release ldflags,
+`ghok version` uses Go's embedded module version (for example `v0.0.3` from
+`go install ...@v0.0.3`) and VCS revision when available. Injected release
+version/commit values take precedence. If the module version is unknown or
+`(devel)`, the version stays `dev`; `ghok doctor` warns that features may differ
+from the docs.
 
 ### Release archive
 
@@ -202,29 +206,60 @@ Global config: `GHOK_CONFIG_DIR/config.yaml`, otherwise
 Missing config defaults to **observe**, unknown-mutation **audit**, and logging
 **enabled**. Project policy can only tighten explicitly set mode/unknown handling
 and append rules/protected repositories; it never weakens global policy.
-Projects cannot set runtime, logging or trust, even as empty sections.
+Projects cannot set runtime or logging. `trust.include` is project-only; user
+configuration has no `trust.projects` setting.
 
 Inspect project hooks, then manage their activation:
 
 ```sh
 ghok config trust                   # current repository-root .ghok.yaml
 ghok config trust /path/to/repo/.ghok.yaml
-ghok config untrust                 # deactivate project hooks; policy remains
+ghok config trust --list             # all retained trusted digests and metadata
+ghok config untrust                 # remove only the current digest; policy remains
+ghok config untrust --all           # remove every trusted digest
 ```
 
-Trust records the canonical absolute, symlink-resolved config path and SHA256 of
-its exact bytes, plus `trustedAt`, in `<config-dir>/trust.json`. Any byte edit
-(including a git pull) disables only the project hooks until you re-trust.
-The store is written atomically with mode 0600 in a 0700 config directory;
-a corrupt store yields empty trust and a diagnostic note, not weaker policy.
-Trust validates the project and effective config and reports enabled hooks with
-resolved commands. Both commands reject missing files and paths that are not a
-repository-root `.ghok.yaml`; untrust is idempotent when no entry exists.
-Legacy `trust.projects` YAML is accepted but ignored and deprecated.
-Hook executable contents are not hashed: inspect their changes too.
-This is not protection against concurrent file replacement or malicious users.
-Validate, doctor and explain report trust notes; ordinary wrapper invocations
-do not print them to stderr.
+Trust retains a set of content digests across versions, worktrees and clones.
+The v1 manifest sorts unique repository-relative paths and encodes each path,
+executable bit and SHA256 content hash (or missing marker), separated by NULs.
+It covers exact `.ghok.yaml` bytes, project hook executables inside the root,
+and files explicitly listed under project-only `trust.include`, for example:
+
+```yaml
+trust:
+  include:
+    - .github/scripts/check-pr-description.ts
+    - .gitleaks.toml
+```
+
+Project hook commands must start with `./` or be absolute; user hooks may still
+use bare PATH names. Relative paths resolve under the repository root. Manifest
+files must resolve within that root (including symlink targets) and be regular
+files, with at most 256 files and total bytes bounded by the effective
+`runtime.fileMaxBytes`. Missing files are represented by markers, so creating
+one changes the digest. Absolute external executables are not hashed.
+Any covered byte or executable-bit change disables hooks for that content until
+re-trusted; notes name changed files. Policy-only configs skip manifest computation.
+
+Interpreters, PATH tools, unlisted imports, dependencies and data are not covered.
+Add repository-relative imports/dependencies/data to `trust.include` as needed;
+trust output lists every hashed file, hook IDs and resolved commands, and explains
+these coverage limits.
+
+`<config-dir>/trust.json` stores each digest with `firstPath`, `configPath`,
+`trustedAt`, hook IDs and per-file executable bits and hashes/missing markers.
+`ghok config trust --list` shows retained digests, first paths, timestamps, hook IDs
+and file metadata, plus store notes. Locations are diagnostic metadata, not digest
+inputs. The store is written atomically with mode 0600 in a 0700 config directory.
+Invalid or old-format stores grant no hook trust and emit a generic note;
+declarative policy still applies.
+
+Trust and current-only untrust reject missing configs and paths other than a
+repository-root `.ghok.yaml`. Untrust is idempotent and leaves other trusted
+versions intact; `--all` clears the entire digest set. Identical code is trusted
+anywhere, not a repository identity. This is not a security boundary against
+concurrent file replacement or malicious users. Validate, doctor and explain
+report trust notes; ordinary wrapper invocations do not print them to stderr.
 
 ```yaml
 version: 1
@@ -286,6 +321,23 @@ matches are considered conservatively. Every considered operation in a
 multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
+
+`match.env` applies to rules and pre/post hooks using the caller's invocation
+environment, before hook-specific `env` overrides. Names must match
+`[A-Za-z_][A-Za-z0-9_]*`; values are case-sensitive `path.Match` globs. `"*"`
+means set and non-empty (including values containing `/`); `""` means unset or
+empty. Every map entry must match, ANDed with the other criteria. Environment
+variables are caller-controlled: this is a guardrail against mistakes, **not a
+security boundary**.
+
+```yaml
+policy:
+  mode: enforce
+  rules:
+    - id: no-worker-merges
+      match: {env: {MALL_GH_WORKER: "1"}, operation: "pr.merge.*"}
+      decision: deny
+```
 
 `match.token: app|user|unknown|none` matches the kind of credential gh will use
 (from the `GH_TOKEN`/`GITHUB_TOKEN` prefix; the token is never logged). Wrappers
@@ -366,9 +418,18 @@ read-only API queries without requiring `--resolve`; it cannot be combined with
 `--no-resolve`. The deprecated `--resolve` flag is accepted as a no-op.
 `hooks test` **executes trusted hooks**, using a synthetic result for the post
 phase (exit 0, or `--exit-code N` to exercise `match.result`/`match.exitCode`),
-but never runs the original command. Management exit codes:
-0 success, 1 failure/denial, 2 usage error. `explain --show-secrets` deliberately
-disables display redaction; do not paste that output into logs or tickets.
+but never runs the original command. Without `--expect`, `hooks test` exits 1 on
+an effective Aggregate deny or any hook execution error (nonzero exit/spawn
+failure, timeout, invalid response, cancellation), otherwise 0. Use
+`ghok hooks test --expect deny -- <gh args>` to assert the printed/JSON Aggregate
+decision (`allow|deny|abstain|audit`), after policy and configured-mode handling:
+observe-mode would-deny compares as `audit`, not `deny`. An abstaining hook
+normally leaves this effective decision `allow`; it is not the raw hook result.
+With `--expect`, a match exits 0 even on denial/hook error; a mismatch exits 1
+with expected/actual values on stderr. Configuration/analysis failures still
+exit 1 and usage errors exit 2. Other management commands use 0 success,
+1 failure/denial, 2 usage error. `explain --show-secrets` deliberately disables
+display redaction; do not paste that output into logs or tickets.
 
 Explain starts with the policy decision, deny reasons and pre/post hook
 selection, then shows operations and unresolved fields once, followed by rule

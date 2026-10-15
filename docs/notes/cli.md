@@ -55,9 +55,9 @@ whose declarative policy is merged independently of hook trust. Project
 parse/merge failures report the attempted source before the error.
 `config validate [--file PATH]` prints these sources then `Configuration valid`
 or errors. Doctor's `config` detail and explain use the same notes, including
-untrusted/changed hooks, corrupt trust stores and legacy `trust.projects`
-deprecation. Notes guide users to `ghok config trust`; ordinary wrapper
-invocations do not print trust notes to stderr.
+untrusted/changed hooks and invalid trust stores. Notes guide users to
+`ghok config trust`; ordinary wrapper invocations do not print trust notes to
+stderr.
 
 `hooks list` emits load-time `Hook.Source` in text and JSON, identifying the
 global config path or project `.ghok.yaml`, and explicitly lists ignored project

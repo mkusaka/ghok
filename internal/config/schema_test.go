@@ -43,23 +43,22 @@ func TestExampleConfigMatchesSchema(t *testing.T) {
 	}
 }
 
-func TestLegacyTrustSchema(t *testing.T) {
-	s := Schema(false)
-	trust := s["properties"].(map[string]any)["trust"].(map[string]any)
-	projects := trust["properties"].(map[string]any)["projects"].(map[string]any)
-	if trust["deprecated"] != true || projects["deprecated"] != true {
-		t.Fatal("legacy trust and trust.projects must be deprecated")
-	}
+func TestProjectTrustIncludeSchema(t *testing.T) {
 	valid := map[string]any{
 		"version": 1,
-		"trust":   map[string]any{"projects": []any{"/repo/.ghok.yaml"}},
+		"trust":   map[string]any{"include": []any{".gitleaks.toml"}},
 	}
-	if err := checkSchema(s, valid, "$"); err != nil {
-		t.Fatalf("legacy trust structure must remain accepted: %v", err)
+	if err := checkSchema(Schema(true), valid, "$"); err != nil {
+		t.Fatalf("project includes rejected: %v", err)
 	}
-	valid["trust"] = map[string]any{"projects": []any{1}}
-	if err := checkSchema(s, valid, "$"); err == nil {
-		t.Fatal("legacy trust.projects must still require string paths")
+	if err := checkSchema(Schema(false), valid, "$"); err == nil {
+		t.Fatal("user config must reject project-only trust")
+	}
+	for _, invalid := range []map[string]any{{"include": []any{1}}, {"projects": []any{"/repo/.ghok.yaml"}}} {
+		valid["trust"] = invalid
+		if err := checkSchema(Schema(true), valid, "$"); err == nil {
+			t.Fatalf("invalid trust section accepted: %v", invalid)
+		}
 	}
 }
 

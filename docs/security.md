@@ -89,40 +89,57 @@ Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then
 HOME/.config/ghok. The nearest discovered repository's `.ghok.yaml` always
 contributes declarative policy: explicitly set values can only tighten observe
 to enforce or allow to audit to deny, while rules and protected repositories
-append. Attempted weakening is ignored with a note. Projects cannot set
-runtime/logging/trust, even empty sections. Invalid project policy or an invalid
-effective config still fails validation; wrapper config failure then passes
-through without hooks.
+append. Attempted weakening is ignored with a note. Projects cannot set runtime
+or logging, even empty sections. `trust.include` is project-only; user
+`trust.projects` is not supported. Invalid project policy or an invalid effective
+config fails validation; wrapper config failure then passes through without hooks.
 
 Repository hooks are inactive until the user inspects them and runs
 `ghok config trust [PATH]`. Without PATH it selects the current repository-root
 `.ghok.yaml`; an explicit path must designate a repository-root `.ghok.yaml`.
-Repository and config symlinks are allowed. Trust validates project restrictions
-and the effective config, then reports enabled hooks with resolved commands.
-Relative project executable paths resolve against the repository config's
-containing directory, even if the config itself is a symlink.
+Repository/config symlinks are allowed only when manifest files resolve within
+the repository root. Trust validates project restrictions and effective config,
+then prints the digest, every hashed file with hook IDs, enabled hooks with
+resolved commands, and a coverage disclaimer.
 
-The local `<config-dir>/trust.json` store keys entries by **canonical absolute,
-symlink-resolved config path**, recording the SHA256 of the exact file bytes and
-`trustedAt`. It uses a 0700 config directory and a 0600 temporary file followed
-by atomic rename to a 0600 store. A corrupt store grants no hook trust and
-returns a diagnostic note; declarative policy still applies. Any byte change
-to `.ghok.yaml`, including comments or a git pull, revokes only its hooks until
-re-trusted. Legacy global `trust.projects` is parsed but ignored and deprecated,
-including an empty list.
+The v1 canonical manifest sorts unique repository-relative paths, encoding each
+path, executable bit and SHA256 content hash or missing marker separated by NULs.
+It includes exact `.ghok.yaml` bytes, root-contained project hook executables and
+project `trust.include` files. Use `trust.include` for repository-relative imports,
+dependencies or data, such as `.github/scripts/check-pr-description.ts` and
+`.gitleaks.toml`. Existing manifest entries must resolve to regular files inside
+the root; escaping paths/symlinks are rejected. The manifest permits at most
+256 files and total bytes up to the effective `runtime.fileMaxBytes`.
+Policy-only configs skip manifest computation.
 
-`ghok config untrust [PATH]` removes the entry without removing policy and is
-idempotent if the entry is absent. Both commands reject missing files and paths
-outside a repository-root `.ghok.yaml`. Validate, doctor and explain report
-trust notes and how to activate hooks; hook listings/explain explicitly show
-ignored hooks. Normal wrapper invocations do not print trust notes to stderr.
+Project commands must use `./relative` or absolute executable paths; user hooks
+retain bare PATH names. Absolute external executables are excluded from hashing.
+Interpreters, PATH tools and unlisted imports, dependencies or data are not
+covered. Changing any covered byte (including YAML comments) or executable bit,
+or creating a previously missing file, changes the digest and disables hooks
+for that content until re-trusted. Notes identify changed files.
 
-**Hook executable contents are not hashed.** Trusting YAML does not authenticate
-the programs it invokes, their dependencies, PATH lookups or subsequent changes.
-Group/world-writable configs and hook files produce diagnostic notes, not a
-mandatory refusal. No ownership/signature check authenticates hook code, and
-hash/path checks and atomic writes are not a concurrency security boundary
-against filesystem replacement or competing writers.
+`<config-dir>/trust.json` retains a set of digests across versions, worktrees and
+clones. Records contain `firstPath`, `configPath`, `trustedAt`, hook IDs and file
+executable bits and hashes/missing markers. `ghok config trust --list` prints
+digests, first paths, timestamps, hook IDs, per-file metadata and store notes.
+Locations are diagnostic metadata, not digest inputs: identical content is
+trusted anywhere, not authenticated as a repository identity. The store uses a
+0700 config directory and a 0600 temporary file atomically renamed to a 0600
+store. Invalid or old-format stores grant no hook trust and return a generic
+note; declarative policy still applies.
+
+`ghok config untrust [PATH]` idempotently removes only the current digest without
+removing policy; other trusted versions remain. `ghok config untrust --all`
+clears all digests. Trust and current-only untrust reject missing configs and
+paths other than a repository-root `.ghok.yaml`. Validate, doctor and explain
+report trust notes; hook listings/explain identify ignored hooks as untrusted
+or changed since trust. Normal wrapper invocations keep trust notes off stderr.
+
+Group/world-writable configs and hook files produce notes, not a mandatory
+refusal. No ownership/signature check authenticates hook code. Content hashes
+and atomic writes are not a security boundary against concurrent filesystem
+replacement, competing writers or malicious users.
 
 ## Redaction rules and limits
 

@@ -35,6 +35,50 @@ func doctorFixture(t *testing.T) DoctorOptions {
 	return DoctorOptions{Self: o.Self, Version: "test", PathEnv: o.PathEnv, BinDir: filepath.Dir(result.ShimPath), StateDir: o.StateDir, Env: []string{"HOME=" + filepath.Dir(o.Self), "XDG_CONFIG_HOME=" + filepath.Join(filepath.Dir(o.Self), "config"), "PATH=/nonexistent"}, Stdin: stdin}
 }
 
+func TestDoctorBuildVersion(t *testing.T) {
+	const warning = "development build: version unknown; features may differ from the docs"
+	for _, tc := range []struct {
+		name, version, executable string
+		want                      Status
+	}{
+		{"development", "dev", "valid", StatusWarn},
+		{"released", "v1.2.3", "valid", StatusOK},
+		{"development-like release", "dev-custom", "valid", StatusOK},
+		{"missing development binary", "dev", "missing", StatusFail},
+		{"nonexecutable development binary", "dev", "nonexecutable", StatusFail},
+		{"directory development binary", "dev", "directory", StatusFail},
+		{"missing release binary", "v1.2.3", "missing", StatusFail},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := doctorFixture(t)
+			o.Version = tc.version
+			switch tc.executable {
+			case "missing":
+				o.Self = filepath.Join(filepath.Dir(o.Self), "missing")
+			case "nonexecutable":
+				if err := os.Chmod(o.Self, 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "directory":
+				o.Self = filepath.Dir(o.Self)
+			}
+			c := checkNamed(t, Checks(o), "ghok")
+			if c.Status != tc.want {
+				t.Fatalf("ghok check = %+v, want status %s", c, tc.want)
+			}
+			if strings.Contains(c.Detail, warning) != (tc.want == StatusWarn) {
+				t.Errorf("unexpected development warning: %+v", c)
+			}
+			if tc.executable == "valid" && !strings.Contains(c.Detail, "(version "+tc.version+")") {
+				t.Errorf("version missing from detail: %+v", c)
+			}
+			if tc.want == StatusFail && !strings.Contains(c.Detail, o.Self) {
+				t.Errorf("invalid executable missing from detail: %+v", c)
+			}
+		})
+	}
+}
+
 func TestDoctorHealthyAndRecursionRisks(t *testing.T) {
 	o := doctorFixture(t)
 	checks := Checks(o)

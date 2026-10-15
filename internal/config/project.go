@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -29,8 +31,6 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	for _, h := range c.Hooks {
 		warnWritable(hookPermissionPath(c.HookCommandPath(h), cwd, env), &notes)
 	}
-	store, trustNotes := readTrustStore(env)
-	notes = append(notes, trustNotes...)
 	project, err := findProject(cwd, env["HOME"])
 	if err != nil {
 		return nil, notes, err
@@ -38,14 +38,10 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	if project == "" {
 		return c, notes, nil
 	}
-	resolved, err := filepath.EvalSymlinks(project)
-	if err != nil {
-		return nil, notes, err
-	}
 	sourceIndex := len(notes)
 	notes = append(notes, fmt.Sprintf("Project config: %s (loading declarative policy)", project))
 	warnWritable(project, &notes)
-	data, err := os.ReadFile(resolved)
+	data, _, err := readProjectData(project, c.Runtime.FileMaxBytes)
 	if err != nil {
 		return nil, notes, err
 	}
@@ -53,14 +49,41 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	if err != nil {
 		return nil, notes, err
 	}
-	reason := "untrusted"
-	if entry, ok := store[resolved]; ok {
-		reason = "changed since trust"
-		if entry.SHA256 == projectDigest(data) {
-			reason = ""
+	reason := ""
+	if len(p.Hooks) != 0 {
+		digest, files, err := projectManifest(data, p, filepath.Dir(project), c.Runtime.FileMaxBytes)
+		if err != nil {
+			return nil, notes, fmt.Errorf("project config %s: %w", project, err)
+		}
+		store, trustNotes := readTrustStore(env)
+		notes = append(notes, trustNotes...)
+		if _, ok := store[digest]; !ok {
+			reason = "untrusted"
+			keys := make([]string, 0, len(store))
+			for key := range store {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			var changed []string
+			for _, key := range keys {
+				entry := store[key]
+				if entry.ConfigPath != ".ghok.yaml" {
+					continue
+				}
+				diff := changedTrustFiles(files, entry.Files)
+				if reason == "untrusted" || len(diff) < len(changed) {
+					reason, changed = "changed since trust", diff
+				}
+			}
+			if reason == "changed since trust" {
+				notes = append(notes, "Changed files since trust: "+strings.Join(changed, ", "))
+			}
 		}
 	}
 	status := "policy loaded; hooks trusted"
+	if len(p.Hooks) == 0 {
+		status = "policy loaded; no project hooks"
+	}
 	if reason != "" {
 		status = "policy loaded; hooks ignored (" + reason + "); run ghok config trust"
 	}
@@ -91,6 +114,17 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
+	for _, h := range p.Hooks {
+		command := h.Command[0]
+		if !filepath.IsAbs(command) && !strings.HasPrefix(command, "./") {
+			return nil, nil, fmt.Errorf("project config %s: hook %s command must use ./relative or an absolute path; bare PATH names are not allowed", project, h.ID)
+		}
+	}
+	for _, path := range p.Trust.Include {
+		if !filepath.IsLocal(path) {
+			return nil, nil, fmt.Errorf("project config %s: trust.include %q must be repository-relative and cannot escape repository root", project, path)
+		}
+	}
 	return p, n, nil
 }
 
@@ -99,10 +133,10 @@ func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[strin
 		h := &p.Hooks[i]
 		h.Source = project
 		h.Command[0] = p.HookCommandPath(*h)
+		warnWritable(hookPermissionPath(h.Command[0], cwd, env), notes)
 		if reason != "" {
 			c.IgnoredHooks = append(c.IgnoredHooks, IgnoredHook{Hook: *h, Reason: reason})
 		} else {
-			warnWritable(hookPermissionPath(p.HookCommandPath(*h), cwd, env), notes)
 			c.Hooks = append(c.Hooks, *h)
 		}
 	}

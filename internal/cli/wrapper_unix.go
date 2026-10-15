@@ -5,8 +5,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -114,7 +116,8 @@ func Wrapper(args []string) int {
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	inv := invocation(cfg, args, env, cwd, model.StdinData{Status: model.StdinNotCaptured})
-	spoolNeeded, stdinSkipped := shouldSpool(cfg, expandedArgv(inv))
+	result := normalize.Normalize(inv)
+	spoolNeeded, stdinSkipped := shouldSpool(cfg, result, env)
 	if spoolNeeded {
 		spool, spoolErr := process.SpoolStdin(os.Stdin, cfg.Runtime.StdinMaxBytes, cfg.Runtime.StdinTimeout.D())
 		if spool == nil {
@@ -122,10 +125,11 @@ func Wrapper(args []string) int {
 		} // Replay could not preserve consumed bytes.
 		defer func() { _ = spool.Close() }()
 		opts.Stdin, inv.Stdin = spool, spool.Data()
+		result = normalize.Normalize(inv)
 	}
-	result := normalize.Normalize(inv)
+	fillTextSizes(&result, cwd)
 	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: childEnv, RealGh: real, Redact: redactor.String}
-	subject := policy.Subject{Result: result, Argv: result.Source.Argv, Token: policy.TokenKind(env)}
+	subject := policy.Subject{Result: result, Argv: result.Source.Argv, Token: policy.TokenKind(env), Env: env}
 	var resolved *model.ResolvedContext
 	localNeeded := needsLocal(cfg, subject)
 	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || cfg.Policy.Mode == config.ModeEnforce && localNeeded)
@@ -259,30 +263,46 @@ func Wrapper(args []string) int {
 	return 0
 }
 
-// Body-dependent actions/effects/targets cannot exclude a match before capture.
-// Only the parsed API level and command prefix can prove it irrelevant.
-func shouldSpool(c *config.Config, argv []string) (spool, skipped bool) {
-	if len(argv) == 0 || argv[0] != "api" {
-		return false, false
+// API body-dependent matches remain conservative. Native text provenance uses
+// the existing flag parse, including bundled shorthands and interactive flows.
+func shouldSpool(c *config.Config, result model.Result, env map[string]string) (spool, skipped bool) {
+	argv := result.Source.Argv
+	api := len(argv) > 0 && argv[0] == "api"
+	s := policy.Subject{Result: result, Argv: argv, Token: policy.TokenKind(env), Env: env}
+	if api {
+		req, err := apiargs.Parse(argv[1:])
+		if err != nil || !apiargs.NeedsStdin(req) {
+			return false, false
+		}
+		level := model.LevelL2
+		if apiargs.IsGraphQL(req) {
+			level = model.LevelL3
+		}
+		s.Result = model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured")
+	} else {
+		needed := false
+		for _, op := range result.Operations {
+			if op.Texts != nil {
+				for _, text := range [3]*model.Text{op.Texts.Title, op.Texts.Body, op.Texts.Notes} {
+					needed = needed || text != nil && text.Source == "stdin"
+				}
+			}
+		}
+		if !needed {
+			return false, false
+		}
 	}
-	req, err := apiargs.Parse(argv[1:])
-	if err != nil || !apiargs.NeedsStdin(req) {
-		return false, false
-	}
-	level := model.LevelL2
-	if apiargs.IsGraphQL(req) {
-		level = model.LevelL3
-	}
-	s := policy.Subject{Result: model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured"), Argv: argv, Token: policy.TokenKind(environment())}
 	couldMatch := func(m config.Match) bool {
-		m.Operations, m.Effects = nil, nil
+		if api {
+			m.Operations, m.Effects = nil, nil
+		}
 		yes, _ := policy.Matches(m, s)
 		if !yes {
 			yes, _ = policy.MatchMaybe(m, s)
 		}
 		return yes
 	}
-	if c.Policy.Mode == config.ModeEnforce {
+	if api && c.Policy.Mode == config.ModeEnforce {
 		if c.Policy.UnknownMutation == config.UnknownDeny ||
 			len(c.Policy.ProtectedRepositories) > 0 && c.Policy.ProtectedUnknown == config.UnknownDeny {
 			return true, false
@@ -299,6 +319,42 @@ func shouldSpool(c *config.Config, argv []string) (spool, skipped bool) {
 		}
 	}
 	return false, true
+}
+
+// Native files contain the text itself, not a JSON envelope. Streams stopped at
+// the limit have no known total; regular stdin files retain their original offset.
+func fillTextSizes(result *model.Result, cwd string) {
+	if result.Classification.Level != model.LevelL1 {
+		return
+	}
+	for _, op := range result.Operations {
+		if op.Texts == nil {
+			continue
+		}
+		for _, text := range [3]*model.Text{op.Texts.Title, op.Texts.Body, op.Texts.Notes} {
+			if text == nil || !text.Truncated {
+				continue
+			}
+			switch text.Source {
+			case "file":
+				path := text.Path
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(cwd, path)
+				}
+				if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+					text.Bytes = info.Size()
+				}
+			case "stdin":
+				info, err := os.Stdin.Stat()
+				if err != nil || !info.Mode().IsRegular() {
+					continue
+				}
+				if offset, err := os.Stdin.Seek(0, io.SeekCurrent); err == nil && offset <= info.Size() {
+					text.Bytes = info.Size() - offset
+				}
+			}
+		}
+	}
 }
 
 func needsLocal(c *config.Config, s policy.Subject) bool {

@@ -55,6 +55,9 @@ func Checks(o DoctorOptions) []Check {
 		binary.Status, binary.Detail = StatusFail, fmt.Sprintf("cannot stat ghok %q: %v", o.Self, err)
 	} else if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 		binary.Status, binary.Detail = StatusFail, "ghok is not a regular executable file: "+o.Self
+	} else if o.Version == "dev" {
+		binary.Status = StatusWarn
+		binary.Detail += "; development build: version unknown; features may differ from the docs"
 	}
 	checks := []Check{binary}
 	real, candidates, err := FindRealGh(DiscoverOptions{PathEnv: o.PathEnv, Self: o.Self, Override: o.Override})

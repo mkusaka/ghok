@@ -240,7 +240,7 @@ func TestProjectTrust(t *testing.T) {
 	project := filepath.Join(repo, ".ghok.yaml")
 	global := filepath.Join(root, "global", "config.yaml")
 	env := map[string]string{"HOME": home, "GHOK_CONFIG_DIR": filepath.Dir(global)}
-	base := "version: 1\ntrust:\n  projects: [" + project + "]\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
+	base := "version: 1\npolicy: {mode: enforce, unknownMutation: deny}\nhooks: [{id: global, phase: pre, command: [./global-hook]}]\n"
 	writeFixture(t, global, base)
 	writeFixture(t, project, "invalid: [")
 	if _, _, err := LoadEffective(global, cwd, env); err == nil {
@@ -254,9 +254,6 @@ func TestProjectTrust(t *testing.T) {
 	if c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownDeny || c.Policy.ProtectedUnknown != UnknownDeny || !reflect.DeepEqual(c.Policy.ProtectedRepositories, []string{"org/project"}) || len(c.Policy.Rules) != 1 || len(c.Hooks) != 1 || len(c.IgnoredHooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
 		t.Fatalf("untrusted policy overlay: %+v, notes %v", c, notes)
 	}
-	if !strings.Contains(strings.Join(notes, "\n"), "trust.projects is deprecated and ignored") {
-		t.Fatalf("missing migration note: %v", notes)
-	}
 	if _, _, _, err := TrustProject("", cwd, env); err != nil {
 		t.Fatal(err)
 	}
@@ -265,30 +262,29 @@ func TestProjectTrust(t *testing.T) {
 		t.Fatalf("trusted overlay: %+v, %v", c, err)
 	}
 	writeFixture(t, global, strings.ReplaceAll(base, "policy: {mode: enforce, unknownMutation: deny}", "policy: {mode: observe, unknownMutation: allow, protectedUnknown: allow}"))
-	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}\nhooks: [{id: project, phase: pre, command: [hook]}]")
+	writeFixture(t, project, "version: 1\npolicy: {mode: enforce, unknownMutation: audit, protectedUnknown: deny}\nhooks: [{id: project, phase: pre, command: [./hook]}]")
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.Policy.Mode != ModeEnforce || c.Policy.UnknownMutation != UnknownAudit || c.Policy.ProtectedUnknown != UnknownDeny || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
 		t.Fatalf("changed policy still applies: %+v, %v", c, err)
 	}
 	// Omitted project values must not tighten an explicitly permissive global.
-	writeFixture(t, project, "version: 1\nhooks: [{id: project, phase: pre, command: [hook]}]")
+	writeFixture(t, project, "version: 1\nhooks: [{id: project, phase: pre, command: [./hook]}]")
 	c, _, err = LoadEffective(global, cwd, env)
 	if err != nil || c.Policy.UnknownMutation != UnknownAllow || c.Policy.ProtectedUnknown != UnknownAllow {
 		t.Fatalf("omitted policy: %+v, %v", c, err)
 	}
-	for _, section := range []string{"runtime: {}", "logging: {}", "trust: {}", "<<: {runtime: {}}", "<<: {logging: {}}", "<<: {trust: {}}"} {
+	for _, section := range []string{"runtime: {}", "logging: {}", "<<: {runtime: {}}", "<<: {logging: {}}"} {
 		writeFixture(t, project, "version: 1\n"+section)
 		if _, _, err := LoadEffective(global, cwd, env); err == nil {
 			t.Fatalf("accepted untrusted project %s", section)
 		}
 	}
-	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [hook]}]")
+	writeFixture(t, project, "version: 1\nhooks: [{id: global, phase: pre, command: [./hook]}]")
 	if _, _, _, err := TrustProject("", cwd, env); err == nil {
 		t.Fatal("trust must reject an effective hook ID collision")
 	}
-	// Canonical config identity may be outside the repo through a symlink;
-	// hook commands still resolve against the repository directory.
-	target := filepath.Join(root, "shared.yaml")
+	// A contained config symlink preserves repository-relative hook commands.
+	target := filepath.Join(repo, "shared.yaml")
 	writeFixture(t, target, "version: 1\nhooks: [{id: linked, phase: pre, command: [./hook]}]")
 	if err := os.Remove(project); err != nil {
 		t.Fatal(err)
@@ -297,7 +293,7 @@ func TestProjectTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _, err = LoadEffective(global, cwd, env)
-	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "untrusted" {
+	if err != nil || len(c.Hooks) != 1 || c.IgnoredHooks[0].Reason != "changed since trust" {
 		t.Fatalf("new symlink target: %+v, %v", c, err)
 	}
 	canonical, _, _, err := TrustProject(project, cwd, env)

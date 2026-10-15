@@ -31,6 +31,11 @@ fix). Undo with `ghok shim uninstall` (removes only ghok's own shim).
 **Ask before running `ghok shim install` / `uninstall` on the user's machine** — it
 changes what `gh` means in every shell. Use `--bin-dir` for experiments.
 
+`ghok version` uses injected release metadata, otherwise Go's embedded module
+version and available VCS revision. Tagged `go install` builds report their tag;
+unknown/`(devel)` versions remain `dev`, and doctor warns that features may differ
+from the docs.
+
 ## Configure
 
 ```sh
@@ -44,15 +49,35 @@ Generated files are commented and start with a `yaml-language-server` `$schema` 
 Never overwrite an existing config; edit it instead.
 
 - **Project `.ghok.yaml`** (repository root, commit it to share) automatically
-  tightens policy and adds rules/protected repos; it cannot set `runtime`,
-  `logging` or `trust`. Inspect hooks, then run `ghok config trust [PATH]` to
-  activate them (`PATH` defaults to the current repository-root `.ghok.yaml`).
-  Any byte edit, including a git pull, disables project hooks until re-trusted.
-  `ghok config untrust [PATH]` deactivates hooks idempotently, leaving policy.
-  Both commands reject missing/non-repository-root files. Legacy `trust.projects`
-  is ignored and deprecated. Trust hashes YAML bytes, not hook program contents.
-  Validate/doctor/explain report trust notes; hooks list/explain show ignored
-  hooks explicitly. Ordinary wrapper stderr stays quiet.
+  tightens policy and adds rules/protected repos; it cannot set `runtime` or
+  `logging`. `trust.include` is project-only; user `trust.projects` is unsupported.
+  Inspect hooks, then run `ghok config trust [PATH]` to activate them (`PATH`
+  defaults to the current repository-root `.ghok.yaml`).
+  The v1 manifest sorts unique repository-relative paths and encodes each path,
+  executable bit and SHA256 content hash/missing marker separated by NULs. It
+  covers exact YAML bytes, root-contained hook executables and `trust.include`
+  files. Add imports/dependencies/data explicitly, for example
+  `.github/scripts/check-pr-description.ts` and `.gitleaks.toml`.
+  Project commands require `./relative` or absolute paths; user hooks may use
+  bare PATH names. Relative files and symlink targets must stay under the repo
+  root and be regular files. Limits: 256 files and global total bytes bounded
+  by effective `runtime.fileMaxBytes`. Absolute external executables,
+  interpreters, PATH tools and unlisted imports/dependencies/data are not hashed.
+  Any covered byte or executable-bit change, including creation of a missing
+  file, revokes trust for that content; notes name changed files. Policy-only
+  configs skip manifest computation.
+  Trust retains a digest set across versions/worktrees/clones. Locations are
+  diagnostic, not digest inputs: identical code is trusted anywhere, not as a
+  repository identity or a concurrent-replacement security boundary.
+  Trust output lists every hashed file, hook IDs, resolved commands and coverage
+  limits. `ghok config trust --list` shows digests, first paths, trusted timestamps,
+  hook IDs, per-file executable bits and hashes/missing markers, plus store notes.
+  `ghok config untrust [PATH]` idempotently removes only the current digest,
+  leaving policy and other versions; `ghok config untrust --all` clears all digests.
+  Trust/current-only untrust reject missing/non-repository-root configs.
+  Invalid or old-format stores grant no hook trust and emit a generic note;
+  declarative policy remains active. Validate/doctor/explain report notes;
+  hooks list/explain show ignored hooks. Ordinary wrapper stderr stays quiet.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)
@@ -62,6 +87,12 @@ Never overwrite an existing config; edit it instead.
   (gh command prefix, e.g. `"pr merge"`), `repositories`, `hosts`,
   `effect` (`read|write|unknown`), `level`, `token` (`app` = GitHub App installation token
   such as gain/Actions, `user`, `unknown`, `none` = gh's stored login). Criteria are ANDed; list items are ORed.
+- `match.env` is a map of names (`[A-Za-z_][A-Za-z0-9_]*`) to case-sensitive
+  `path.Match` value globs; every entry must match the invocation environment
+  before hook-specific overrides. `"*"` means set/non-empty (even with `/`),
+  `""` unset/empty. Applies to rules and pre/post hooks. Caller-controlled:
+  a guardrail against mistakes, **not a security boundary**.
+  Example deny rule: `{id: no-worker-merges, match: {env: {MALL_GH_WORKER: "1"}, operation: "pr.merge.*"}, decision: deny}`.
 
 Nothing blocks unless `policy.mode: enforce`. When changing a user's policy to enforce,
 confirm first and show `ghok explain` output for the commands they care about.
@@ -74,6 +105,14 @@ ghok normalize -- api -X PUT repos/o/r/pulls/1/merge  # JSON (redacted)
 ghok hooks list
 ghok hooks test -- pr merge 123                       # runs hooks for real, never gh
 ```
+
+`hooks test --expect allow|deny|abstain|audit -- <gh args>` compares the printed
+effective Aggregate decision after policy/mode handling, not raw hook decisions
+or would-deny: observe-mode denial compares as `audit`; abstaining hooks normally
+leave `allow`. A match exits 0 even on denial/hook error; mismatch exits 1 with a
+stderr diagnostic. Without `--expect`, Aggregate deny or hook execution error
+(nonzero/spawn failure, timeout, invalid response, cancellation) exits 1,
+otherwise 0. Configuration/analysis failures exit 1; usage errors exit 2.
 
 `explain`/`normalize` never run gh or hooks. Use them to get the exact `action` names to
 put in `match.operation`. Classification levels (ghok's own labels):

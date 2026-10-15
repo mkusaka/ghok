@@ -84,6 +84,7 @@ func Normalize(inv model.Invocation, req model.APIRequest) (res model.Result) {
 		}
 	}
 	if rt != nil {
+		extractTexts(&op, rt.operationID, req, body)
 		specialize(&op, body, bodyKnown)
 	}
 	if paramErr != nil {

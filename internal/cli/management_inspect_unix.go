@@ -89,7 +89,7 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 }
 
 func (a *managementAnalysis) subject(phase string) policy.Subject {
-	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase, Token: policy.TokenKind(a.env)}
+	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase, Token: policy.TokenKind(a.env), Env: a.env}
 }
 
 type managementInspectOptions struct {
@@ -162,7 +162,7 @@ func managementHooksList(asJSON bool) int {
 	return 0
 }
 
-func managementHooksTest(args []string, phase string, exitCode int, asJSON bool, options managementInspectOptions) int {
+func managementHooksTest(args []string, phase string, exitCode int, asJSON bool, options managementInspectOptions, expect string) int {
 	if phase != config.PhasePre && phase != config.PhasePost {
 		return managementUsageError("--phase must be pre or post")
 	}
@@ -225,7 +225,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	} else {
 		_, _ = fmt.Fprintln(os.Stdout, "Synthetic hook test: original gh command is not executed.")
 		if phase == config.PhasePost {
-			_, _ = fmt.Fprintln(os.Stdout, "Post hooks receive a synthetic successful result (exitCode=0).")
+			_, _ = fmt.Fprintf(os.Stdout, "Post hooks receive a synthetic result (exitCode=%d).\n", exitCode)
 		}
 		for _, result := range results {
 			_, _ = fmt.Fprintln(os.Stdout, r.String(managementCompact(result)))
@@ -234,6 +234,13 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		if aggregate.Message != "" {
 			_, _ = fmt.Fprintln(os.Stdout, r.String("Message: "+aggregate.Message))
 		}
+	}
+	if expect != "" {
+		if decision != protocol.Decision(expect) {
+			_, _ = fmt.Fprintf(os.Stderr, "ghok: expected Aggregate decision %s, actual %s\n", expect, decision)
+			return 1
+		}
+		return 0
 	}
 	if decision == protocol.DecisionDeny {
 		return 1
