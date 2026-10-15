@@ -17,7 +17,8 @@ Set `GHOK_FAIL_CLOSED=1` to reject any invalid configuration.
 ## How it works
 
 The executable name selects its role; `ghok pr merge ...` is not wrapper syntax.
-For tests, CI and scripts without a shim, use `ghok exec -- <gh args>`.
+For tests, CI and scripts without a shim, use `ghok exec -- <gh args>`;
+for an interactive shell without a shim, see [shell function](#shell-function-without-a-shim).
 
 ```text
 basename(argv[0])
@@ -214,6 +215,27 @@ To uninstall, disable **before** deleting the executable, then remove your
 installed `ghok` binary. Configuration, hooks, logs, and ownership state are
 retained; remove them separately only if you no longer want them. ghok does not
 change real gh, gh/git configuration, or shell rc files.
+
+### Shell function (without a shim)
+
+To try ghok in your own interactive shell without a shim, add to your rc file:
+
+```sh
+eval "$(ghok shell-init zsh)"    # or bash; fish: ghok shell-init fish | source
+```
+
+This defines `function gh { ghok exec -- "$@"; }` (a function, not an alias, so
+it also applies inside the same `zsh -c '...'` string that defines it). gh
+completion keeps working because completion is keyed by the name `gh`.
+
+It covers only `gh` typed in, or run directly by, that shell. These bypass it:
+gh started by scripts, Makefiles, npm scripts or other programs (functions are
+not inherited by `bash -c`/child processes), `xargs gh`, `env gh`, `sudo gh`,
+`nohup gh`, `exec gh`, `command gh`, and agent shells that do not read your rc
+file. Use the shim when every gh on the machine, including agents, must go
+through ghok. Both may be installed: `ghok exec` skips the shim when finding
+real gh, so gh still runs once. `ghok doctor` notices recent `ghok exec` use and
+then reports a missing shim as info, with this coverage gap, instead of a warning.
 
 ## Configuration and hooks
 
@@ -603,6 +625,7 @@ ghok hooks test --phase post --exit-code 1 --json -- pr merge 123 -R org/repo
 ghok hooks test --print-input -- pr create -t Title -b Body -R org/repo
 ghok hooks test --print-input --phase post --exit-code 8 --hook audit -- pr checks 123
 ghok exec -- pr view 123 -R org/repo
+ghok shell-init zsh
 ghok normalize -- pr merge 123 --squash
 ghok explain -- pr merge 123 --admin
 ghok explain --no-resolve -- pr merge 123

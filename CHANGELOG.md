@@ -8,6 +8,11 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- `ghok shell-init zsh|bash|fish` prints an eval-able `gh` shell function that runs `ghok exec --`, for adopting ghok without a PATH shim; the output carries a comment that gh started by scripts or other programs is not covered.
+- `ghok exec` records its last use in `<config-dir>/state/exec-entry`. When it was used within seven days and no owned shim exists, `doctor` reports the shim PATH/ownership checks as info and adds a `shell-entry` check naming the child-process gap; with a shim it notes the shim also covers child processes.
+
 ## [v0.0.6] - 2026-10-15
 
 ### Breaking

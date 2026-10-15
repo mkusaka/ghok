@@ -40,6 +40,9 @@ func wrapper(args []string, argv0, via string) int {
 		return 0
 	}
 	env := environment()
+	if via == "exec" {
+		install.RecordExecEntry(filepath.Join(config.Dir(env), "state"), time.Now())
+	}
 	fatal := func(err error, code int) int {
 		fmt.Fprintln(os.Stderr, "ghok:", redact.New(env).String(err.Error()))
 		return code

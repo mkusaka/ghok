@@ -197,6 +197,18 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		root.AddCommand(cmd)
 	}
 
+	shellInit := managementGroup("shell-init", "Print a gh shell function that runs gh through ghok exec (for eval in a shell rc file)", code)
+	for _, name := range []string{"zsh", "bash", "fish"} {
+		shellInit.AddCommand(managementCommand(name, "Print the "+name+" gh function", code, func(cmd *cobra.Command, _ []string) int {
+			fn := `function gh { ghok exec -- "$@"; }`
+			if cmd.Name() == "fish" {
+				fn = "function gh; ghok exec -- $argv; end"
+			}
+			_, _ = fmt.Fprintln(os.Stdout, shellInitCaveat+fn)
+			return 0
+		}))
+	}
+
 	configCommands := managementGroup("config", "Create, validate and locate ghok configuration", code)
 	var file string
 	validate := managementCommand("validate", "Validate the effective configuration (all errors at once)", code, func(_ *cobra.Command, _ []string) int {
@@ -268,7 +280,7 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		configCommands.AddCommand(cmd)
 	}
 	configCommands.AddCommand(initCmd, validate, path)
-	root.AddCommand(shim, doctor, versionCmd, hookCommands, configCommands, schemaCommands)
+	root.AddCommand(shim, shellInit, doctor, versionCmd, hookCommands, configCommands, schemaCommands)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Show help for a command",
@@ -333,6 +345,11 @@ func managementGroup(use, short string, code *int) *cobra.Command {
 		return 2
 	})
 }
+
+// shellInitCaveat is printed so it stays next to the function in rc files.
+const shellInitCaveat = `# ghok: gh typed in this shell runs through 'ghok exec'. gh started by scripts,
+# programs or agents that skip shell rc files is not covered; 'ghok shim install' is.
+`
 
 func managementVersion(version, commit string) int {
 	if version == "" {

@@ -100,6 +100,9 @@ func Checks(o DoctorOptions) []Check {
 			checks = append(checks, ownership)
 		}
 	}
+	if entry := execEntryCheck(o.StateDir, checks, time.Now()); entry != nil {
+		checks = append(checks, *entry)
+	}
 	recursion := Check{Name: "recursion-risk", Status: StatusOK, Detail: "Discovery excludes self and ghok-named executables; nesting is bounded by GHOK_DEPTH. GHOK_NESTED=1 alone does not bypass analysis; helper bypass requires a live invocation token in GHOK_NESTED_TOKEN."}
 	var risks []string
 	if _, _, err := NextDepth(env); err != nil {
@@ -173,6 +176,46 @@ func Checks(o DoctorOptions) []Check {
 	}
 	checks = append(checks, Check{Name: "platform-process", Status: StatusInfo, Detail: detail})
 	return checks
+}
+
+const execEntryFile = "exec-entry"
+
+// RecordExecEntry marks a recent `ghok exec` (shell function or script) for
+// doctor. Best-effort: the wrapper must not fail or slow down over it.
+func RecordExecEntry(stateDir string, now time.Time) {
+	path := filepath.Join(stateDir, execEntryFile)
+	if os.Chtimes(path, now, now) == nil || os.MkdirAll(stateDir, 0700) != nil {
+		return
+	}
+	if f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0600); err == nil {
+		_ = f.Close()
+	}
+}
+
+// execEntryCheck reports `ghok exec` use within a week. Without an owned shim,
+// it downgrades the shim's PATH/ownership warnings to info: the user chose the
+// shell entry, whose gap (child-process gh) the check itself names.
+func execEntryCheck(stateDir string, checks []Check, now time.Time) *Check {
+	info, err := os.Stat(filepath.Join(stateDir, execEntryFile))
+	if err != nil || now.Sub(info.ModTime()) > 7*24*time.Hour {
+		return nil
+	}
+	used := "ghok exec last used " + info.ModTime().Format(time.DateTime)
+	shimOK := false
+	for _, c := range checks {
+		if c.Name == "shim-ownership" && c.Status == StatusOK {
+			shimOK = true
+		}
+	}
+	if shimOK {
+		return &Check{Name: "shell-entry", Status: StatusInfo, Detail: used + "; the shim also covers gh started by scripts and other programs"}
+	}
+	for i := range checks {
+		if (checks[i].Name == "path-precedence" || checks[i].Name == "shim-ownership") && checks[i].Status == StatusWarn {
+			checks[i].Status = StatusInfo
+		}
+	}
+	return &Check{Name: "shell-entry", Status: StatusInfo, Detail: used + " (shell function or scripts); without the shim, gh started by scripts, programs or agents that skip shell rc files bypasses ghok", Fix: "Run ghok shim install to cover them."}
 }
 
 var ghVersionRE = regexp.MustCompile(`(?m)^gh version ([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+][^ ]*)?(?: |$)`)

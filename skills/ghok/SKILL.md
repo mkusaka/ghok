@@ -15,6 +15,10 @@ ghok has an executable-name-selected shim and a management CLI:
 `ghok exec` is useful for tests/CI/scripts without a shim on PATH. It runs the
 same pipeline once, forces real-gh argv[0] to `gh`, and is **not a policy bypass**.
 Hook input and logs record `invocation.via: "exec"` instead of `"shim"`.
+`eval "$(ghok shell-init zsh|bash)"` (fish: `ghok shell-init fish | source`) defines a
+`gh` function calling `ghok exec --`: it covers gh typed in that shell only, not gh run by
+scripts/programs/`xargs`/`env`/`sudo` or agent shells that skip rc files — use the shim
+for those. Doctor reports a missing shim as info after recent `ghok exec` use.
 
 ghok is **not a security boundary**: the real gh by absolute path, `curl`, or any other
 API client bypasses it. Server-side branch protection/rulesets are the real control.
