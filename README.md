@@ -461,9 +461,9 @@ hooks:
   list position, when a hook must run only after a gate allowed.
 - `cancel` is not supported: hooks are short-lived and have a `timeout`.
 - `ghok config validate` rejects empty or nested `parallel` blocks, extra keys
-  beside `parallel`/`wait`/`wait-all`, waits for IDs that are not earlier
-  background hooks of the same list, `phase:` inside a hook, and the old
-  single-list `hooks:` form. `ghok hooks list` shows each hook's `background` flag and the
+  beside `parallel`/`wait`/`wait-all`, and waits for IDs that are not earlier
+  background hooks of the same list. `ghok hooks list` shows each hook's
+  `background` flag and the
   hooks it waits for.
 
 A hook reads one schema-version-1 JSON document from stdin and writes one

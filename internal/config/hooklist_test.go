@@ -72,17 +72,17 @@ func TestHookListErrors(t *testing.T) {
 	}
 }
 
-func TestHookListLegacyFormRejected(t *testing.T) {
+func TestHookListMustBeMapping(t *testing.T) {
 	_, err := Parse([]byte("version: 1\nhooks:\n  - {id: a, phase: pre, command: [a]}\n"), "/config")
-	want := "hooks must be a mapping with pre:/post: lists; move each hook under its phase and remove its phase key"
+	want := "hooks must be a mapping with pre and post lists"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got %v, want %q", err, want)
 	}
 }
 
-func TestHookListPhaseFieldRejected(t *testing.T) {
+func TestHookListPhaseKeyUnknown(t *testing.T) {
 	_, err := Parse([]byte("version: 1\nhooks:\n  pre:\n    - {id: a, phase: post, command: [a]}\n"), "/config")
-	want := "hooks.pre[0].phase: phase is set by the hooks.pre/hooks.post list"
+	want := "unknown key hooks.pre[0].phase"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got %v, want %q", err, want)
 	}

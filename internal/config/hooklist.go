@@ -55,7 +55,7 @@ func (l *HookList) UnmarshalYAML(n *yaml.Node) error {
 		return nil
 	}
 	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: hooks must be a mapping with pre:/post: lists; move each hook under its phase and remove its phase key", n.Line)
+		return fmt.Errorf("line %d: hooks must be a mapping with pre and post lists", n.Line)
 	}
 	var hooks HookList
 	for _, phase := range []string{PhasePre, PhasePost} {
@@ -87,9 +87,6 @@ func parsePhase(n *yaml.Node, phase string) (HookList, error) {
 	var waits, background []string
 	decode := func(item *yaml.Node, path string) (Hook, error) {
 		var h Hook
-		if v := field(item, "phase"); v != nil {
-			return h, fmt.Errorf("line %d: %s.phase: phase is set by the hooks.pre/hooks.post list", v.Line, path)
-		}
 		if err := item.Decode(&h); err != nil {
 			return h, fmt.Errorf("%s: %w", path, err)
 		}

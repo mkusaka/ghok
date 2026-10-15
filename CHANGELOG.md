@@ -10,7 +10,7 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Breaking
 
-- Hooks are grouped by phase: `hooks: {pre: [...], post: [...]}` replaces the single list with a per-hook `phase:`. The old list form and `phase:` inside a hook are config errors with a migration hint. `parallel`/`background`/`wait`/`wait-all` and `dependsOn` work within one phase list. Existing per-hook trust stays valid.
+- Hooks are grouped by phase: `hooks: {pre: [...], post: [...]}` replaces the single list with a per-hook `phase:`. `parallel`/`background`/`wait`/`wait-all` and `dependsOn` work within one phase list.
 
 ## [v0.0.8] - 2026-10-15
 
