@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.12] - 2026-10-16
+
 ### Fixed
 
 - `ghok exec` hands every following argument to gh unparsed; `--` is optional and no arguments (bare `gh` through the shell function) runs gh, which prints its help, instead of failing with a usage error.
@@ -164,7 +166,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.11...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.12...HEAD
+[v0.0.12]: https://github.com/mkusaka/ghok/compare/v0.0.11...v0.0.12
 [v0.0.11]: https://github.com/mkusaka/ghok/compare/v0.0.10...v0.0.11
 [v0.0.10]: https://github.com/mkusaka/ghok/compare/v0.0.9...v0.0.10
 [v0.0.9]: https://github.com/mkusaka/ghok/compare/v0.0.8...v0.0.9
