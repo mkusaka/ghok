@@ -161,12 +161,13 @@ type rootField struct {
 	state executionState
 }
 type selectionWalker struct {
-	fragments map[string]*ast.FragmentDefinition
-	active    map[string]bool
-	visits    int
-	roots     []rootField
-	resolver  *valueResolver
-	opType    ast.Operation
+	fragments    map[string]*ast.FragmentDefinition
+	active       map[string]bool
+	visits       int
+	roots        []rootField
+	resolver     *valueResolver
+	opType       ast.Operation
+	variableUses map[string]int
 }
 
 func (w *selectionWalker) walk(set ast.SelectionSet, root bool, state executionState, depth int) error {
@@ -180,6 +181,8 @@ func (w *selectionWalker) walk(set ast.SelectionSet, root bool, state executionS
 		}
 		switch s := selection.(type) {
 		case *ast.Field:
+			w.countArguments(s.Arguments)
+			w.countDirectives(s.Directives)
 			label := "field " + s.Name
 			if s.Alias != "" && s.Alias != s.Name {
 				label = "alias " + s.Alias
@@ -195,6 +198,7 @@ func (w *selectionWalker) walk(set ast.SelectionSet, root bool, state executionS
 				return err
 			}
 		case *ast.InlineFragment:
+			w.countDirectives(s.Directives)
 			if root && s.TypeCondition != "" && s.TypeCondition != rootType(w.opType) {
 				return fail(model.UnknownMalformed, "incompatible root fragment type "+s.TypeCondition)
 			}
@@ -210,6 +214,8 @@ func (w *selectionWalker) walk(set ast.SelectionSet, root bool, state executionS
 			if f == nil {
 				return fail(model.UnknownMalformed, "undefined fragment "+s.Name)
 			}
+			w.countDirectives(s.Directives)
+			w.countDirectives(f.Directives)
 			if w.active[s.Name] {
 				return fail(model.UnknownMalformed, "fragment cycle at "+s.Name)
 			}
@@ -233,6 +239,38 @@ func (w *selectionWalker) walk(set ast.SelectionSet, root bool, state executionS
 		}
 	}
 	return nil
+}
+
+// Count every expanded use, not only input values: changing a variable that
+// also controls a directive or another argument would change an unedited view.
+func (w *selectionWalker) countArguments(arguments ast.ArgumentList) {
+	if w.variableUses == nil {
+		return
+	}
+	for _, argument := range arguments {
+		w.countValue(argument.Value)
+	}
+}
+
+func (w *selectionWalker) countDirectives(directives ast.DirectiveList) {
+	if w.variableUses == nil {
+		return
+	}
+	for _, directive := range directives {
+		w.countArguments(directive.Arguments)
+	}
+}
+
+func (w *selectionWalker) countValue(value *ast.Value) {
+	if value == nil {
+		return
+	}
+	if value.Kind == ast.Variable {
+		w.variableUses[value.Raw]++
+	}
+	for _, child := range value.Children {
+		w.countValue(child.Value)
+	}
 }
 func rootType(op ast.Operation) string {
 	switch op {

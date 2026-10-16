@@ -154,6 +154,25 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	for i, t := range c.Transforms {
+		p := fmt.Sprintf("transforms.pre[%d]", i)
+		if !hookID.MatchString(t.ID) {
+			add(p+".id", "must be non-empty and match ^[A-Za-z0-9._-]+$")
+		}
+		if _, exists := hooks[t.ID]; exists {
+			add(p+".id", "duplicate hook/transform ID "+t.ID)
+		}
+		hooks[t.ID] = -1
+		if len(t.Command) == 0 || strings.TrimSpace(t.Command[0]) == "" {
+			add(p+".command", "executable must not be empty")
+		}
+		enum(p+".onError", t.OnError, OnErrorDeny, OnErrorAllow)
+		if t.Timeout <= 0 || t.Timeout.D() > MaxHookTimeout {
+			add(p+".timeout", "must be > 0 and <= "+MaxHookTimeout.String())
+		}
+		match(p+".match", t.Match)
+		outcomeOnlyPost(p+".match", t.Match)
+	}
 	for _, limit := range []struct {
 		p string
 		n int64

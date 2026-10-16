@@ -35,7 +35,8 @@ runtime input-validation step.
 | Field | Type | Optional | Meaning |
 | --- | --- | --- | --- |
 | schemaVersion | integer | no | Always 1, set by runner. |
-| event | string | no | `pre` or `post`, set by runner. |
+| event | string | no | `pre`, `post`, or `transform`, set by runner. |
+| phase | string | yes | `pre` for transform input. |
 | eventId | string | no | Invocation correlation ID, shared across hooks/phases. |
 | hookId | string | no | Current configured hook ID. |
 | redactions | integer | no | Credential substitutions made in this hook's input; zero for raw input. Counts repeated representations separately, not unique secrets. |
@@ -337,7 +338,7 @@ The first line has this stable machine-readable shape:
 ghok: denied by <source>[ (error: <kind>)][ (+N more)]
 ```
 
-Sources: `hook <id>`, `rule <id>`, `policy unknownMutation`,
+Sources: `transform <id>`, `hook <id>`, `rule <id>`, `policy unknownMutation`,
 `policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
 `config <id>` for an inactive gate, or `config` for invalid configuration.
 Hook `onError` denials alone have an error kind: `timeout`,
@@ -565,3 +566,67 @@ For hooks test and installation commands see [README](../README.md). Detailed
 implementation evidence: [hooks/policy notes](notes/hooks-policy.md),
 [configuration notes](notes/config-logging-redaction.md), and
 [process notes](notes/process.md).
+
+## Request transforms
+
+Transforms are trusted executables, not hook decisions. Configure `transforms.pre`
+as a list; user entries run first, then trusted project entries, serially. Each is
+matched against the current request after the preceding successful edit. IDs share
+one namespace with pre/post hooks. Supported keys are `id`, `match`, `command`,
+`env`, `timeout` (default `5s`), `onError` (`deny`, default, or `allow`),
+`redactInput`, and project-only `files`. Scheduling/dependency keys (`parallel`,
+`background`, `wait`, `wait-all`, `dependsOn`), `optional`, and `captureOutput`
+are not supported. Any `transforms.post` value is a configuration error:
+`transforms.post is reserved`.
+
+Input is the hook Input envelope with `event: "transform"` and `phase: "pre"`,
+current operations and invocation, and no `previous`. Commands inherit the same
+environment/cwd, nested-call token, timeout/cancellation and redaction rules as
+hooks. Write diagnostics to stderr. Empty stdout means unchanged; otherwise
+return one schema-version-1 JSON object:
+
+```json
+{"schemaVersion":1,"set":{"/operations/0/texts/body/value":"new body"},"unset":[]}
+```
+
+`set` maps strict JSON pointers to replacement JSON values; `unset` lists paths
+to remove. Only these paths are allowed (N is a canonical zero-based operation
+index; JSON-pointer escaping applies to parameter keys):
+
+* `/operations/N/texts/title/value`, `/operations/N/texts/body/value`,
+  `/operations/N/texts/notes/value`
+* `/operations/N/parameters/KEY`, where KEY has a supported editable mapping
+* `/operations/N/target/repository`, `/operations/N/target/number`
+
+Other paths, malformed pointers and invalid response shape are `invalid-response`.
+An allowed path without an unambiguous writable source, an unsupported value,
+or a failed semantic round trip is `unsupported-edit`. Native parameter edits
+use curated one-to-one flag mappings, not arbitrary flag construction. Existing
+native repository/number selectors can be rewritten. REST JSON input keys and
+GraphQL variables (including `--input` variables) can be rewritten. Existing REST
+`-f`/`-F` prose can be edited; typed `-F` becomes raw `-f` so text is not coerced.
+Non-text REST field insertion is unsupported. GraphQL AST literals/defaults and
+variables shared by selected root fields are unsupported. Generated/editor,
+unavailable or truncated text cannot be safely rewritten.
+
+Edits are atomic and must re-normalize to the same semantic projection: action,
+family, effect, execution, origin and level stay unchanged; edited values must
+match, and untouched text values/parameters stay unchanged. Transport provenance
+may change when a shared JSON file is rewritten. Evidence, detail,
+unresolved/resolution metadata and resolver-filled target fields do not establish
+write-back identity. A no-op preserves original argv and bytes; a changed request
+executes expanded argv. File/stdin edits use 0600 temporary files and never mutate
+original inputs. Failed attempts remove their temporary files; successful
+transport is removed after gh finishes.
+
+`onError: deny` exits 78 without gh in **both** policy modes. `onError: allow`
+rolls back the entire transform chain, skips its remaining entries, then applies
+policy/hooks to the original request. Policy and ordinary pre/post hooks see the
+final request. `explain`, `hooks test`, and `hooks test --print-input` run transforms
+before their evaluation/preview, but never execute the requested gh command;
+`normalize` remains a pure inspection of the original request.
+
+Project transforms use hook trust/digests, dependency files, `trust.include`,
+review notes and ignored-command warnings. Inactive transforms are ignored,
+never inactive gates. JSONL diagnostics record transform outcomes and redacted
+edit summaries, not replacement prose; normal text minimization still applies.

@@ -19,6 +19,8 @@ type Invocation struct {
 	// Aliases are gh aliases (name -> expansion) as stored in gh's config.
 	// Expansions starting with "!" are shell aliases.
 	Aliases map[string]string
+	// TemporaryFiles are private rewritten transports removed after execution.
+	TemporaryFiles []string
 }
 
 // StdinStatus describes whether stdin bytes are available to normalizers.

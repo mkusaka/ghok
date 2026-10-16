@@ -38,6 +38,8 @@ func Generate(name string) (map[string]any, error) {
 			pre := props["hooks"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)
 			hook := pre["items"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
 			delete(hook["properties"].(map[string]any), "files")
+			transforms := props["transforms"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)
+			delete(transforms["items"].(map[string]any)["properties"].(map[string]any), "files")
 		}
 	case "hook-input":
 		s = schemaFor(reflect.TypeFor[protocol.Input](), "", "json")
@@ -45,6 +47,13 @@ func Generate(name string) (map[string]any, error) {
 	case "hook-response":
 		s = schemaFor(reflect.TypeFor[protocol.Response](), "", "json")
 		s["title"] = "ghok hook response"
+	case "transform-response":
+		s = schemaFor(reflect.TypeFor[protocol.TransformResponse](), "", "json")
+		s["title"] = "ghok transform response"
+		props := s["properties"].(map[string]any)
+		props["set"].(map[string]any)["propertyNames"] = map[string]any{"pattern": protocol.TransformPathPattern}
+		props["unset"].(map[string]any)["items"] = map[string]any{"type": "string", "pattern": protocol.TransformPathPattern}
+		props["unset"].(map[string]any)["uniqueItems"] = true
 	default:
 		return nil, fmt.Errorf("unknown schema %q", name)
 	}
@@ -84,6 +93,10 @@ func schemaFor(t reflect.Type, tag reflect.StructTag, names string) map[string]a
 			item["enum"] = enum
 		}
 		return map[string]any{"oneOf": []any{item, map[string]any{"type": "array", "items": item}}}
+	case reflect.TypeFor[config.TransformList]():
+		return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"pre": map[string]any{"type": "array", "items": schemaFor(t.Elem(), "", names)},
+		}}
 	case reflect.TypeFor[config.HookList]():
 		hook := schemaFor(t.Elem(), "", names)
 		ids := schemaFor(reflect.TypeFor[config.StringList](), "", names)

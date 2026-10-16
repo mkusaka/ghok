@@ -26,6 +26,7 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/textdiff` | Anchored unified diff adapted from Go's BSD-3-Clause implementation | Exact trusted/current bytes; caller bounds size/lines and handles binary files. |
 | `internal/policy` | Pure matching/evaluation across every considered operation | No config loading, hooks, or API calls. |
 | `internal/hooks` | Trusted commands, dependency/concurrency scheduling, cancellation | Caller supplies raw Input; runner redacts only redactInput hooks. Diagnostics have a redaction callback. |
+| `internal/transforms` | Atomic restricted edits and semantic round-trip verification | Reconstruct supported transports, never overwrite original inputs. |
 | `internal/process` | Exec/supervision, Unix signals/TTY/job control, bounded stdin replay | Single child/wait/signal owner; no real-gh process-group separation. |
 | `internal/redact` | Display copies at output boundaries | Never change execution argv, payload, or replay bytes. |
 | `internal/logging` | Redacted cooperating-process JSONL append/rotation | No stdout/stderr; errors cannot block execution. |
@@ -61,7 +62,9 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    non-TTY stdin only if a potentially enforcing denial or enabled pre-hook
    can need it; preserve every consumed byte. Observe logging/post-hooks alone
    leave stdin untouched and record unavailable analysis.
-8. Normalize alias-expanded arguments. Real execution still uses original argv.
+8. Normalize alias-expanded arguments; run trusted user then project transforms
+   serially, rematching each current result and re-normalizing each atomic edit.
+   No-op execution uses original argv; changed requests use expanded argv.
    Dispatcher selects API normalization only when expanded argv starts `api`;
    root flags before `api` currently remain L1 (see normalization limitations).
 9. Resolve only context relevant to potentially matching repository/host policy
@@ -165,8 +168,10 @@ unsupported forms: [resolver notes](notes/resolve.md).
 - Trusted commands, not shell strings: argv execution avoids implicit shell
   parsing. Hook process groups permit timeout cleanup; real gh stays in the
   shell's group to preserve foreground job control.
-- Secure bounded spool, not rewritten requests: preserve bytes even on analysis
-  overflow/timeout, never pre-read a TTY; unknown handling decides enforcement.
+- Secure bounded spool and explicit restricted transforms: preserve bytes unless
+  a trusted transform requests a verified edit; never pre-read a TTY. Rewrites
+  use private temporary transport, not original-file mutation. Named temporary
+  files require supervision so cleanup occurs after gh finishes.
 - Stat/symlink discovery, not a cached Cellar target: Homebrew upgrades can move
   real binaries while stable PATH links remain.
 - Explicit project trust and monotonic merge: repository files cannot silently
@@ -178,3 +183,16 @@ unsupported forms: [resolver notes](notes/resolve.md).
   checksums and provenance need no additional release dependency.
 
 Detailed decisions and upstream source citations remain in [notes/](notes/).
+
+## Transform boundary
+
+Transforms precede final context resolution, policy and pre-hooks. They share
+trusted process execution, cancellation and nested tokens with hooks but have
+their own response protocol, no scheduling graph and no `previous` results.
+`internal/transforms` accepts only supported value locations and verifies that
+re-normalization changes exactly the requested semantic values. It rejects
+ambiguous write-back instead of guessing. The caller owns successful temporary
+transport cleanup; failed applications clean up immediately. A deny failure
+always exits 78, including observe mode. An allow failure discards the whole
+chain and resumes with the original invocation; it does not retain a partially
+transformed request. Inactive project transforms never become policy gates.

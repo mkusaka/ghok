@@ -123,6 +123,10 @@ func missingExecutable(err error) bool {
 }
 
 func (r *Runner) execute(parent context.Context, phase string, h config.Hook, in protocol.Input) (result protocol.HookResult) {
+	return r.executeResponse(parent, phase, h, in, nil)
+}
+
+func (r *Runner) executeResponse(parent context.Context, phase string, h config.Hook, in protocol.Input, parse func([]byte) error) (result protocol.HookResult) {
 	start := r.now()
 	result = protocol.HookResult{HookID: h.ID, Phase: phase, ExitCode: -1}
 	defer func() {
@@ -222,6 +226,21 @@ func (r *Runner) execute(parent context.Context, phase string, h config.Hook, in
 	}
 	if err != nil {
 		fail(err)
+		return
+	}
+	if parse != nil {
+		if stdout.truncated {
+			err = errors.New("transform stdout exceeded output limit")
+		} else {
+			err = parse(stdout.data)
+		}
+		if err != nil {
+			result.Outcome = protocol.OutcomeInvalidResponse
+			result.Error = err.Error()
+		} else {
+			result.Outcome = protocol.OutcomeOK
+			result.Decision = protocol.DecisionAbstain
+		}
 		return
 	}
 	if len(bytes.TrimSpace(stdout.data)) == 0 && !stdout.truncated {

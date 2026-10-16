@@ -171,7 +171,7 @@ func generate() error {
 			if flag.Shorthand != "" {
 				short = flag.Shorthand[0]
 			}
-			fmt.Fprintf(&out, "{long: %q, short: %d, valueType: %q, noOptDefVal: %q, hidden: %t, deprecated: %q, shorthandDeprecated: %q},\n", flag.Name, short, flag.Value.Type(), flag.NoOptDefVal, flag.Hidden, flag.Deprecated, flag.ShorthandDeprecated)
+			fmt.Fprintf(&out, "{long: %q, short: %d, valueType: %q, paramKey: %q, editable: %t, noOptDefVal: %q, hidden: %t, deprecated: %q, shorthandDeprecated: %q},\n", flag.Name, short, flag.Value.Type(), parameterKey(flag.Name), editableFlag(canonical, flag.Name), flag.NoOptDefVal, flag.Hidden, flag.Deprecated, flag.ShorthandDeprecated)
 			if e.path == canonical {
 				flagCount++
 			}
@@ -195,4 +195,57 @@ func generate() error {
 	}
 	fmt.Printf("generated %d canonical commands (including root), %d alias paths, %d canonical flag records from gh %s\n", canonicalCount, len(aliases), flagCount, version)
 	return nil
+}
+
+func parameterKey(name string) string {
+	parts := strings.Split(name, "-")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+// Only one-to-one semantic inputs are writable. In particular, event, mode,
+// editor and fill flags must never become transform-controlled action switches.
+func editableFlag(path, name string) bool {
+	switch path {
+	case "pr create", "issue create":
+		switch name {
+		case "title", "assignee", "label", "milestone", "project":
+			return true
+		}
+		if path == "pr create" {
+			switch name {
+			case "base", "draft", "reviewer", "no-maintainer-edit":
+				return true
+			}
+		}
+	case "pr edit", "issue edit":
+		switch name {
+		case "title", "add-assignee", "remove-assignee", "add-label", "remove-label",
+			"add-project", "remove-project", "milestone", "remove-milestone":
+			return true
+		}
+		if path == "pr edit" {
+			switch name {
+			case "base", "add-reviewer", "remove-reviewer":
+				return true
+			}
+		}
+	case "pr merge":
+		switch name {
+		case "subject", "author-email", "match-head-commit", "delete-branch":
+			return true
+		}
+	case "pr close", "pr reopen", "issue close", "issue reopen":
+		return name == "comment"
+	case "release create", "release edit":
+		switch name {
+		case "title", "notes", "draft", "prerelease", "latest", "discussion-category":
+			return true
+		}
+	}
+	return false
 }

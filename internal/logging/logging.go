@@ -33,6 +33,14 @@ type Record struct {
 	Decision       string                `json:"decision"`
 	Exec           *protocol.ExecResult  `json:"exec,omitempty"`
 	Diagnostics    []string              `json:"diagnostics,omitempty"`
+	Transformed    *Transformed          `json:"transformed,omitempty"`
+}
+
+// Transformed records the applied request without retaining its prose.
+type Transformed struct {
+	Argv       []string         `json:"argv"`
+	Transforms []string         `json:"transforms"`
+	Texts      map[string]int64 `json:"texts,omitempty"`
 }
 
 // NewInvocationID returns a cryptographically random 128-bit lowercase hex ID.
@@ -70,6 +78,12 @@ func redactRecordCopy(r *redact.Redactor, record Record) Record {
 	record.InvocationID = r.String(record.InvocationID)
 	record.Mode = r.String(record.Mode)
 	record.Argv = minimizeArgv(r, record.Argv)
+	if record.Transformed != nil {
+		transformed := *record.Transformed
+		transformed.Argv = minimizeArgv(r, transformed.Argv)
+		transformed.Transforms = redactStrings(r, transformed.Transforms)
+		record.Transformed = &transformed
+	}
 	record.Alias = r.String(record.Alias)
 	record.Decision = r.String(record.Decision)
 	record.Diagnostics = redactStrings(r, record.Diagnostics)

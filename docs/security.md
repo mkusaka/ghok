@@ -178,6 +178,30 @@ retain bare PATH names. Absolute external executables, interpreters, PATH tools
 and unlisted imports/dependencies/data are not hashed. Policy-only configs skip
 manifest computation.
 
+### Transform trust and failures
+
+`transforms.pre` executes trusted code with the same privileges, raw-input
+default, environment, timeout/cancellation and nested-call token as hooks.
+`redactInput: true` masks only its input copy, not inherited credentials.
+Project transforms use the same per-command digest, executable/dependency-file
+coverage, `files`, `trust.include`, review and ignored-command warnings as hooks.
+Their IDs cannot collide with hook IDs. Untrusted or changed transforms are
+inactive and **never gates**, even alongside trusted project commands.
+
+Transforms run before final policy and pre-hooks, so those checks judge the
+request that will actually execute. A malformed/unsupported edit or transform
+process failure with `onError: deny` stops gh with 78 **even in observe mode**.
+With `onError: allow`, all preceding changes are rolled back, the remaining
+transforms are skipped, and normal checks judge the original request.
+
+Write-back accepts only restricted paths and sources and verifies a semantic
+round trip. It does not authorize arbitrary operation changes. File/stdin edits
+use private 0600 temporary transport; original files are never overwritten.
+Named transports are removed after the child exits, and failed applications
+clean up immediately. SIGKILL can leave temporary files, just as it can leave
+other wrapper-owned state. Logs contain redacted transform outcomes/summaries,
+not replacement prose. These controls do not sandbox trusted transform code.
+
 Dependency file hashes are cached in
 `<config-dir>/state/manifest-cache.json` (0600, atomic replacement; 0700 state
 directory). The cache retains at most 4096 entries across projects (8 MiB maximum),

@@ -141,8 +141,10 @@ Never overwrite an existing config; edit it instead.
   a guardrail against mistakes, **not a security boundary**.
   Example deny rule: `{id: no-worker-merges, match: {env: {MALL_GH_WORKER: "1"}, operation: "pr.merge.*"}, decision: deny}`.
 
-Nothing blocks unless `policy.mode: enforce`. When changing a user's policy to enforce,
-confirm first and show `ghok explain` output for the commands they care about.
+Ordinary policy/hooks block only in `policy.mode: enforce`. Transform
+`onError: deny` failures are different: they stop execution with 78 in either mode.
+When changing a user's policy to enforce, confirm first and show `ghok explain`
+output for the commands they care about.
 
 ## Inspect before changing anything
 
@@ -287,3 +289,39 @@ Full protocol: <https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md>
 - `runtime.resolveAPI: auto` may resolve repository/host criteria for rules or
   enabled pre/post hooks in either mode; logging alone never queries. `never`
   disables implicit API resolution without treating unresolved targets as safe.
+
+## Request transforms
+
+Use `transforms.pre` for trusted request rewriting, not hook decisions.
+Transforms run serially (user then trusted project), rematching the current
+request before each entry, before policy/pre-hooks. Allowed definition keys:
+`id`, `match`, `command`, `env`, `timeout` (5s default), `onError` (`deny` default,
+or `allow`), `redactInput`, project-only `files`. IDs share the hook namespace.
+`transforms.post` is reserved; no parallel/background/wait/dependsOn/optional/
+captureOutput settings are supported.
+
+Programs receive hook JSON with `event: "transform"`, `phase: "pre"` and no
+`previous`; empty stdout means no change. Otherwise return
+`{"schemaVersion":1,"set":{"/operations/0/texts/body/value":"new body"},"unset":[]}`.
+Paths are strictly limited to `/operations/N/texts/{title,body,notes}/value`,
+`/operations/N/parameters/KEY` with a writable mapping, and
+`/operations/N/target/{repository,number}`. Unsupported/ambiguous sources fail
+as `unsupported-edit`; malformed paths fail as `invalid-response`.
+
+Native curated flags, REST JSON `--input`, GraphQL variables/`--input`
+variables and existing REST field prose are supported. Do not promise GraphQL
+literals/defaults, shared variables across selected fields, unavailable/generated
+text or arbitrary non-text REST field insertion. Edited requests must pass a
+semantic round trip. Changed requests use expanded argv; no-ops preserve the
+original. File/stdin write-back uses private 0600 transport and never overwrites
+original files.
+
+Project transforms require the same explicit trust, digests, dependency review
+and warning handling as hooks, but inactive transforms are **never gates**.
+On `deny` failure gh never runs (78, even observe); on `allow` failure the entire
+chain rolls back, remaining transforms are skipped, and the original request is
+checked/executed. Explain, hooks test and print-input apply transforms; normalize
+does not. Logs summarize/redact changes rather than record replacement prose.
+See `examples/transforms/attribute-session` for appending
+`\n\nfrom session_id: $CLAUDE_CODE_SESSION_ID` to supplied bodies, with no output
+when the environment variable is absent.

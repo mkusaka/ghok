@@ -11,7 +11,8 @@ For policy and hook authors: match the operation's **`action`**, inspect `effect
 side effect. Hooks are trusted executable code; neither normalization nor hooks
 are a security boundary.
 
-Inspect without running the original command or hooks:
+Inspect without running the original command (`normalize` also never runs hooks
+or transforms; `explain` applies configured transforms before evaluation):
 
 ```sh
 ghok normalize -- pr merge 123 --squash
@@ -73,7 +74,8 @@ alias is recorded separately and never replaces the schema field identity.
 
 `source` has `kind` (`command`, `rest`, `graphql`, or `unknown`) and optional `argv`,
 `alias`, `method`, `path`, `host`, and `graphql`. Dispatcher argv describes the
-alias-expanded analysis command; real `gh` still receives the original argv.
+alias-expanded analysis command; real `gh` receives original argv unless a
+transform changes the request, in which case expanded argv is rewritten.
 REST paths are normalized display paths; GraphQL paths retain the endpoint
 spelling. GraphQL source text is capped at 64 KiB. Variables are not added to that
 text, but literals/defaults already embedded in the document remain there.
@@ -185,6 +187,32 @@ For example, `gh pr create -t T -b B` adds:
 ```json
 {"texts":{"title":{"value":"T","source":"inline","bytes":1,"redactions":0},"body":{"value":"B","source":"inline","bytes":1,"redactions":0}}}
 ```
+
+### Transform write-back
+
+Normalization itself remains read-only. `transforms.pre` can request restricted
+edits to normalized texts, curated native parameters and repository/number
+selectors, REST JSON input keys, and GraphQL variable values. See the
+[complete protocol](hook-protocol.md#request-transforms) for paths and response
+shape. The wrapper applies edits atomically and re-normalizes before policy and
+ordinary hooks; explain/hooks-test previews use that same transformed request.
+
+Native flags expose only curated one-to-one parameter mappings; derived or
+ambiguous parameters are not writable. Native repeatable string flags support
+replacement/insertion where mapped. Existing REST field-based prose edits are
+supported (`-F` becomes raw `-f`); non-text field insertion is not. JSON `--input`
+and GraphQL variables use rewritten private transport, including stdin input.
+GraphQL literals/defaults and variables shared by selected root fields are not
+writable. Editor/fill/template, truncated or unavailable text is unsupported.
+
+Re-normalization must preserve action/family/effect/execution/origin and level,
+make every requested edit visible, and preserve untouched parameters/text values.
+Transport provenance can change when a JSON input file is rewritten.
+Unresolved/evidence/detail/resolution and resolver-filled targets are excluded
+from that comparison. Unsupported sources or failed round trips report
+`unsupported-edit`, not a guessed request. No-op transforms preserve original
+argv/bytes. File edits never overwrite originals; temporary transport uses 0600
+permissions and is cleaned up after use.
 
 ### Level, confidence, resolution, and execution
 

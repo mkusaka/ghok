@@ -8,6 +8,16 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- Trusted serial `transforms.pre` rewrites supported native flags/texts/targets,
+  REST input and GraphQL variables before policy and hooks, with strict paths,
+  atomic semantic round-trip checks, private file/stdin transport, project trust
+  and redacted diagnostics. Failures deny with 78 even in observe mode, or
+  `onError: allow` rolls the whole chain back to the original request.
+- Session attribution transform example and transform-aware explain/hooks-test
+  previews; normalize remains read-only and does not execute transforms.
+
 ## [v0.0.10] - 2026-10-15
 
 ### Fixed

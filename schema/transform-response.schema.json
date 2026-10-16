@@ -1,0 +1,31 @@
+{
+  "$id": "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/transform-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "set": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "pattern": "^/operations/(0|[1-9][0-9]*)/(texts/(title|body|notes)/value|parameters/([^/~]|~[01])+|target/(repository|number))$"
+      },
+      "type": "object"
+    },
+    "unset": {
+      "items": {
+        "pattern": "^/operations/(0|[1-9][0-9]*)/(texts/(title|body|notes)/value|parameters/([^/~]|~[01])+|target/(repository|number))$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schemaVersion"
+  ],
+  "title": "ghok transform response",
+  "type": "object"
+}

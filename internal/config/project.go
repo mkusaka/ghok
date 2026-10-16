@@ -34,7 +34,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		return nil, notes, err
 	}
 	warnWritable(global, &notes)
-	for _, h := range c.Hooks {
+	for _, h := range c.trustHooks() {
 		warnWritable(hookPermissionPath(c.HookCommandPath(h), cwd, env), &notes)
 	}
 	sourceIndex := -1
@@ -72,7 +72,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	withheld := make(map[string]IgnoredHook)
 	var ignored *IgnoredProject
-	if len(p.Hooks) != 0 {
+	if len(p.Hooks)+len(p.Transforms) != 0 {
 		files, err := projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
 			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
@@ -90,22 +90,22 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 			}
 		}
 		active := 0
-		for _, h := range p.Hooks {
+		for _, h := range p.trustHooks() {
 			digest := current.HookDigests[h.ID]
 			if trusted[digest] {
-				if h.Enabled == nil || *h.Enabled {
+				if h.Phase != "transform" && (h.Enabled == nil || *h.Enabled) {
 					active++
 				}
 				continue
 			}
-			meta := IgnoredHook{Hook: h, Reason: "untrusted", Digest: digest}
+			meta := IgnoredHook{Hook: h, Transform: h.Phase == "transform", Reason: "untrusted", Digest: digest}
 			if previous.HookDigests[h.ID] != "" {
 				meta.Reason = "changed since trust"
 				meta.ChangedFiles = changedTrustFiles(filesForHook(files, h.ID), filesForHook(previous.Files, h.ID))
 			}
 			withheld[h.ID] = meta
 		}
-		for _, h := range p.Hooks {
+		for _, h := range p.trustHooks() {
 			meta, exists := withheld[h.ID]
 			if !exists {
 				continue
@@ -136,7 +136,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		}
 	}
 	status := "policy loaded; hooks trusted"
-	if len(p.Hooks) == 0 {
+	if len(p.Hooks)+len(p.Transforms) == 0 {
 		status = "policy loaded; no project hooks"
 	} else if len(withheld) != 0 {
 		status = "policy loaded; some hooks ignored; run ghok config trust"
@@ -147,7 +147,7 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 		return ignoreProject(err)
 	}
 	if len(withheld) != 0 {
-		active := make([]Hook, 0, len(merged.Hooks)-len(withheld))
+		active := make([]Hook, 0, len(merged.Hooks))
 		for _, h := range merged.Hooks {
 			if meta, exists := withheld[h.ID]; exists && h.Source == project {
 				meta.Hook = h
@@ -157,6 +157,16 @@ func LoadEffective(global, cwd string, env map[string]string) (*Config, []string
 			}
 		}
 		merged.Hooks = active
+		transforms := make(TransformList, 0, len(merged.Transforms))
+		for _, t := range merged.Transforms {
+			if meta, exists := withheld[t.ID]; exists && t.Source == project {
+				meta.Hook = t.hook()
+				merged.IgnoredHooks = append(merged.IgnoredHooks, meta)
+			} else {
+				transforms = append(transforms, t)
+			}
+		}
+		merged.Transforms = transforms
 	}
 	merged.IgnoredProject = ignored
 	return &merged, notes, nil
@@ -182,7 +192,7 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("project config %s: %w", project, err)
 	}
-	for i, h := range p.Hooks {
+	for i, h := range p.trustHooks() {
 		command := h.Command[0]
 		if !filepath.IsAbs(command) && !strings.HasPrefix(command, "./") {
 			return nil, nil, fmt.Errorf("project config %s: hook %s command must use ./relative or an absolute path; bare PATH names are not allowed", project, h.ID)
@@ -229,6 +239,9 @@ func unknownKeys(n *yaml.Node) []unknownKey {
 		seen[n] = true
 		if t == reflect.TypeFor[HookList]() {
 			t = reflect.TypeFor[hookPhases]()
+		}
+		if t == reflect.TypeFor[TransformList]() {
+			t = reflect.TypeFor[transformPhases]()
 		}
 		switch n.Kind {
 		case yaml.AliasNode:
@@ -296,6 +309,12 @@ func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[strin
 		h.Command[0] = p.HookCommandPath(*h)
 		warnWritable(hookPermissionPath(h.Command[0], cwd, env), notes)
 		c.Hooks = append(c.Hooks, *h)
+	}
+	for _, t := range p.Transforms {
+		t.Source = project
+		t.Command[0] = p.TransformCommandPath(t)
+		warnWritable(hookPermissionPath(t.Command[0], cwd, env), notes)
+		c.Transforms = append(c.Transforms, t)
 	}
 	c.Policy.Rules = append(c.Policy.Rules, p.Policy.Rules...)
 	c.Policy.ProtectedRepositories = append(c.Policy.ProtectedRepositories, p.Policy.ProtectedRepositories...)

@@ -31,6 +31,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	}
 	evaluation := a.evaluation
 	fmt.Fprintf(&output, "Decision: %s (mode=%s)\n", evaluation.Decision, evaluation.Mode)
+	managementPrintTransformed(&output, a, showSecrets)
 	seenReasons := make(map[string]bool)
 	for _, reason := range evaluation.DenyReasons {
 		if !seenReasons[reason] {

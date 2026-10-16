@@ -19,6 +19,7 @@ import (
 // IgnoredHook is reporting metadata, never an executable hook selection.
 type IgnoredHook struct {
 	Hook
+	Transform    bool     `json:"transform,omitempty"`
 	Reason       string   `json:"reason"`
 	ChangedFiles []string `json:"changedFiles,omitempty"`
 	Digest       string   `json:"digest,omitempty"`
@@ -237,7 +238,7 @@ func projectManifest(p *Config, root string, maxBytes int64, env map[string]stri
 		files = append(files, file)
 		return nil
 	}
-	for _, h := range p.Hooks {
+	for _, h := range p.trustHooks() {
 		command := h.Command[0]
 		absolute := filepath.IsAbs(command)
 		path := command
@@ -255,7 +256,7 @@ func projectManifest(p *Config, root string, maxBytes int64, env map[string]stri
 		}
 	}
 	for _, path := range p.Trust.Include {
-		for _, h := range p.Hooks {
+		for _, h := range p.trustHooks() {
 			if err := add(filepath.Join(root, path), h.ID, false); err != nil {
 				return nil, fmt.Errorf("trust.include %q: %w", path, err)
 			}
@@ -450,14 +451,14 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	var files []trustedFile
-	if len(p.Hooks) != 0 {
+	if len(p.Hooks)+len(p.Transforms) != 0 {
 		files, err = projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, dryRun)
 		if err != nil {
 			return "", nil, notes, nil, err
 		}
 	}
 	current := currentTrustEntry(project, canonical, p, files, env)
-	selected := make(map[string]bool, len(p.Hooks))
+	selected := make(map[string]bool, len(p.Hooks)+len(p.Transforms))
 	for _, id := range hookIDs {
 		if _, exists := current.HookDigests[id]; !exists {
 			return "", nil, notes, nil, fmt.Errorf("unknown project hook %q", id)
@@ -465,14 +466,14 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 		selected[id] = true
 	}
 	if len(hookIDs) == 0 {
-		for _, h := range p.Hooks {
+		for _, h := range p.trustHooks() {
 			selected[h.ID] = true
 		}
 	}
 	if err := mergeProject(c, p, n, project, filepath.Dir(project), env, &notes); err != nil {
 		return "", nil, notes, nil, err
 	}
-	if len(p.Hooks) == 0 {
+	if len(p.Hooks)+len(p.Transforms) == 0 {
 		if !dryRun {
 			store, _ := readTrustStore(env)
 			if _, err := prepareTrustBlobs(env, store); err != nil {
@@ -519,8 +520,8 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 		}
 	}
 	notes = append(notes, "Not covered: interpreters, PATH tools, and unlisted data/import files. Add dependencies to hooks[].files or trust.include (every hook).")
-	active := p.Hooks[:0]
-	for _, h := range p.Hooks {
+	var active []Hook
+	for _, h := range p.trustHooks() {
 		if selected[h.ID] && (h.Enabled == nil || *h.Enabled) {
 			active = append(active, h)
 		}

@@ -77,6 +77,15 @@ func Normalize(inv model.Invocation, req model.APIRequest) (res model.Result) {
 	}
 	params, body, unresolved, bodyKnown, paramErr := buildParameters(inv, req, ep.query)
 	op.Parameters = params
+	if req.Input != "" && bodyKnown {
+		op.Editable = map[string]model.EditLocator{
+			"parameters/*": {Kind: "json", Input: req.Input, Key: []string{"*"}},
+		}
+		for key := range body {
+			pointerKey := strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1")
+			op.Editable["parameters/"+pointerKey] = model.EditLocator{Kind: "json", Input: req.Input, Key: []string{key}, Parameter: key}
+		}
+	}
 	op.Unresolved = append(op.Unresolved, unresolved...)
 	for key, value := range captures {
 		switch key {

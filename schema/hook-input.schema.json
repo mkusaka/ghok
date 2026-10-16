@@ -106,10 +106,11 @@
       "type": "array"
     },
     "event": {
-      "description": "Hook phase.",
+      "description": "Hook event or request transform.",
       "enum": [
         "pre",
-        "post"
+        "post",
+        "transform"
       ],
       "type": "string"
     },
@@ -551,6 +552,13 @@
       },
       "type": "array"
     },
+    "phase": {
+      "description": "Transform phase; present for transform events.",
+      "enum": [
+        "pre"
+      ],
+      "type": "string"
+    },
     "policy": {
       "additionalProperties": false,
       "properties": {
@@ -636,6 +644,7 @@
               "timeout",
               "canceled",
               "invalid-response",
+              "unsupported-edit",
               "skipped"
             ],
             "type": "string"

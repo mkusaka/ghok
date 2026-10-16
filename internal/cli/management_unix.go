@@ -25,11 +25,11 @@ import (
 const managementLong = `Manage ghok, a transparent wrapper for the GitHub CLI (gh) that runs
 pre/post hooks and enforces policies on gh commands, gh api REST calls and
 GraphQL mutations. The shim ("gh") and "ghok exec -- <gh args>" use the same
-wrapper pipeline and pass every argument to the real gh untouched.
+wrapper pipeline; trusted transforms may rewrite the request before policy/hooks.
 
 Resolution uses local git metadata and GH_REPO/GH_HOST by default; --no-resolve
 disables it. Read-only API resolution requires explicit --allow-api.
-Explain never executes hooks or the original gh command and exits 0 even on deny.
+Explain runs trusted transforms, but never hooks or the original gh command, and exits 0 even on policy deny.
 Management exit status: 0 success, 1 failure/denial, 2 usage error.
 Exec preserves gh status/signals; denials use 77 (content) or 78 (hook/config error).`
 
@@ -73,7 +73,7 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	execCmd.Args = managementInvocationArgs
 	execCmd.Long = `Run exactly the same discovery, recursion checks, policy, hooks, execution and
 logging as the gh shim. Intended for tests, CI and scripts without a shim on PATH.
-This is not a policy bypass. The real gh receives argv[0]="gh" and untouched args.
+This is not a policy bypass. The real gh receives argv[0]="gh"; only trusted transforms rewrite args.
 Exit status and signals match the shim: content denial 77, hook/config error denial
 78, internal error 1, missing real gh 127; otherwise gh's original status/signal.`
 	root.AddCommand(execCmd)
@@ -140,10 +140,10 @@ Exit status and signals match the shim: content denial 77, hook/config error den
 		}
 		return managementHooksTest(args, phase, exitCode, testJSON, testOptions, expect, expectHooks, expectPolicy)
 	})
-	test.Long = `Run matching trusted hooks for real, but never start the original gh command.
+	test.Long = `Run trusted transforms and matching trusted hooks for real, but never start the original gh command.
 Local context is resolved by default; --allow-api permits read-only API resolution.
 Post hooks receive a synthetic result (exit 0 unless --exit-code).
---print-input prints one hook input JSON envelope without running hooks or gh,
+--print-input runs trusted transforms, then prints one hook input JSON envelope without running hooks or gh,
 including API resolution; it cannot be combined with --allow-api.
 It masks credentials for display by default;
 --show-secrets shows the bytes the hook receives, still honoring redactInput.
@@ -218,8 +218,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 	path := managementCommand("path", "Print the global configuration path", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfig("path", "")
 	})
-	schemaCommands := managementGroup("schema", "Print JSON Schemas for configuration and hook documents", code)
-	for _, name := range []string{"config", "project-config", "hook-input", "hook-response"} {
+	schemaCommands := managementGroup("schema", "Print JSON Schemas for configuration, hooks and transforms", code)
+	for _, name := range []string{"config", "project-config", "hook-input", "hook-response", "transform-response"} {
 		cmd := managementCommand(name, "Print the "+name+" JSON Schema", code, func(cmd *cobra.Command, _ []string) int {
 			body, err := schema.JSON(cmd.Name())
 			if err == nil {

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,14 +23,20 @@ import (
 )
 
 type record struct {
-	Argv0       string   `json:"argv0"`
-	Argv        []string `json:"argv"`
-	Env         []string `json:"env"`
-	Cwd         string   `json:"cwd"`
-	StdinBase64 string   `json:"stdinBase64"`
-	StdinSHA256 string   `json:"stdinSHA256"`
-	StdinLength int      `json:"stdinLength"`
-	PID         int      `json:"pid"`
+	Argv0        string                 `json:"argv0"`
+	Argv         []string               `json:"argv"`
+	Env          []string               `json:"env"`
+	Cwd          string                 `json:"cwd"`
+	StdinBase64  string                 `json:"stdinBase64"`
+	StdinSHA256  string                 `json:"stdinSHA256"`
+	StdinLength  int                    `json:"stdinLength"`
+	PID          int                    `json:"pid"`
+	RequestFiles map[string]requestFile `json:"requestFiles,omitempty"`
+}
+
+type requestFile struct {
+	Content string `json:"content"`
+	Mode    uint32 `json:"mode"`
 }
 
 func main() {
@@ -84,7 +91,7 @@ func writeRecord(input []byte) {
 	must(err)
 	sum := sha256.Sum256(input)
 	if path := os.Getenv("FAKEGH_RECORD"); path != "" {
-		body, err := json.Marshal(record{Argv0: os.Args[0], Argv: os.Args[1:], Env: os.Environ(), Cwd: cwd, StdinBase64: base64.StdEncoding.EncodeToString(input), StdinSHA256: hex.EncodeToString(sum[:]), StdinLength: len(input), PID: os.Getpid()})
+		body, err := json.Marshal(record{Argv0: os.Args[0], Argv: os.Args[1:], Env: os.Environ(), Cwd: cwd, StdinBase64: base64.StdEncoding.EncodeToString(input), StdinSHA256: hex.EncodeToString(sum[:]), StdinLength: len(input), PID: os.Getpid(), RequestFiles: readRequestFiles()})
 		must(err)
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		must(err)
@@ -92,6 +99,44 @@ func writeRecord(input []byte) {
 		must(err)
 		must(file.Close())
 	}
+}
+
+func readRequestFiles() map[string]requestFile {
+	if os.Getenv("FAKEGH_READ_REQUEST") != "1" {
+		return nil
+	}
+	files := make(map[string]requestFile)
+	for i := 1; i < len(os.Args); i++ {
+		flag, value, attached := strings.Cut(os.Args[i], "=")
+		switch flag {
+		case "--body-file", "--notes-file", "--input", "-F", "--field":
+			if !attached {
+				i++
+				if i == len(os.Args) {
+					continue
+				}
+				value = os.Args[i]
+			}
+		default:
+			continue
+		}
+		if flag == "-F" || flag == "--field" {
+			if _, fieldValue, ok := strings.Cut(value, "=@"); ok {
+				value = fieldValue
+			} else if flag == "--field" || strings.Contains(value, "=") {
+				continue
+			}
+		}
+		if value == "-" {
+			continue
+		}
+		data, err := os.ReadFile(value)
+		must(err)
+		info, err := os.Stat(value)
+		must(err)
+		files[value] = requestFile{Content: string(data), Mode: uint32(info.Mode().Perm())}
+	}
+	return files
 }
 
 func emit(w io.Writer, key string) {

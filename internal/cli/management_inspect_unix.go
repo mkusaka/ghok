@@ -25,19 +25,22 @@ import (
 )
 
 type managementAnalysis struct {
-	config      *config.Config
-	notes       []string
-	cwd         string
-	env         map[string]string
-	invocation  model.Invocation
-	result      model.Result
-	context     *model.ResolvedContext
-	evaluation  policy.Evaluation
-	diagnostics []string
-	real        string
+	config           *config.Config
+	notes            []string
+	cwd              string
+	env              map[string]string
+	invocation       model.Invocation
+	result           model.Result
+	context          *model.ResolvedContext
+	evaluation       policy.Evaluation
+	diagnostics      []string
+	real             string
+	transformIDs     []string
+	transformResults []protocol.HookResult
+	cleanup          func()
 }
 
-func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managementAnalysis, error) {
+func managementAnalyze(args []string, resolveTargets, allowAPI, transform bool) (*managementAnalysis, error) {
 	env := environment()
 	c, notes, cwd, err := managementLoad(env)
 	if err != nil {
@@ -59,16 +62,38 @@ func managementAnalyze(args []string, resolveTargets, allowAPI bool) (*managemen
 		}
 	}
 	a := &managementAnalysis{config: c, notes: notes, cwd: cwd, env: env, invocation: inv, result: normalize.Normalize(inv)}
+	a.cleanup = func() {}
+	if transform && len(c.Transforms) > 0 {
+		a.real, _ = realGh(c, env)
+		helperEnv, release, err := nestedEnvironment(env)
+		if err != nil {
+			return nil, err
+		}
+		r := redact.New(env)
+		runner := &hooks.Runner{BaseDir: c.Dir, Env: append(os.Environ(), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"]), RealGh: a.real, Redact: r.String, Source: "test"}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		applied := runTransforms(ctx, c, runner, inv, a.result, a.real, logging.NewInvocationID(), "shim")
+		cancel()
+		release()
+		if applied.denial != nil {
+			applied.cleanup()
+			return nil, fmt.Errorf("denied by transform %s (error: %s): %s", applied.denial.ID, applied.denial.ErrorKind, applied.denial.Message)
+		}
+		a.invocation, a.result, a.cleanup = applied.invocation, applied.result, applied.cleanup
+		a.transformIDs, a.transformResults = applied.ids, applied.results
+	}
 	if resolveTargets {
 		helperEnv := env
 		if allowAPI {
 			a.real, err = realGh(c, env)
 			if err != nil {
+				a.cleanup()
 				return nil, err
 			}
 			var cleanup func()
 			helperEnv, cleanup, err = nestedEnvironment(env)
 			if err != nil {
+				a.cleanup()
 				return nil, err
 			}
 			defer cleanup()
@@ -110,10 +135,11 @@ func managementInspect(command string, args []string, options managementInspectO
 	if options.allowAPI && options.noResolve {
 		return managementUsageError("--allow-api cannot be combined with --no-resolve")
 	}
-	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI)
+	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI, command != "normalize")
 	if err != nil {
 		return managementFailure(err)
 	}
+	defer a.cleanup()
 	r := redact.New(a.env)
 	if command == "normalize" {
 		for _, diagnostic := range a.diagnostics {
@@ -191,10 +217,11 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	if options.hookID != "" && !options.printInput {
 		return managementUsageError("--hook requires --print-input")
 	}
-	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI)
+	a, err := managementAnalyze(args, !options.noResolve, options.allowAPI, true)
 	if err != nil {
 		return managementFailure(err)
 	}
+	defer a.cleanup()
 	// Discovery supplies hook helpers a real-gh path when available, but a pure
 	// hook test remains usable on machines without gh. No original gh is started.
 	a.real, _ = realGh(a.config, a.env)
@@ -204,7 +231,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		return managementUsageError("--exit-code must be 0-255")
 	}
 	subject := a.subject(phase)
-	input := hookInput(args, a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
+	input := hookInput(a.invocation.Argv, a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
 	if phase == config.PhasePost {
 		// A synthetic execution result, not a real one; it also drives
 		// match.result / match.exitCode selection.
@@ -281,7 +308,11 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 				Decision  protocol.Decision `json:"decision"`
 				WouldDeny bool              `json:"wouldDeny"`
 			} `json:"final"`
+			Transformed      *managementTransformed `json:"transformed,omitempty"`
+			TransformResults []protocol.HookResult  `json:"transformResults,omitempty"`
 		}{Phase: phase, Synthetic: true, Results: results, Policy: a.evaluation}
+		value.Transformed = a.transformed()
+		value.TransformResults = a.transformResults
 		value.Aggregate.Decision, value.Aggregate.Message = aggregate.Decision, aggregate.Message
 		value.Final.Decision, value.Final.WouldDeny = decision, wouldDeny
 		if code := managementJSON(value, r); code != 0 {
@@ -289,6 +320,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		}
 	} else {
 		_, _ = fmt.Fprintln(os.Stdout, "Synthetic hook test: original gh command is not executed.")
+		managementPrintTransformed(os.Stdout, a, false)
 		if phase == config.PhasePost {
 			_, _ = fmt.Fprintf(os.Stdout, "Post hooks receive a synthetic result (exitCode=%d).\n", exitCode)
 		}

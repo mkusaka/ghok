@@ -36,6 +36,17 @@ func bodyText(op *model.Operation, req model.APIRequest, body map[string]any, ke
 	if key == "" || strings.EqualFold(req.Method, "GET") {
 		return nil
 	}
+	if body != nil {
+		if op.Editable == nil {
+			op.Editable = make(map[string]model.EditLocator)
+		}
+		loc := model.EditLocator{Kind: "api-field", Key: []string{key}, Parameter: key, Text: field}
+		if req.Input != "" {
+			loc.Kind, loc.Input = "json", req.Input
+		}
+		op.Editable["texts/"+field+"/value"] = loc
+		op.Editable["parameters/"+key] = loc
+	}
 	text := model.Text{Source: "inline"}
 	if req.Input != "" {
 		text.Source, text.Path = "file", req.Input

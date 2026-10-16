@@ -216,7 +216,14 @@ func ignoredHooksWarning(c *config.Config, dir string, now time.Time) string {
 	if len(inactive) == 0 || !warnThrottled(dir, "ignored-hooks", project.Path, project.Digest, now) {
 		return ""
 	}
-	return fmt.Sprintf("%d project hooks in %s are not active: %s; review and run 'ghok config trust'", len(inactive), project.Path, strings.Join(inactive, "; "))
+	kind := "hooks"
+	for _, h := range c.IgnoredHooks {
+		if h.Transform {
+			kind = "hooks/transforms"
+			break
+		}
+	}
+	return fmt.Sprintf("%d project %s in %s are not active: %s; review and run 'ghok config trust'", len(inactive), kind, project.Path, strings.Join(inactive, "; "))
 }
 
 func ignoredHookDescription(h config.IgnoredHook) string {
@@ -229,6 +236,9 @@ func ignoredHookDescription(h config.IgnoredHook) string {
 		}
 	} else if h.Reason == "changed since trust" {
 		reason += ": definition changed"
+	}
+	if h.Transform {
+		return fmt.Sprintf("transform %s inactive: %s", h.ID, reason)
 	}
 	if h.GateBlocked || h.Phase == config.PhasePre && h.OnError == config.OnErrorDeny {
 		return fmt.Sprintf("gate hook %s inactive: %s", h.ID, reason)

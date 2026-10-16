@@ -70,6 +70,10 @@ func Normalize(inv model.Invocation, req model.APIRequest) model.Result {
 			return unknownResult(source, err)
 		}
 		walker := selectionWalker{fragments: fragments, active: map[string]bool{}, resolver: resolver, opType: definition.Operation}
+		if definition == selected && definition.Operation == ast.Mutation {
+			walker.variableUses = make(map[string]int)
+			walker.countDirectives(definition.Directives)
+		}
 		if err := walker.walk(definition.SelectionSet, true, state, 0); err != nil {
 			return unknownResult(source, err)
 		}
@@ -102,6 +106,7 @@ func Normalize(inv model.Invocation, req model.APIRequest) model.Result {
 			input, _ := args["input"].(map[string]any)
 			op := mutationOperation(root.field.Name, input)
 			extractTexts(&op, root.field, input, req, resolver)
+			extractEditable(&op, root.field, input, req, resolver, walker.variableUses)
 			if input == nil {
 				op.Unresolved = append(op.Unresolved, model.Unresolved{Field: "parameters.input", Source: "variable", Reason: "mutation input unavailable or not an object"})
 			}

@@ -50,17 +50,22 @@ func lookupFlag(c commandSpec, name string, short byte) (flagSpec, bool) {
 
 // findCommand mirrors Cobra Find's flag stripping while retaining flags before
 // the command, so the leaf parser sees the same interspersed argument vector.
-func findCommand(argv []string) (commandSpec, []string, bool) {
+func findCommand(argv []string) (commandSpec, []string, []int, bool) {
 	c := registry[""]
 	remaining := make([]string, 0, len(argv))
+	indexes := make([]int, 0, len(argv))
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		if a == "--" {
 			remaining = append(remaining, argv[i:]...)
+			for j := i; j < len(argv); j++ {
+				indexes = append(indexes, j)
+			}
 			break
 		}
 		if strings.HasPrefix(a, "-") && len(a) > 1 {
 			remaining = append(remaining, a)
+			indexes = append(indexes, i)
 			name, _, attached := strings.Cut(strings.TrimPrefix(a, "--"), "=")
 			var f flagSpec
 			var known bool
@@ -74,6 +79,7 @@ func findCommand(argv []string) (commandSpec, []string, bool) {
 			if !attached && ((!known) || f.noOptDefVal == "") && i+1 < len(argv) {
 				i++
 				remaining = append(remaining, argv[i])
+				indexes = append(indexes, i)
 			}
 			continue
 		}
@@ -84,14 +90,17 @@ func findCommand(argv []string) (commandSpec, []string, bool) {
 		next, ok := registry[candidate]
 		if !ok {
 			remaining = append(remaining, argv[i:]...)
+			for j := i; j < len(argv); j++ {
+				indexes = append(indexes, j)
+			}
 			if c.path == "" || hasChildren(c.path) {
-				return c, remaining, false
+				return c, remaining, indexes, false
 			}
 			break
 		}
 		c = next
 	}
-	return c, remaining, true
+	return c, remaining, indexes, true
 }
 
 func hasChildren(path string) bool { return commandGroups[path] }
@@ -212,7 +221,7 @@ func parseArgs(c commandSpec, argv []string) parsedArgs {
 
 // Normalize classifies alias-expanded argv without filesystem, git or API I/O.
 func Normalize(inv model.Invocation, argv []string) model.Result {
-	c, args, known := findCommand(argv)
+	c, args, indexes, known := findCommand(argv)
 	if known && c.Family == model.FamilyUnknown {
 		return singleResult(argv, model.Operation{
 			Family: model.FamilyUnknown, Action: model.FamilyUnknown, Effect: model.EffectUnknown,
@@ -250,6 +259,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	}
 	op.Target.Kind = nativeTargetKind(c)
 	extractTexts(&op, c, p, inv)
+	extractEditable(&op, c, p, args, indexes)
 	confidence := model.ConfidenceExact
 	if len(p.unknown) > 0 {
 		confidence = model.ConfidenceHeuristic
@@ -299,22 +309,13 @@ func unresolved(op *model.Operation, field, reason, source string) {
 	}
 	op.Unresolved = append(op.Unresolved, model.Unresolved{Field: field, Reason: reason, Source: source})
 }
-func camel(s string) string {
-	parts := strings.Split(s, "-")
-	for i := 1; i < len(parts); i++ {
-		if parts[i] != "" {
-			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-	return strings.Join(parts, "")
-}
 
 func extractParameters(op *model.Operation, c commandSpec, p parsedArgs) {
 	for _, f := range c.flags {
 		if !p.present(f.long) || f.long == "repo" || f.long == "help" {
 			continue
 		}
-		key := camel(f.long)
+		key := f.paramKey
 		switch f.long {
 		case "body", "body-file", "env-file":
 			op.Parameters[key] = true

@@ -154,6 +154,26 @@ func TestContentParametersSourceAndHookIsolation(t *testing.T) {
 	}
 }
 
+func TestTransformedRequestContentIsolation(t *testing.T) {
+	secret := "transform-private-" + "credential"
+	request := &Transformed{
+		Argv:       []string{"issue", "comment", "12", "--body", "ordinary prose", "-R", secret},
+		Transforms: []string{"attribute"}, Texts: map[string]int64{"body": 14},
+	}
+	record := Record{Argv: []string{"issue", "comment", "12", "--body", "original"}, Transformed: request}
+	got := redactRecord(redact.New(map[string]string{"GH_TOKEN": secret}), record)
+	if got.Argv[4] != "[content: 8 bytes]" || got.Transformed.Argv[4] != "[content: 14 bytes]" || got.Transformed.Argv[6] != "[REDACTED]" {
+		t.Fatalf("original/transformed content exposed: %+v", got)
+	}
+	if request.Argv[4] != "ordinary prose" || request.Argv[6] != secret {
+		t.Fatal("redaction mutated the executable request")
+	}
+	got.Transformed.Argv[0] = "changed"
+	if request.Argv[0] != "issue" {
+		t.Fatal("log aliases the executable request")
+	}
+}
+
 func FuzzContentMinimization(f *testing.F) {
 	f.Add("ok", "two words", "query { viewer { login } }")
 	f.Add("短文", strings.Repeat("x", 65), `mutation { addComment(input: {body: "private", subjectId: "ID"}) { id } }`)

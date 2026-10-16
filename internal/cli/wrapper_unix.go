@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -102,7 +103,7 @@ func wrapper(args []string, argv0, via string) int {
 			}
 		}
 	}
-	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
+	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Transforms) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		warnIgnoredHooks()
 		err = process.Exec(opts)
 		return fatal(err, process.StartErrorExitCode(err))
@@ -186,7 +187,7 @@ func wrapper(args []string, argv0, via string) int {
 	localNeeded := needsLocal(cfg, subject)
 	helperEnv, hookEnv := env, childEnv
 	releaseNested := func() {}
-	if len(cfg.Hooks) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never" {
+	if len(cfg.Hooks) > 0 || len(cfg.Transforms) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never" {
 		helperEnv, releaseNested, err = nestedEnvironment(env)
 		if err != nil {
 			return fatal(err, 1)
@@ -195,7 +196,42 @@ func wrapper(args []string, argv0, via string) int {
 	}
 	defer releaseNested()
 	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String, Source: via}
-	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never")
+	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || len(cfg.Transforms) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never")
+	transformed := runTransforms(ctx, cfg, runner, inv, result, real, eventID, via)
+	defer transformed.cleanup()
+	if transformed.denial != nil {
+		caught := stopHelpers()
+		record.Hooks = transformed.results
+		record.Decision = "deny"
+		if caught != 0 {
+			record.Decision = "canceled"
+			record.Exec = execInfo(process.Result{ExitCode: -1, Signal: caught})
+			logRecord()
+			closeLog()
+			transformed.cleanup()
+			releaseNested()
+			process.Result{ExitCode: -1, Signal: caught}.Exit()
+		}
+		printDenials(os.Stderr, []denial{*transformed.denial}, redactor.String)
+		logRecord()
+		return 78
+	}
+	if len(transformed.ids) > 0 {
+		record.Transformed = transformedLog(result, transformed.result, transformed.invocation.Argv, transformed.ids)
+		opts.Args = append([]string{argv0}, transformed.invocation.Argv...)
+		if !bytes.Equal(inv.Stdin.Data, transformed.invocation.Stdin.Data) {
+			replay, err := process.SpoolBytes(transformed.invocation.Stdin.Data)
+			if err != nil {
+				stopHelpers()
+				return fatal(err, 1)
+			}
+			defer func() { _ = replay.Close() }()
+			opts.Stdin = replay
+		}
+	}
+	inv, result = transformed.invocation, transformed.result
+	subject.Result, subject.Argv = result, result.Source.Argv
+	localNeeded = needsLocal(cfg, subject)
 	if localNeeded {
 		resolver := &resolve.Resolver{Env: helperEnv, Cwd: cwd, RealGh: real, Timeout: cfg.Runtime.ResolveTimeout.D()}
 		local := resolver.Local()
@@ -219,7 +255,7 @@ func wrapper(args []string, argv0, via string) int {
 		}
 	}
 	evaluation := evaluateConfig(cfg, subject)
-	input := hookInput(args, cwd, real, result, resolved, evaluation, eventID)
+	input := hookInput(inv.Argv, cwd, real, result, resolved, evaluation, eventID)
 	input.Invocation.Via = via
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
 	record.Source = &result.Source
@@ -231,7 +267,7 @@ func wrapper(args []string, argv0, via string) int {
 	post := runner.Select(config.PhasePost, subject)
 	// All helper children are reaped before relinquishing signal ownership.
 	caught := stopHelpers()
-	record.Hooks = pre.Results
+	record.Hooks = append(transformed.results, pre.Results...)
 	if caught != 0 {
 		record.Decision = "canceled"
 		record.Exec = execInfo(process.Result{ExitCode: -1, Signal: caught})
@@ -241,6 +277,7 @@ func wrapper(args []string, argv0, via string) int {
 			_ = opts.Stdin.Close()
 		}
 		releaseNested()
+		transformed.cleanup()
 		process.Result{ExitCode: -1, Signal: caught}.Exit()
 	}
 	decision := decide(cfg.Policy.Mode, evaluation, pre, stdinSkipped)
@@ -256,8 +293,9 @@ func wrapper(args []string, argv0, via string) int {
 		logPolicy.Decision = protocol.DecisionAllow
 		record.Policy = &logPolicy
 	}
-	if len(post) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
+	if len(post) == 0 && len(inv.TemporaryFiles) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
 		releaseNested()
+		transformed.cleanup()
 		return execLogged()
 	}
 	for _, h := range post {
@@ -286,6 +324,7 @@ func wrapper(args []string, argv0, via string) int {
 	logRecord()
 	closeLog()
 	releaseNested()
+	transformed.cleanup()
 	execution.Exit()
 	return 0
 }
@@ -331,6 +370,11 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 	}
 	for _, h := range c.Hooks {
 		if h.Phase == config.PhasePre && (h.Enabled == nil || *h.Enabled) && couldMatch(h.Match) {
+			return true, false
+		}
+	}
+	for _, t := range c.Transforms {
+		if couldMatch(t.Match) {
 			return true, false
 		}
 	}

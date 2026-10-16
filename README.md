@@ -24,13 +24,15 @@ for an interactive shell without a shim, see [shell function](#shell-function-wi
 basename(argv[0])
   ghok (or any name except gh) -> management commands
   gh -> discover real gh -> classify the operation -> resolve only needed context
-     -> evaluate policy + pre-hooks -> deny (enforce mode): exit 77/78, no gh
-     -> execute original gh argv, cwd, environment, and streams
+     -> run trusted transforms serially -> re-normalize changed requests
+     -> evaluate policy + pre-hooks -> deny: exit 77/78, no gh
+     -> execute original request (or the successfully transformed request)
         no matching post-hook/live stdin pump: exec replaces wrapper
         otherwise: supervise gh -> post-hooks -> original exit/signal
 ```
 
-Alias expansion is analysis-only: real gh receives the original arguments.
+Alias expansion is analysis-only unless a transform changes the request; changed
+requests use expanded argv. Without transforms, real gh receives the original arguments.
 Uncaptured output uses inherited descriptors, not a PTY emulation.
 Post-hooks never change gh's status. Capture is opt-in and changes gh's
 stdout/stderr to pipes; see [compatibility](docs/compatibility.md).
@@ -42,6 +44,41 @@ checks, policy, hooks, logging, status and signals are identical to the shim.
 It is **not a policy bypass** and does not require installing a shim on PATH.
 Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
 
+### Request transforms
+
+`transforms.pre` runs trusted programs before policy and pre-hooks, in user then
+project order. Each program sees the current normalized request and may return
+restricted `set`/`unset` edits. This is separate from hooks: hooks still judge
+requests rather than rewrite them.
+
+```yaml
+transforms:
+  pre:
+    - id: attribute-session
+      match:
+        operation: "*comment.create"
+        env:
+          CLAUDE_CODE_SESSION_ID: "*"
+      command: ["./transforms/attribute-session"]
+      timeout: 5s
+      onError: deny
+```
+
+Build the [session attribution example](examples/transforms/attribute-session/main.go)
+with `go build -o "$config_dir/transforms/attribute-session" ./examples/transforms/attribute-session`
+after creating that private directory. It appends
+`\n\nfrom session_id: $CLAUDE_CODE_SESSION_ID` to supplied comment bodies; absent
+session IDs produce no output and no change. See [example config](examples/config.yaml).
+
+Project transforms require explicit `ghok config trust`, just like project hooks;
+inactive transforms are ignored, never gates. A failed `onError: deny` transform
+stops execution with **78 even in observe mode**. With `onError: allow`, ghok rolls
+back **all** transforms, skips the remainder, and evaluates/executes the original
+request. File/stdin edits use private temporary transport, never overwrite the
+original file, and are cleaned up after use. See the
+[transform protocol](docs/hook-protocol.md#request-transforms) for editable paths,
+unsupported sources and diagnostic behavior.
+
 ### Exit status
 
 | Origin | Code | Meaning |
@@ -52,7 +89,7 @@ Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
 | gh | 4 | Authentication required. |
 | gh | 8 | A command-specific check failed (for example, pending `gh pr checks`). |
 | ghok | 77 (`EX_NOPERM`) | Policy/rule denial or a hook **returned** deny. Content denial takes precedence over hook errors. |
-| ghok | 78 (`EX_CONFIG`) | Hook malfunction under `onError: deny`, an inactive gate, or invalid configuration failed closed; no content denial. |
+| ghok | 78 (`EX_CONFIG`) | Transform failure under `onError: deny` (either mode), hook malfunction under `onError: deny`, an inactive gate, or invalid configuration failed closed. |
 | ghok | 1 | ghok internal failure. |
 | ghok | 127 | Real gh was not found. |
 
@@ -542,11 +579,12 @@ In enforce mode, stderr starts with this stable machine-readable line:
 ghok: denied by <source>[ (error: <kind>)][ (+N more)]
 ```
 
-`source` is `hook <id>`, `rule <id>`, `policy unknownMutation`,
+`source` is `transform <id>`, `hook <id>`, `rule <id>`, `policy unknownMutation`,
 `policy protectedUnknown`, `policy protectedRepositories`, `policy unknownInput`,
 `config <id>` for an inactive gate, or `config` for invalid configuration.
-The error suffix appears only for a hook's `onError` denial:
-`timeout`, `exit <code>`, `invalid response`, `spawn failed`, or `canceled`.
+Hook error kinds are `timeout`, `exit <code>`, `invalid response`, `spawn failed`,
+or `canceled`. Transform failures happen before policy/hooks and use their outcome
+kind: `error`, `timeout`, `canceled`, `invalid-response`, or `unsupported-edit`.
 `N` counts remaining denial entries.
 
 Order is deterministic: denying rules in config order, policy handling, inactive gates,

@@ -101,6 +101,14 @@ func (c *Config) ApplyDefaults() {
 	for i := range c.Hooks {
 		defaultHook(&c.Hooks[i], nil)
 	}
+	for i := range c.Transforms {
+		if c.Transforms[i].Timeout == 0 {
+			c.Transforms[i].Timeout = Duration(DefaultTransformTimeout)
+		}
+		if c.Transforms[i].OnError == "" {
+			c.Transforms[i].OnError = OnErrorDeny
+		}
+	}
 }
 
 func defaultHook(h *Hook, n *yaml.Node) {
@@ -184,6 +192,9 @@ func load(path string, notes *[]string) (*Config, error) {
 	for i := range c.Hooks {
 		c.Hooks[i].Source = absolute
 	}
+	for i := range c.Transforms {
+		c.Transforms[i].Source = absolute
+	}
 	return c, nil
 }
 
@@ -228,6 +239,11 @@ func parse(data []byte, dir string, strict bool) (*Config, error) {
 		for _, h := range c.Hooks {
 			if h.Files != nil {
 				problems = append(problems, fmt.Errorf("hook %s: files: only project hooks are trust-gated; user hooks run without trust", h.ID))
+			}
+		}
+		for _, t := range c.Transforms {
+			if t.Files != nil {
+				problems = append(problems, fmt.Errorf("transform %s: files: only project transforms are trust-gated", t.ID))
 			}
 		}
 	}

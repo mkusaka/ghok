@@ -18,8 +18,8 @@ import (
 // or participates in the content digest, including when metadata is unavailable.
 func currentTrustEntry(project, canonical string, p *Config, files []trustedFile, env map[string]string) trustEntry {
 	entry := trustEntry{ManifestVersion: 2, FirstPath: canonical, ConfigPath: ".ghok.yaml", Files: files,
-		HookDigests: make(map[string]string, len(p.Hooks)), Definitions: make(map[string]json.RawMessage, len(p.Hooks))}
-	for _, h := range p.Hooks {
+		HookDigests: make(map[string]string, len(p.Hooks)+len(p.Transforms)), Definitions: make(map[string]json.RawMessage, len(p.Hooks)+len(p.Transforms))}
+	for _, h := range p.trustHooks() {
 		definition := hookDefinition(h)
 		entry.Definitions[h.ID] = definition
 		entry.HookDigests[h.ID] = hookTrustDigest(definition, files, h.ID)

@@ -5,7 +5,7 @@ import "github.com/mkusaka/ghok/internal/model"
 // NeedsStdin reports whether the parsed command's body or notes comes from
 // stdin. It shares text extraction's inline and interactive precedence rules.
 func NeedsStdin(argv []string) (bool, string) {
-	c, args, known := findCommand(argv)
+	c, args, _, known := findCommand(argv)
 	if !known || c.Family == model.FamilyUnknown || c.disableFlagParsing {
 		return false, ""
 	}

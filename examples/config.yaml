@@ -43,3 +43,21 @@ hooks:
       timeout: 5s
       onError: ignore
       # No captureOutput: preserve gh's inherited stdio/TTY behavior.
+
+# Optional request rewriting (runs before policy and pre-hooks):
+#   mkdir -p "$config_dir/transforms"
+#   chmod 700 "$config_dir/transforms"
+#   go build -o "$config_dir/transforms/attribute-session" ./examples/transforms/attribute-session
+# Uncomment after building. Without CLAUDE_CODE_SESSION_ID it makes no change.
+# Project equivalents require `ghok config trust`; inspect code first.
+# transforms:
+#   pre:
+#     - id: attribute-session
+#       match:
+#         operation: "*comment.create"
+#         env:
+#           CLAUDE_CODE_SESSION_ID: "*"
+#       command: ["./transforms/attribute-session"]
+#       timeout: 5s
+#       onError: deny # Failures stop execution with 78 even in observe mode.
+#       # allow instead rolls back ALL transforms and executes the original request.

@@ -2,7 +2,6 @@ package graphql
 
 import (
 	"bytes"
-	"encoding/json"
 	"net"
 	"net/url"
 	"strings"
@@ -102,11 +101,12 @@ func reconstruct(inv model.Invocation, req model.APIRequest) (requestData, error
 		if bytes.HasPrefix(bytes.TrimSpace(b), []byte("[")) {
 			return d, fail(model.UnknownMalformed, "GraphQL batching is unsupported")
 		}
-		if err := json.Unmarshal(b, &payload); err != nil {
-			return d, fail(model.UnknownParseError, "invalid GraphQL JSON body: "+err.Error())
-		}
-		if payload == nil {
+		if bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
 			return d, fail(model.UnknownMalformed, "GraphQL body must be an object")
+		}
+		payload, err = apiargs.DecodeObject(b)
+		if err != nil {
+			return d, fail(model.UnknownParseError, "invalid GraphQL JSON body: "+err.Error())
 		}
 		if v := payload["variables"]; v != nil {
 			var ok bool

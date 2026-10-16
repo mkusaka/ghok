@@ -12,12 +12,13 @@ import (
 
 // Config is ~/.config/ghok/config.yaml (version 1).
 type Config struct {
-	Version int      `yaml:"version" json:"version" enum:"1" doc:"Config format version; must be 1."`
-	Policy  Policy   `yaml:"policy" json:"policy"`
-	Hooks   HookList `yaml:"hooks" json:"hooks"`
-	Runtime Runtime  `yaml:"runtime" json:"runtime"`
-	Logging Logging  `yaml:"logging" json:"logging"`
-	Trust   Trust    `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
+	Version    int           `yaml:"version" json:"version" enum:"1" doc:"Config format version; must be 1."`
+	Policy     Policy        `yaml:"policy" json:"policy"`
+	Hooks      HookList      `yaml:"hooks" json:"hooks"`
+	Transforms TransformList `yaml:"transforms" json:"transforms"`
+	Runtime    Runtime       `yaml:"runtime" json:"runtime"`
+	Logging    Logging       `yaml:"logging" json:"logging"`
+	Trust      Trust         `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`

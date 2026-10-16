@@ -106,6 +106,8 @@ type Operation struct {
 	// Origin ties the operation back to its source (command path, REST route
 	// template, GraphQL field/alias).
 	Origin Origin `json:"origin"`
+	// Editable contains execution-only locators, excluded from hook/log JSON.
+	Editable map[string]EditLocator `json:"-"`
 }
 
 // Texts contains normalized prose supplied by a command or API request.

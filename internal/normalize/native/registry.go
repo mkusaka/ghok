@@ -13,6 +13,8 @@ type flagSpec struct {
 	long                string
 	short               byte
 	valueType           string
+	paramKey            string
+	editable            bool
 	noOptDefVal         string
 	hidden              bool
 	deprecated          string

@@ -33,6 +33,28 @@ func (s *Spool) Data() model.StdinData     { return s.data }
 func (s *Spool) File() *os.File            { return s.replay }
 func (s *Spool) RequiresSupervision() bool { return s.supervised }
 
+// SpoolBytes creates a private, immediately unlinked replay for a transformed
+// stdin payload. Unlike capture, its complete bytes are already available.
+func SpoolBytes(data []byte) (*Spool, error) {
+	file, err := os.CreateTemp("", "ghok-stdin-*")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(file.Name()); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return &Spool{data: model.StdinData{Status: model.StdinCaptured, Data: data}, replay: file}, nil
+}
+
 // SpoolStdin leaves terminals untouched, restores regular-file offsets, and
 // captures streams in an immediately unlinked, private temporary file. A stream
 // whose EOF is not captured needs a supervised pump to replay its consumed prefix.

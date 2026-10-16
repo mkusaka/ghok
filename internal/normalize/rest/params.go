@@ -1,7 +1,6 @@
 package rest
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -67,11 +66,11 @@ func buildParameters(inv model.Invocation, req model.APIRequest, query url.Value
 		if inputErr != nil {
 			bodyKnown = false
 			unresolved = append(unresolved, model.Unresolved{Field: "parameters", Reason: inputErr.Error(), Source: source})
-		} else if json.Unmarshal(data, &body) != nil || body == nil {
+		} else if decoded, err := apiargs.DecodeObject(data); err != nil {
 			body, bodyKnown = nil, false
 			unresolved = append(unresolved, model.Unresolved{Field: "parameters", Reason: "input body is not a JSON object", Source: source})
 		} else {
-			bodyKnown = true
+			body, bodyKnown = decoded, true
 		}
 	}
 	combined := make(map[string]any, len(query)+len(body))
@@ -141,6 +140,11 @@ func specialize(op *model.Operation, body map[string]any, bodyKnown bool) {
 		if value, ok := body["merge_method"]; ok {
 			op.Parameters["method"] = value
 			delete(op.Parameters, "merge_method")
+			if loc, exists := op.Editable["parameters/merge_method"]; exists {
+				loc.Parameter = "method"
+				op.Editable["parameters/method"] = loc
+				delete(op.Editable, "parameters/merge_method")
+			}
 			for i := range op.Unresolved {
 				if op.Unresolved[i].Field == "parameters.merge_method" {
 					op.Unresolved[i].Field = "parameters.method"

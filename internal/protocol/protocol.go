@@ -6,15 +6,17 @@ import "github.com/mkusaka/ghok/internal/model"
 
 // Event names.
 const (
-	EventPre  = "pre"
-	EventPost = "post"
+	EventPre       = "pre"
+	EventPost      = "post"
+	EventTransform = "transform"
 )
 
 // Input is written as one JSON document to a hook's stdin, then stdin is closed.
 // Input is raw unless the current hook opts into redactInput.
 type Input struct {
 	SchemaVersion  int                    `json:"schemaVersion" const:"1" doc:"Hook protocol version; always 1."`
-	Event          string                 `json:"event" enum:"pre,post" doc:"Hook phase."`
+	Event          string                 `json:"event" enum:"pre,post,transform" doc:"Hook event or request transform."`
+	Phase          string                 `json:"phase,omitempty" enum:"pre" doc:"Transform phase; present for transform events."`
 	EventID        string                 `json:"eventId" doc:"Invocation correlation ID, shared across hooks and phases."`
 	HookID         string                 `json:"hookId" doc:"Current configured hook ID."`
 	Redactions     int                    `json:"redactions" doc:"Credential substitutions in this hook's input; zero for raw input."`
@@ -87,6 +89,13 @@ type Response struct {
 	Message string `json:"message,omitempty"`
 }
 
+// TransformResponse atomically edits the normalized request.
+type TransformResponse struct {
+	SchemaVersion int            `json:"schemaVersion" const:"1"`
+	Set           map[string]any `json:"set,omitempty"`
+	Unset         []string       `json:"unset,omitempty"`
+}
+
 // Outcome is how a hook execution went, independent of its Decision.
 type Outcome string
 
@@ -97,13 +106,14 @@ const (
 	OutcomeCanceled        Outcome = "canceled"         // context canceled (e.g. earlier deny, wrapper signal)
 	OutcomeInvalidResponse Outcome = "invalid-response" // unparsable JSON / unknown decision
 	OutcomeSkipped         Outcome = "skipped"          // optional + missing, disabled, dependency failed
+	OutcomeUnsupportedEdit Outcome = "unsupported-edit"
 )
 
 // HookResult is the diagnostic record of one hook execution.
 type HookResult struct {
 	HookID   string   `json:"hookId"`
 	Phase    string   `json:"phase" enum:"pre,post" doc:"Hook execution phase."`
-	Outcome  Outcome  `json:"outcome" enum:"ok,error,timeout,canceled,invalid-response,skipped" doc:"Execution outcome, independent of the decision."`
+	Outcome  Outcome  `json:"outcome" enum:"ok,error,timeout,canceled,invalid-response,unsupported-edit,skipped" doc:"Execution outcome, independent of the decision."`
 	Decision Decision `json:"decision,omitempty" enum:"allow,deny,abstain" doc:"Response decision, meaningful when outcome is ok."`
 	Reason   string   `json:"reason,omitempty"`
 	Message  string   `json:"message,omitempty"`

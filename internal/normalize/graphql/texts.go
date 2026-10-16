@@ -8,18 +8,24 @@ import (
 )
 
 // Text semantics are independent of curated operation identities.
-func extractTexts(op *model.Operation, field *ast.Field, input map[string]any, req model.APIRequest, resolver *valueResolver) {
-	var titleKey, bodyKey string
-	switch field.Name {
+func textKeys(field string) (titleKey, bodyKey string) {
+	switch field {
 	case "createPullRequest", "updatePullRequest", "createIssue", "updateIssue":
-		titleKey, bodyKey = "title", "body"
+		return "title", "body"
 	case "addComment", "updateIssueComment", "addPullRequestReview", "submitPullRequestReview", "updatePullRequestReview", "addPullRequestReviewComment", "updatePullRequestReviewComment", "addPullRequestReviewThread":
-		bodyKey = "body"
+		return "", "body"
 	case "mergePullRequest", "enablePullRequestAutoMerge":
-		titleKey, bodyKey = "commitHeadline", "commitBody"
+		return "commitHeadline", "commitBody"
 	case "dismissPullRequestReview":
-		bodyKey = "message"
+		return "", "message"
 	default:
+		return "", ""
+	}
+}
+
+func extractTexts(op *model.Operation, field *ast.Field, input map[string]any, req model.APIRequest, resolver *valueResolver) {
+	titleKey, bodyKey := textKeys(field.Name)
+	if titleKey == "" && bodyKey == "" {
 		return
 	}
 	var inputValue *ast.Value
