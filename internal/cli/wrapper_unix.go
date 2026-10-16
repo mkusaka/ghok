@@ -35,6 +35,27 @@ func Wrapper(args []string) int {
 	return wrapper(args, os.Args[0], "shim")
 }
 
+// Version is the ghok version reported under `gh --version`; set by main.
+var Version = "dev"
+
+// execGh replaces the process with gh, except for `gh --version` / `gh version`
+// on a terminal, which runs gh and then reports ghok below gh's own version.
+// Piped output stays byte-identical for scripts and hooks that parse it.
+func execGh(opts process.Options, args []string) error {
+	if len(args) != 1 || args[0] != "--version" && args[0] != "version" || !install.IsTTY(os.Stdout) {
+		return process.Exec(opts)
+	}
+	result := process.Run(context.Background(), opts)
+	if result.StartErr != nil {
+		return result.StartErr
+	}
+	if result.ExitCode == 0 {
+		_, _ = fmt.Fprintf(os.Stdout, "ghok version %s (wrapping %s)\n", Version, opts.Path)
+	}
+	result.Exit()
+	return nil
+}
+
 func wrapper(args []string, argv0, via string) int {
 	if os.Getenv("GHOK_PROBE") == "1" {
 		_, _ = fmt.Fprintln(os.Stdout, "ghok-probe")
@@ -61,7 +82,7 @@ func wrapper(args []string, argv0, via string) int {
 		if err != nil {
 			return fatal(err, 1)
 		}
-		err = process.Exec(process.Options{Path: real, Args: append([]string{argv0}, args...), Env: childEnv})
+		err = execGh(process.Options{Path: real, Args: append([]string{argv0}, args...), Env: childEnv}, args)
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	started := time.Now()
@@ -105,7 +126,7 @@ func wrapper(args []string, argv0, via string) int {
 	}
 	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Transforms) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		warnIgnoredHooks()
-		err = process.Exec(opts)
+		err = execGh(opts, args)
 		return fatal(err, process.StartErrorExitCode(err))
 	}
 	eventID := logging.NewInvocationID()
@@ -142,7 +163,7 @@ func wrapper(args []string, argv0, via string) int {
 		warnIgnoredHooks()
 		logRecord()
 		execStarted := time.Now()
-		execErr := process.Exec(opts)
+		execErr := execGh(opts, args)
 		code := process.StartErrorExitCode(execErr)
 		record.Decision = "exec-error"
 		record.Exec = execInfo(process.Result{ExitCode: code, StartErr: execErr, Duration: time.Since(execStarted)})

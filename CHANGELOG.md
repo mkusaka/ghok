@@ -8,6 +8,14 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Fixed
+
+- `ghok exec` hands every following argument to gh unparsed; `--` is optional and no arguments (bare `gh` through the shell function) runs gh, which prints its help, instead of failing with a usage error.
+
+### Added
+
+- `gh --version` / `gh version` through ghok print `ghok version X (wrapping /path/to/gh)` after gh's own version lines when stdout is a terminal; piped output stays unchanged for scripts and hooks.
+
 ### Changed
 
 - Homebrew caveats mention the `ghok shell-init` alternative to the shim and `ghok config init --scope user` (gh passes through untouched without a config).

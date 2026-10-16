@@ -32,10 +32,11 @@ func resolveBuildInfo(version, commit string, info *debug.BuildInfo) (string, st
 }
 
 func main() {
-	if filepath.Base(os.Args[0]) == "gh" {
-		os.Exit(cli.Wrapper(os.Args[1:]))
-	}
 	info, _ := debug.ReadBuildInfo()
 	resolvedVersion, resolvedCommit := resolveBuildInfo(version, commit, info)
+	if filepath.Base(os.Args[0]) == "gh" {
+		cli.Version = resolvedVersion
+		os.Exit(cli.Wrapper(os.Args[1:]))
+	}
 	os.Exit(cli.Management(os.Args[1:], resolvedVersion, resolvedCommit))
 }

@@ -212,3 +212,35 @@ func TestShimInvocationProvenance(t *testing.T) {
 		t.Fatalf("shim provenance logs=%+v", logs)
 	}
 }
+
+// Bare `gh` (no arguments) is passed through like any other invocation, via
+// both the shim and the shell-function entry `ghok exec --`.
+func TestBareGhPassesThrough(t *testing.T) {
+	s := newSandbox(t)
+	s.gh(nil).code(t, 0)
+	s.management(nil, "exec", "--").code(t, 0)
+	records := s.records()
+	if len(records) != 2 || len(records[0].Argv) != 0 || len(records[1].Argv) != 0 || records[1].Argv0 != "gh" {
+		t.Fatalf("bare gh records=%+v", records)
+	}
+	s.management(nil, "exec").code(t, 0)
+}
+
+// `gh --version` adds a ghok line only on a terminal (see terminal tests);
+// piped output stays byte-identical. `ghok exec` passes arguments through with
+// or without `--`.
+func TestVersionPipedUnchangedAndExecPassThrough(t *testing.T) {
+	s := newSandbox(t)
+	setBytes(s.env, "FAKEGH_STDOUT_B64", []byte("gh version 2.102.0 (fake)\n"))
+	for _, args := range [][]string{{"--version"}, {"version"}} {
+		result := s.gh(nil, args...)
+		result.code(t, 0)
+		if string(result.stdout) != "gh version 2.102.0 (fake)\n" {
+			t.Fatalf("%v stdout=%q", args, result.stdout)
+		}
+	}
+	s.management(nil, "exec", "pr", "view", "1").code(t, 0)
+	if records := s.records(); len(records) != 3 || strings.Join(records[2].Argv, " ") != "pr view 1" {
+		t.Fatalf("records=%+v", records)
+	}
+}

@@ -35,6 +35,15 @@ Exec preserves gh status/signals; denials use 77 (content) or 78 (hook/config er
 
 // Management runs the CLI, including explicit wrapper execution through exec.
 func Management(args []string, version, commit string) int {
+	Version = version
+	// exec hands everything after it to gh unparsed; a leading -- is optional.
+	if len(args) > 0 && args[0] == "exec" {
+		rest := args[1:]
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+		return wrapper(rest, "gh", "exec")
+	}
 	code := 0
 	root := managementRoot(&code, version, commit)
 	root.SetArgs(args)
@@ -70,7 +79,7 @@ func managementRoot(code *int, version, commit string) *cobra.Command {
 	execCmd := managementCommand("exec -- <gh args>", "Run gh through the wrapper pipeline without installing a shim", code, func(_ *cobra.Command, args []string) int {
 		return wrapper(args, "gh", "exec")
 	})
-	execCmd.Args = managementInvocationArgs
+	// Listed for help only: Management dispatches exec before cobra parsing.
 	execCmd.Long = `Run exactly the same discovery, recursion checks, policy, hooks, execution and
 logging as the gh shim. Intended for tests, CI and scripts without a shim on PATH.
 This is not a policy bypass. The real gh receives argv[0]="gh"; only trusted transforms rewrite args.
