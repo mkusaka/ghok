@@ -218,7 +218,8 @@ change real gh, gh/git configuration, or shell rc files.
 
 ### Shell function (without a shim)
 
-To try ghok in your own interactive shell without a shim, add to your rc file:
+To use ghok in an interactive shell without a shim, add this to that shell's
+interactive startup file:
 
 ```sh
 eval "$(ghok shell-init zsh)"    # or bash; fish: ghok shell-init fish | source
@@ -228,14 +229,42 @@ This defines `function gh { ghok exec -- "$@"; }` (a function, not an alias, so
 it also applies inside the same `zsh -c '...'` string that defines it). gh
 completion keeps working because completion is keyed by the name `gh`.
 
-It covers only `gh` typed in, or run directly by, that shell. These bypass it:
-gh started by scripts, Makefiles, npm scripts or other programs (functions are
-not inherited by `bash -c`/child processes), `xargs gh`, `env gh`, `sudo gh`,
-`nohup gh`, `exec gh`, `command gh`, and agent shells that do not read your rc
-file. Use the shim when every gh on the machine, including agents, must go
-through ghok. Both may be installed: `ghok exec` skips the shim when finding
-real gh, so gh still runs once. `ghok doctor` notices recent `ghok exec` use and
-then reports a missing shim as info, with this coverage gap, instead of a warning.
+By default, this covers only shells that read that interactive startup file.
+Non-interactive shells need their own startup setup:
+
+- zsh reads `~/.zshenv` for interactive and non-interactive shells. Put the
+  guarded zsh `eval` there to cover `zsh -c`.
+- For non-interactive bash, including `bash -c`, bash reads the file named by
+  `BASH_ENV`, not `~/.bashrc`. Export `BASH_ENV` from the parent environment
+  (for example, in `~/.zshenv`) to a file that runs the guarded bash `eval`.
+  This defines a bash function; bash does not inherit the zsh function.
+
+For example:
+
+```sh
+# ~/.zshenv
+if command -v ghok >/dev/null 2>&1; then
+  eval "$(ghok shell-init zsh)"
+fi
+export BASH_ENV="$HOME/.config/ghok/bash_env"
+
+# ~/.config/ghok/bash_env
+if command -v ghok >/dev/null 2>&1; then
+  eval "$(ghok shell-init bash)"
+fi
+```
+
+For interactive bash, put the guarded bash `eval` in `~/.bashrc`. This `BASH_ENV`
+setup covers bash processes started from that zsh; bash started without that
+environment variable remains uncovered.
+
+These shell functions do not cover `/bin/sh` or direct `gh` process launches
+that do not start a configured shell. They also do not cover `xargs gh`,
+`env gh`, `sudo gh`, `nohup gh`, `exec gh`, or `command gh`. Use the PATH shim
+for broader coverage across scripts and agent shells. Both may be installed:
+`ghok exec` skips the shim when finding real gh, so gh still runs once.
+`ghok doctor` notices recent `ghok exec` use and then reports a missing shim as
+info, with this coverage gap, instead of a warning.
 
 ## Configuration and hooks
 
