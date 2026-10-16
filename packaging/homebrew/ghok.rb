@@ -32,12 +32,14 @@ class Ghok < Formula
 
   def caveats
     <<~EOS
-      ghok is installed but not active. To route `gh` through ghok, run:
-        ghok shim install
-      This creates ~/.local/bin/gh -> #{opt_bin}/ghok (shell rc files are not modified);
-      make sure ~/.local/bin comes before #{HOMEBREW_PREFIX}/bin in PATH, then check with:
-        ghok doctor
-      Undo with `ghok shim uninstall`.
+      ghok is installed but not active. Route `gh` through it in one of two ways:
+        ghok shim install                   # every gh on this machine, incl. scripts and agents
+        eval "$(ghok shell-init zsh)"       # only gh typed in your shell (bash/fish also supported)
+      The shim creates ~/.local/bin/gh -> #{opt_bin}/ghok (shell rc files are not modified);
+      put ~/.local/bin before #{HOMEBREW_PREFIX}/bin in PATH. Undo with `ghok shim uninstall`.
+      Without a config gh passes through untouched; create one with:
+        ghok config init --scope user
+      Then check everything with `ghok doctor`.
     EOS
   end
 

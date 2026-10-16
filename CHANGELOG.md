@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- Homebrew caveats mention the `ghok shell-init` alternative to the shim and `ghok config init --scope user` (gh passes through untouched without a config).
+
 ## [v0.0.11] - 2026-10-16
 
 ### Added
