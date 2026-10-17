@@ -240,6 +240,10 @@ An [Agent Skill](skills/ghok/SKILL.md) for using ghok from coding agents
 npx skills add mkusaka/ghok
 ```
 
+The skill also ships inside the binary: `ghok docs skill` prints it, preceded by
+a comment with its source URL at the matching release tag
+(`https://github.com/mkusaka/ghok/blob/vX.Y.Z/skills/ghok/SKILL.md`).
+
 ## Shim install, uninstall, upgrade
 
 Recommended: install the shim once on your normal machine-wide PATH, not per

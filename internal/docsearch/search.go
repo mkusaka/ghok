@@ -63,7 +63,7 @@ func (index *Index) Search(query, version string, limit int) []Result {
 			section := index.Sections[n]
 			results = append(results, Result{
 				ID: section.ID, Title: section.Title, Description: section.Description,
-				URL:   "https://github.com/mkusaka/ghok/blob/" + versionRef(version) + "/" + section.File + "#" + url.PathEscape(section.Anchor),
+				URL:   SourceURL(version, section.File) + "#" + url.PathEscape(section.Anchor),
 				Score: score,
 			})
 		}
@@ -94,6 +94,11 @@ func (index *Index) Suggest(id string) []string {
 
 var releaseVersion = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`)
 var developmentVersion = regexp.MustCompile(`(?:[+-]dirty|-[0-9]+-g[0-9a-f]+|-[0-9]{14}-[0-9a-f]{12})$`)
+
+// SourceURL is file's GitHub URL at the tag matching version (main for dev builds).
+func SourceURL(version, file string) string {
+	return "https://github.com/mkusaka/ghok/blob/" + versionRef(version) + "/" + file
+}
 
 func versionRef(version string) string {
 	if !releaseVersion.MatchString(version) || developmentVersion.MatchString(version) {

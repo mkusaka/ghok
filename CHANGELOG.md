@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- `ghok docs skill` (and its subsections) start with a comment giving the skill's source URL at the release tag matching the binary, for installing it with an agent's skill tool.
+
 ## [v0.0.15] - 2026-10-17
 
 ### Added

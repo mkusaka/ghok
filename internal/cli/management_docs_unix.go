@@ -31,7 +31,12 @@ func managementDocsCommand(code *int, version string) *cobra.Command {
 				}
 				return managementFailure(fmt.Errorf("%s", message))
 			}
-			return managementDocsWrite(section.Markdown)
+			markdown := section.Markdown
+			if section.File == skillFile {
+				// Say where the installable skill for this exact version lives.
+				markdown = fmt.Sprintf("<!-- Agent skill source for this ghok version: %s (install it with your agent's skill tool, e.g. npx skills add mkusaka/ghok) -->\n", docsearch.SourceURL(version, skillFile)) + markdown
+			}
+			return managementDocsWrite(markdown)
 		}
 		if asJSON {
 			return managementJSON(index.Sections, nil)
@@ -68,6 +73,8 @@ func managementDocsCommand(code *int, version string) *cobra.Command {
 	docs.AddCommand(search)
 	return docs
 }
+
+const skillFile = "skills/ghok/SKILL.md"
 
 func managementDocsWrite(markdown string) int {
 	if _, err := fmt.Fprint(os.Stdout, markdown); err != nil {

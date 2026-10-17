@@ -152,3 +152,16 @@ func TestManagementActions(t *testing.T) {
 	s.management(nil, "actions", "pr.merge", "extra").code(t, 2)
 	s.absentRecord()
 }
+
+func TestDocsSkillSourceURL(t *testing.T) {
+	s := newSandbox(t)
+	result := s.management(nil, "docs", "skill")
+	result.code(t, 0)
+	// e2e builds use a non-release version, so the URL points at main.
+	if !bytes.HasPrefix(result.stdout, []byte("<!-- Agent skill source for this ghok version: https://github.com/mkusaka/ghok/blob/main/skills/ghok/SKILL.md ")) {
+		t.Fatalf("skill header: %.200s", result.stdout)
+	}
+	if bytes.Contains(s.management(nil, "docs", "readme").stdout, []byte("Agent skill source")) {
+		t.Fatal("non-skill section got the skill header")
+	}
+}
