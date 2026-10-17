@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.15] - 2026-10-17
+
 ### Added
 
 - Offline, version-matched `ghok docs` section browsing, full Markdown output
@@ -186,7 +188,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.14...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.15...HEAD
+[v0.0.15]: https://github.com/mkusaka/ghok/compare/v0.0.14...v0.0.15
 [v0.0.14]: https://github.com/mkusaka/ghok/compare/v0.0.13...v0.0.14
 [v0.0.13]: https://github.com/mkusaka/ghok/compare/v0.0.12...v0.0.13
 [v0.0.12]: https://github.com/mkusaka/ghok/compare/v0.0.11...v0.0.12
