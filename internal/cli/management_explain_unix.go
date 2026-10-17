@@ -18,15 +18,15 @@ import (
 
 func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	var output bytes.Buffer
-	r := redact.New(a.env)
+	r := a.redactor
 	display := func(text string) string {
-		if !showSecrets {
+		if !showSecrets || a.envEdited {
 			text = r.String(text)
 		}
 		return terminalText(text)
 	}
 	result := a.result
-	if !showSecrets {
+	if !showSecrets || a.envEdited {
 		result = r.Result(result)
 	}
 	evaluation := a.evaluation
@@ -145,6 +145,9 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	}
 	fmt.Fprintln(&output, "Explain exits 0. ghok is not a security boundary; direct gh/API calls bypass it.")
 	text := output.String()
+	if a.envEdited {
+		text = r.String(text)
+	}
 	if _, err := io.WriteString(os.Stdout, text); err != nil {
 		return managementFailure(err)
 	}

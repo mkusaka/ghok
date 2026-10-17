@@ -30,6 +30,10 @@ type managementAnalysis struct {
 	cwd              string
 	env              map[string]string
 	invocation       model.Invocation
+	redactor         *redact.Redactor
+	envChanged       []string
+	envBy            map[string]string
+	envEdited        bool
 	result           model.Result
 	context          *model.ResolvedContext
 	evaluation       policy.Evaluation
@@ -61,7 +65,7 @@ func managementAnalyze(args []string, resolveTargets, allowAPI, transform bool) 
 			}
 		}
 	}
-	a := &managementAnalysis{config: c, notes: notes, cwd: cwd, env: env, invocation: inv, result: normalize.Normalize(inv)}
+	a := &managementAnalysis{config: c, notes: notes, cwd: cwd, env: env, invocation: inv, result: normalize.Normalize(inv), redactor: redact.New(env)}
 	a.cleanup = func() {}
 	if transform && len(c.Transforms) > 0 {
 		a.real, _ = realGh(c, env)
@@ -69,18 +73,20 @@ func managementAnalyze(args []string, resolveTargets, allowAPI, transform bool) 
 		if err != nil {
 			return nil, err
 		}
-		r := redact.New(env)
-		runner := &hooks.Runner{BaseDir: c.Dir, Env: append(os.Environ(), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"]), RealGh: a.real, Redact: r.String, Source: "test"}
+		runner := &hooks.Runner{BaseDir: c.Dir, Env: append(os.Environ(), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"]), RealGh: a.real, Redact: a.redactor.String, Redactor: a.redactor, Source: "test"}
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		applied := runTransforms(ctx, c, runner, inv, a.result, a.real, logging.NewInvocationID(), "shim")
 		cancel()
 		release()
 		if applied.denial != nil {
 			applied.cleanup()
-			return nil, fmt.Errorf("denied by transform %s (error: %s): %s", applied.denial.ID, applied.denial.ErrorKind, applied.denial.Message)
+			return nil, fmt.Errorf("denied by transform %s (error: %s): %s", a.redactor.String(applied.denial.ID), applied.denial.ErrorKind, a.redactor.String(applied.denial.Message))
 		}
 		a.invocation, a.result, a.cleanup = applied.invocation, applied.result, applied.cleanup
 		a.transformIDs, a.transformResults = applied.ids, applied.results
+		a.env = a.invocation.Env
+		env = a.env
+		a.envChanged, a.envBy, a.envEdited = applied.envChanged(), applied.envBy, applied.envEdited
 	}
 	if resolveTargets {
 		helperEnv := env
@@ -140,7 +146,7 @@ func managementInspect(command string, args []string, options managementInspectO
 		return managementFailure(err)
 	}
 	defer a.cleanup()
-	r := redact.New(a.env)
+	r := a.redactor
 	if command == "normalize" {
 		for _, diagnostic := range a.diagnostics {
 			fmt.Fprintln(os.Stderr, "ghok:", r.String(diagnostic))
@@ -225,13 +231,18 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	// Discovery supplies hook helpers a real-gh path when available, but a pure
 	// hook test remains usable on machines without gh. No original gh is started.
 	a.real, _ = realGh(a.config, a.env)
-	r := redact.New(a.env)
-	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: os.Environ(), RealGh: a.real, Redact: r.String, Source: "test"}
+	r := a.redactor
+	hookEnv := os.Environ()
+	if phase == config.PhasePost {
+		hookEnv = environmentList(a.env)
+	}
+	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: hookEnv, RealGh: a.real, Redact: r.String, Redactor: r, Source: "test"}
 	if exitCode < 0 || exitCode > 255 {
 		return managementUsageError("--exit-code must be 0-255")
 	}
 	subject := a.subject(phase)
-	input := hookInput(a.invocation.Argv, a.cwd, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
+	input := hookInput(a.invocation, a.real, a.result, a.context, a.evaluation, logging.NewInvocationID())
+	input.Invocation.EnvChanged = a.envChanged
 	if phase == config.PhasePost {
 		// A synthetic execution result, not a real one; it also drives
 		// match.result / match.exitCode selection.
@@ -260,7 +271,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			target = "hook " + options.hookID
 		}
 		fmt.Fprintf(os.Stderr, "ghok: %s input for %s (source: test; hooks and gh not executed; invocation.via shows the real entry point)\n", phase, target)
-		if !options.showSecrets {
+		if !options.showSecrets || a.envEdited {
 			masked := r.WithCount(func(display *redact.Redactor) {
 				input = display.HookInput(input)
 			})
@@ -276,7 +287,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			return managementFailure(err)
 		}
 		defer cleanup()
-		runner.Env = append(os.Environ(), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
+		runner.Env = append(append([]string(nil), hookEnv...), "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	aggregate := runner.Run(ctx, phase, selected, input)
@@ -315,7 +326,16 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 		value.TransformResults = a.transformResults
 		value.Aggregate.Decision, value.Aggregate.Message = aggregate.Decision, aggregate.Message
 		value.Final.Decision, value.Final.WouldDeny = decision, wouldDeny
-		if code := managementJSON(value, r); code != 0 {
+		display, err := managementRedacted(value, r)
+		if err != nil {
+			return managementFailure(err)
+		}
+		if value.Transformed != nil {
+			// These are names/transform IDs, not credential-bearing map values.
+			// Avoid treating the envBy key GH_TOKEN as a secret value field.
+			display.(map[string]any)["transformed"] = value.Transformed
+		}
+		if code := managementJSON(display, nil); code != 0 {
 			return code
 		}
 	} else {

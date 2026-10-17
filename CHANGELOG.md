@@ -8,6 +8,12 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- Transform response `env` edits for trusted credential swaps and other allowed
+  variables, atomic request/environment rollback, post-edit token matching and
+  names-only redacted diagnostics; includes a `gain-token` Go example.
+
 ## [v0.0.13] - 2026-10-17
 
 ### Added

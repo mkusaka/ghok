@@ -299,7 +299,7 @@ Full protocol: <https://github.com/mkusaka/ghok/blob/main/docs/hook-protocol.md>
 Use `transforms.pre` for trusted request rewriting, not hook decisions.
 Transforms run serially (user then trusted project), rematching the current
 request before each entry, before policy/pre-hooks. Allowed definition keys:
-`id`, `match`, `command`, `env`, `timeout` (5s default), `onError` (`deny` default,
+`id`, `match`, `command`, `env`, `timeout` (5s default, 10m maximum), `onError` (`deny` default,
 or `allow`), `redactInput`, project-only `files`. IDs share the hook namespace.
 `transforms.post` is reserved; no parallel/background/wait/dependsOn/optional/
 captureOutput settings are supported.
@@ -312,6 +312,24 @@ Paths are strictly limited to `/operations/N/texts/{title,body,notes}/value`,
 `/operations/N/target/{repository,number}`. Unsupported/ambiguous sources fail
 as `unsupported-edit`; malformed paths fail as `invalid-response`.
 
+The response may also contain a flat `env` object: strings set variables, `null`
+entries unset them; `env: null` is invalid. Names must match
+`^[A-Za-z_][A-Za-z0-9_]*$`, values cannot contain NUL. Forbidden names:
+`GHOK_*`, `GH_PATH`, `GH_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`, `PATH`,
+`LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_*`, `GH_HOST`, `GH_REPO`.
+Credential names `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`,
+`GITHUB_ENTERPRISE_TOKEN` are allowed and recompute host-scoped token kind;
+other valid names are unrestricted. Invalid edits are `invalid-response`.
+Request/environment edits are atomic; later entries win. Selection and command
+environment use state before each transform; no self-retriggering.
+Final `tokenKind`, `match.token` and `match.env` reflect edited environment.
+gh and POST processes receive the edited environment; PRE processes retain the original environment.
+PRE input still describes post-edit tokenKind. Environment-only edits preserve
+original execution argv. Sorted `invocation.envChanged` and logging `env`/`envBy`
+report names/attribution only. Environment values are never shown in explain or
+hooks test, even with `--show-secrets`; all set values enter the shared redactor
+before diagnostics/hook input.
+
 Native curated flags, REST JSON `--input`, GraphQL variables/`--input`
 variables and existing REST field prose are supported. Do not promise GraphQL
 literals/defaults, shared variables across selected fields, unavailable/generated
@@ -323,9 +341,15 @@ original files.
 Project transforms require the same explicit trust, digests, dependency review
 and warning handling as hooks, but inactive transforms are **never gates**.
 On `deny` failure gh never runs (78, even observe); on `allow` failure the entire
-chain rolls back, remaining transforms are skipped, and the original request is
-checked/executed. Explain, hooks test and print-input apply transforms; normalize
+chain rolls back both request and environment, remaining transforms are skipped,
+and the original request/environment is checked/executed. Explain, hooks test and print-input apply transforms; normalize
 does not. Logs summarize/redact changes rather than record replacement prose.
 See `examples/transforms/attribute-session` for appending
 `\n\nfrom session_id: $CLAUDE_CODE_SESSION_ID` to supplied bodies, with no output
 when the environment variable is absent.
+
+For trusted credential swaps see `examples/transforms/gain-token`: it runs
+`gain [--profile $GAIN_PROFILE] token`, sets `GH_TOKEN`, and unsets `GITHUB_TOKEN`.
+Use `match.operation: "pr.merge.*"` and `timeout: 15s` when minting needs more
+than the 5s default. Review this trusted code and dependencies before activation;
+redaction does not sandbox credential access.

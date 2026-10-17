@@ -191,8 +191,9 @@ inactive and **never gates**, even alongside trusted project commands.
 Transforms run before final policy and pre-hooks, so those checks judge the
 request that will actually execute. A malformed/unsupported edit or transform
 process failure with `onError: deny` stops gh with 78 **even in observe mode**.
-With `onError: allow`, all preceding changes are rolled back, the remaining
-transforms are skipped, and normal checks judge the original request.
+With `onError: allow`, all preceding request and environment changes are rolled
+back, the remaining transforms are skipped, and normal checks judge the original
+request and environment.
 
 Write-back accepts only restricted paths and sources and verifies a semantic
 round trip. It does not authorize arbitrary operation changes. File/stdin edits
@@ -201,6 +202,19 @@ Named transports are removed after the child exits, and failed applications
 clean up immediately. SIGKILL can leave temporary files, just as it can leave
 other wrapper-owned state. Logs contain redacted transform outcomes/summaries,
 not replacement prose. These controls do not sandbox trusted transform code.
+
+Credential swaps are trusted-code execution: transforms may set/unset
+`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`.
+The resulting token kind and environment are used for final matching/policy.
+gh and POST processes receive the edited environment; PRE processes retain the original environment.
+PRE input still describes the post-edit token kind. Names-only diagnostics report
+sorted `invocation.envChanged` and logging `env`/`envBy`; transform environment
+values never appear in explain/hooks-test output, even with `--show-secrets`.
+All set values, not only recognized token prefixes, enter the shared redactor
+before diagnostics and hook input. This does not prevent trusted code from
+exfiltrating credentials. Environment edits cannot change wrapper controls,
+runtime loaders or host/repository targeting; see the
+[forbidden names and response rules](hook-protocol.md#request-transforms).
 
 Dependency file hashes are cached in
 `<config-dir>/state/manifest-cache.json` (0600, atomic replacement; 0700 state

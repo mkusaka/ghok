@@ -61,6 +61,15 @@ func Generate(name string) (map[string]any, error) {
 		props["set"].(map[string]any)["propertyNames"] = map[string]any{"pattern": protocol.TransformPathPattern}
 		props["unset"].(map[string]any)["items"] = map[string]any{"type": "string", "pattern": protocol.TransformPathPattern}
 		props["unset"].(map[string]any)["uniqueItems"] = true
+		env := props["env"].(map[string]any)
+		env["propertyNames"] = map[string]any{
+			"pattern": protocol.TransformEnvNamePattern,
+			"not":     map[string]any{"pattern": protocol.TransformEnvForbiddenPattern},
+		}
+		env["additionalProperties"] = map[string]any{"oneOf": []any{
+			map[string]any{"type": "string", "pattern": "^[^\\x00]*$"},
+			map[string]any{"type": "null"},
+		}}
 	default:
 		return nil, fmt.Errorf("unknown schema %q", name)
 	}

@@ -216,6 +216,10 @@ func (r *Runner) executeResponse(parent context.Context, phase string, h config.
 	if stderr.truncated {
 		result.Stderr += "\n[stderr truncated]"
 	}
+	var responseErr error
+	if parse != nil {
+		responseErr = parse(stdout.data)
+	}
 	if canceled {
 		result.Outcome = protocol.OutcomeCanceled
 		if parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -230,13 +234,11 @@ func (r *Runner) executeResponse(parent context.Context, phase string, h config.
 	}
 	if parse != nil {
 		if stdout.truncated {
-			err = errors.New("transform stdout exceeded output limit")
-		} else {
-			err = parse(stdout.data)
+			responseErr = errors.New("transform stdout exceeded output limit")
 		}
-		if err != nil {
+		if responseErr != nil {
 			result.Outcome = protocol.OutcomeInvalidResponse
-			result.Error = err.Error()
+			result.Error = responseErr.Error()
 		} else {
 			result.Outcome = protocol.OutcomeOK
 			result.Decision = protocol.DecisionAbstain

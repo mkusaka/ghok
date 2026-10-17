@@ -1,5 +1,5 @@
 // Package redact makes independent, credential-safe copies at output boundaries.
-// A Redactor is immutable after construction and may be shared by goroutines.
+// A Redactor may be shared by goroutines after secret learning has finished.
 package redact
 
 import (
@@ -35,6 +35,26 @@ func New(env map[string]string) *Redactor {
 			set[value] = true
 		}
 	}
+	return newRedactor(set)
+}
+
+// AddSecrets learns every nonempty value, regardless of its environment name.
+// Call only between serial transforms, before sharing the redactor with hooks
+// or writing logs. Existing learned values survive rollback and replacement.
+func (r *Redactor) AddSecrets(values ...string) {
+	set := make(map[string]bool, len(r.secrets)+len(values))
+	for _, value := range r.secrets {
+		set[value] = true
+	}
+	for _, value := range values {
+		if value != "" {
+			set[value] = true
+		}
+	}
+	*r = *newRedactor(set)
+}
+
+func newRedactor(set map[string]bool) *Redactor {
 	r := &Redactor{replacement: marker}
 	for value := range set {
 		r.secrets = append(r.secrets, value)

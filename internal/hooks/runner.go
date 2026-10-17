@@ -31,6 +31,8 @@ type Runner struct {
 	RealGh      string
 	Now         func() time.Time
 	Redact      func(string) string
+	// Redactor is shared across serial transforms, hook input and diagnostics.
+	Redactor *redact.Redactor
 	// Source is exported to hooks as GHOK_EVENT_SOURCE (shim, exec or test).
 	// Hooks may use it only to skip side effects (notifications) in tests,
 	// never to change their decision.
@@ -97,6 +99,9 @@ func (r *Runner) redact(s string) string {
 	if r.Redact != nil {
 		return r.Redact(s)
 	}
+	if r.Redactor != nil {
+		return r.Redactor.String(s)
+	}
 	return s
 }
 func (r *Runner) now() time.Time {
@@ -154,7 +159,7 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 	}
 	remaining, running := len(hooks), 0
 	denied := false
-	var inputRedactor *redact.Redactor
+	inputRedactor := r.Redactor
 	finish := func(i int, result protocol.HookResult) {
 		state[i] = 2
 		aggregate.Results[i] = result

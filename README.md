@@ -32,7 +32,7 @@ basename(argv[0])
 ```
 
 Alias expansion is analysis-only unless a transform changes the request; changed
-requests use expanded argv. Without transforms, real gh receives the original arguments.
+requests use expanded argv. No-op and environment-only transforms preserve original arguments.
 Uncaptured output uses inherited descriptors, not a PTY emulation.
 Post-hooks never change gh's status. Capture is opt-in and changes gh's
 stdout/stderr to pipes; see [compatibility](docs/compatibility.md).
@@ -48,8 +48,9 @@ Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
 
 `transforms.pre` runs trusted programs before policy and pre-hooks, in user then
 project order. Each program sees the current normalized request and may return
-restricted `set`/`unset` edits. This is separate from hooks: hooks still judge
-requests rather than rewrite them.
+restricted `set`/`unset` request edits and an optional flat `env` object (string
+values set variables; `null` unsets them). This is separate from hooks: hooks
+still judge requests rather than rewrite them.
 
 ```yaml
 transforms:
@@ -70,11 +71,36 @@ after creating that private directory. It appends
 `\n\nfrom session_id: $CLAUDE_CODE_SESSION_ID` to supplied comment bodies; absent
 session IDs produce no output and no change. See [example config](examples/config.yaml).
 
+For trusted credential swaps, build
+[`gain-token`](examples/transforms/gain-token/main.go) with
+`go build -o "$config_dir/transforms/gain-token" ./examples/transforms/gain-token`
+and add this entry to `transforms.pre`:
+
+```yaml
+    - id: gain-token
+      match:
+        operation: "pr.merge.*"
+      command: ["./transforms/gain-token"]
+      timeout: 15s
+      onError: deny
+```
+
+It runs `gain [--profile $GAIN_PROFILE] token`, sets `GH_TOKEN`, and unsets
+`GITHUB_TOKEN`. Transforms default to 5s (maximum 10m); token minting may need
+15s. Credential swaps are trusted code, not a sandbox: inspect the executable
+and its dependencies before trusting it. Environment values are never shown in
+transform diagnostics, explain or hooks-test output, even with `--show-secrets`.
+Only sorted changed names (`invocation.envChanged`, logging `env`/`envBy`) are
+reported. Each transform is selected using the request/environment before that
+entry; edits affect later entries, never re-trigger the same entry.
+Final `tokenKind`, `match.token` and `match.env` reflect the edited environment.
+gh and POST processes receive the edited environment; PRE processes retain the original environment.
+
 Project transforms require explicit `ghok config trust`, just like project hooks;
 inactive transforms are ignored, never gates. A failed `onError: deny` transform
 stops execution with **78 even in observe mode**. With `onError: allow`, ghok rolls
-back **all** transforms, skips the remainder, and evaluates/executes the original
-request. File/stdin edits use private temporary transport, never overwrite the
+back **all** request and environment edits, skips the remainder, and evaluates/executes
+the original request and environment. File/stdin edits use private temporary transport, never overwrite the
 original file, and are cleaned up after use. See the
 [transform protocol](docs/hook-protocol.md#request-transforms) for editable paths,
 unsupported sources and diagnostic behavior.

@@ -18,6 +18,22 @@ import (
 
 const replacement = "[REDACTED]"
 
+func TestAddedSecretsSurviveReplacement(t *testing.T) {
+	original, added := "original-"+"credential", "short"
+	r := redact.New(map[string]string{"GH_TOKEN": original})
+	r.AddSecrets("", added, "long-"+added)
+	r.AddSecrets("replacement-" + "credential")
+	for _, secret := range []string{original, added, "long-" + added, "replacement-" + "credential"} {
+		if got := r.String(secret); got != replacement {
+			t.Fatalf("learned value not fully masked: %q", got)
+		}
+	}
+	r.AddSecrets(replacement)
+	if got := r.String(added); strings.Contains(got, added) || strings.Contains(got, replacement) {
+		t.Fatalf("replacement marker exposes learned value: %q", got)
+	}
+}
+
 func TestRedactionCounts(t *testing.T) {
 	secret := "learned-" + "count-credential"
 	pattern := "ghp_" + strings.Repeat("c", 36)

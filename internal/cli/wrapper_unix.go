@@ -62,11 +62,15 @@ func wrapper(args []string, argv0, via string) int {
 		return 0
 	}
 	env := environment()
+	var redactor *redact.Redactor
 	if via == "exec" {
 		install.RecordExecEntry(filepath.Join(config.Dir(env), "state"), time.Now())
 	}
 	fatal := func(err error, code int) int {
-		fmt.Fprintln(os.Stderr, "ghok:", redact.New(env).String(err.Error()))
+		if redactor == nil {
+			redactor = redact.New(env)
+		}
+		fmt.Fprintln(os.Stderr, "ghok:", redactor.String(err.Error()))
 		return code
 	}
 	cwd, err := os.Getwd()
@@ -93,7 +97,7 @@ func wrapper(args []string, argv0, via string) int {
 			helperSignals = append(helperSignals, sig)
 		}
 	}
-	redactor := redact.New(env)
+	redactor = redact.New(env)
 	cfg, notes, configErr := config.LoadEffective(config.DefaultPath(env), cwd, env)
 	failClosed := config.FailClosed(configErr, env)
 	var real string
@@ -216,7 +220,7 @@ func wrapper(args []string, argv0, via string) int {
 		hookEnv = append(childEnv, "GHOK_NESTED_TOKEN="+helperEnv["GHOK_NESTED_TOKEN"])
 	}
 	defer releaseNested()
-	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String, Source: via}
+	runner := &hooks.Runner{Hooks: cfg.Hooks, BaseDir: cfg.Dir, Concurrency: cfg.Runtime.HookConcurrency, Env: hookEnv, RealGh: real, Redact: redactor.String, Redactor: redactor, Source: via}
 	ctx, stopHelpers := watchHelpers(helperSignals, len(cfg.Hooks) > 0 || len(cfg.Transforms) > 0 || localNeeded && cfg.Runtime.ResolveAPI != "never")
 	transformed := runTransforms(ctx, cfg, runner, inv, result, real, eventID, via)
 	defer transformed.cleanup()
@@ -238,7 +242,7 @@ func wrapper(args []string, argv0, via string) int {
 		return 78
 	}
 	if len(transformed.ids) > 0 {
-		record.Transformed = transformedLog(result, transformed.result, transformed.invocation.Argv, transformed.ids)
+		record.Transformed = transformedLog(result, transformed.result, transformed.invocation.Argv, transformed.ids, transformed.envChanged(), transformed.envBy)
 		opts.Args = append([]string{argv0}, transformed.invocation.Argv...)
 		if !bytes.Equal(inv.Stdin.Data, transformed.invocation.Stdin.Data) {
 			replay, err := process.SpoolBytes(transformed.invocation.Stdin.Data)
@@ -251,6 +255,23 @@ func wrapper(args []string, argv0, via string) int {
 		}
 	}
 	inv, result = transformed.invocation, transformed.result
+	if len(transformed.envBy) > 0 {
+		// Rebuild from the edited, unincremented invocation environment.
+		opts.Env, _, err = install.NextDepth(environmentList(inv.Env))
+		if err != nil {
+			stopHelpers()
+			return fatal(err, 1)
+		}
+		token := helperEnv["GHOK_NESTED_TOKEN"]
+		helperEnv = make(map[string]string, len(inv.Env)+2)
+		for name, value := range inv.Env {
+			helperEnv[name] = value
+		}
+		if token != "" {
+			helperEnv["GHOK_NESTED"], helperEnv["GHOK_NESTED_TOKEN"] = "1", token
+		}
+	}
+	subject.Env, subject.Token = inv.Env, policy.TokenKind(inv.Env)
 	subject.Result, subject.Argv = result, result.Source.Argv
 	localNeeded = needsLocal(cfg, subject)
 	if localNeeded {
@@ -276,8 +297,9 @@ func wrapper(args []string, argv0, via string) int {
 		}
 	}
 	evaluation := evaluateConfig(cfg, subject)
-	input := hookInput(inv.Argv, cwd, real, result, resolved, evaluation, eventID)
+	input := hookInput(inv, real, result, resolved, evaluation, eventID)
 	input.Invocation.Via = via
+	input.Invocation.EnvChanged = transformed.envChanged()
 	record.Classification, record.Operations, record.Errors, record.Alias = result.Classification, result.Operations, result.Errors, result.Source.Alias
 	record.Source = &result.Source
 	if stdinSkipped {
@@ -336,6 +358,10 @@ func wrapper(args []string, argv0, via string) int {
 	// Candidates were selected before gh ran; apply match.result/exitCode now.
 	subject.Outcome = input.Result
 	post = runner.Select(config.PhasePost, subject)
+	runner.Env = opts.Env
+	if token := helperEnv["GHOK_NESTED_TOKEN"]; token != "" {
+		runner.Env = append(append([]string(nil), opts.Env...), "GHOK_NESTED_TOKEN="+token)
+	}
 	aggregate := runner.Run(ctx, config.PhasePost, post, input)
 	if caught := stopHelpers(); caught != 0 {
 		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))

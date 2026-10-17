@@ -115,9 +115,9 @@ func TestApplyRejectsUnsupportedAtomically(t *testing.T) {
 		{"api", "graphql", "-f", `query=mutation($body:String!){a:updateIssue(input:{id:"I_1",body:$body}){issue{id}} b:updateIssue(input:{id:"I_2",body:$body}){issue{id}}}`, "-f", "body=old"},
 	}
 	for _, argv := range cases {
-		inv := model.Invocation{Argv: argv}
+		inv := model.Invocation{Argv: argv, Env: map[string]string{"CUSTOM": "original"}}
 		before := normalize.Normalize(inv)
-		next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Set: map[string]any{"/operations/0/texts/body/value": "new"}})
+		next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Set: map[string]any{"/operations/0/texts/body/value": "new"}, Env: map[string]*string{"CUSTOM": new("changed")}})
 		cleanup()
 		if !errors.Is(err, ErrUnsupportedEdit) {
 			t.Fatalf("%v: %v", argv, err)
@@ -272,18 +272,21 @@ func TestApplyRejectsRESTNonTextFieldInsertion(t *testing.T) {
 func TestApplyCleansFailedFileRewrite(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("TMPDIR", directory)
-	inv := model.Invocation{Argv: []string{"issue", "edit", "12", "--body-file", "original", "--title", "keep"}, ReadFile: func(string) ([]byte, error) { return []byte("old"), nil }}
+	inv := model.Invocation{Argv: []string{"issue", "edit", "12", "--body-file", "original", "--title", "keep"}, Env: map[string]string{"CUSTOM": "original"}, ReadFile: func(string) ([]byte, error) { return []byte("old"), nil }}
 	before := normalize.Normalize(inv)
 	loc := before.Operations[0].Editable["texts/body/value"]
 	loc.Spans = append(loc.Spans, model.ArgSpan{Start: 5, End: 7})
 	before.Operations[0].Editable["texts/body/value"] = loc
-	next, _, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Set: map[string]any{"/operations/0/texts/body/value": "new"}})
+	next, _, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Set: map[string]any{"/operations/0/texts/body/value": "new"}, Env: map[string]*string{"CUSTOM": new("changed")}})
 	cleanup()
 	if !errors.Is(err, ErrUnsupportedEdit) {
 		t.Fatalf("clobbered title accepted: %v", err)
 	}
 	if !reflect.DeepEqual(next.Argv, inv.Argv) || len(next.TemporaryFiles) != 0 {
 		t.Fatal("failed attempt leaked invocation changes")
+	}
+	if !reflect.DeepEqual(next.Env, inv.Env) || inv.Env["CUSTOM"] != "original" {
+		t.Fatal("failed attempt leaked environment changes")
 	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -423,5 +426,176 @@ func TestApplyBundleFlagLookingValueIsNotRetained(t *testing.T) {
 	}
 	if after.Operations[0].Texts.Body.Value != "new" {
 		t.Fatal("body edit was lost")
+	}
+}
+
+func TestApplyEnvironmentOnlyKeepsAliasTransport(t *testing.T) {
+	token := "ghs" + "_env-only-test-token"
+	inv := model.Invocation{
+		Argv:    []string{"edit-it", "12", "--title", "old"},
+		Aliases: map[string]string{"edit-it": "pr edit"},
+		Env:     map[string]string{"GITHUB_TOKEN": "old", "KEEP": "unchanged"},
+	}
+	before := normalize.Normalize(inv)
+	before.Errors = []string{"stale analysis"}
+	next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{
+		SchemaVersion: 1,
+		Env:           map[string]*string{"GH_TOKEN": &token, "GITHUB_TOKEN": nil, "EMPTY": new("")},
+	})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(next.Argv, inv.Argv) {
+		t.Fatal("environment-only edit expanded execution alias")
+	}
+	if len(after.Source.Argv) < 2 || after.Source.Argv[0] != "pr" || after.Source.Argv[1] != "edit" {
+		t.Fatal("analysis argv is not expanded")
+	}
+	if !reflect.DeepEqual(after, normalize.Normalize(next)) {
+		t.Fatal("environment-only edit did not re-normalize")
+	}
+	if next.Env["GH_TOKEN"] != token || next.Env["KEEP"] != "unchanged" {
+		t.Fatal("set or unchanged environment entry lost")
+	}
+	if _, present := next.Env["GITHUB_TOKEN"]; present {
+		t.Fatal("null environment entry was not unset")
+	}
+	if value, present := next.Env["EMPTY"]; !present || value != "" {
+		t.Fatal("empty string must set a present, empty environment variable")
+	}
+	next.Env["KEEP"] = "changed clone"
+	if !reflect.DeepEqual(inv.Env, map[string]string{"GITHUB_TOKEN": "old", "KEEP": "unchanged"}) {
+		t.Fatal("original environment mutated")
+	}
+}
+
+func TestApplyEnvironmentNoopKeepsOriginalAnalysisAndArgv(t *testing.T) {
+	inv := model.Invocation{
+		Argv:    []string{"edit-it", "12", "--title", "old"},
+		Aliases: map[string]string{"edit-it": "pr edit"},
+		Env:     map[string]string{"CUSTOM": "same", "EMPTY": ""},
+	}
+	before := normalize.Normalize(inv)
+	before.Errors = []string{"original analysis"}
+	for _, env := range []map[string]*string{
+		nil, {}, {"CUSTOM": new("same"), "EMPTY": new(""), "MISSING": nil},
+	} {
+		next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Env: env})
+		cleanup()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(next, inv) || !reflect.DeepEqual(after, before) {
+			t.Fatal("no-op environment edit rewrote invocation or analysis")
+		}
+	}
+}
+
+func TestApplyEnvironmentSuccessiveReplacementAndUnset(t *testing.T) {
+	inv := model.Invocation{Argv: []string{"version"}}
+	before := normalize.Normalize(inv)
+	first, firstResult, cleanup, err := Apply(inv, before, protocol.TransformResponse{SchemaVersion: 1, Env: map[string]*string{"CUSTOM": new("first")}})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondResult, cleanup, err := Apply(first, firstResult, protocol.TransformResponse{SchemaVersion: 1, Env: map[string]*string{"CUSTOM": new("second")}})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, _, cleanup, err := Apply(second, secondResult, protocol.TransformResponse{SchemaVersion: 1, Env: map[string]*string{"CUSTOM": nil}})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.Env != nil || first.Env["CUSTOM"] != "first" || second.Env["CUSTOM"] != "second" {
+		t.Fatal("successive edits mutated earlier environment snapshots")
+	}
+	if _, present := third.Env["CUSTOM"]; present {
+		t.Fatal("later unset did not win")
+	}
+}
+
+func TestApplyEnvironmentAndSemanticEditRoundTrip(t *testing.T) {
+	inv := model.Invocation{
+		Argv:    []string{"edit-it", "12", "--title", "old", "--body", "keep"},
+		Aliases: map[string]string{"edit-it": "pr edit"},
+		Env:     map[string]string{"CUSTOM": "original"},
+	}
+	before := normalize.Normalize(inv)
+	next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{
+		SchemaVersion: 1,
+		Set:           map[string]any{"/operations/0/texts/title/value": "new"},
+		Env:           map[string]*string{"CUSTOM": new("changed")},
+	})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Env["CUSTOM"] != "changed" || inv.Env["CUSTOM"] != "original" {
+		t.Fatal("environment edit was lost or mutated the original")
+	}
+	if next.Argv[0] != "pr" || next.Argv[1] != "edit" {
+		t.Fatal("semantic edit did not use expanded write-back argv")
+	}
+	if after.Operations[0].Texts.Title.Value != "new" || after.Operations[0].Texts.Body.Value != "keep" {
+		t.Fatal("semantic edit did not preserve its neighbour")
+	}
+	if !reflect.DeepEqual(after, normalize.Normalize(next)) {
+		t.Fatal("combined edit does not re-normalize under the edited invocation")
+	}
+}
+
+func TestApplyInvalidEnvironmentIsAtomic(t *testing.T) {
+	inv := model.Invocation{Argv: []string{"pr", "edit", "12", "--title", "old"}, Env: map[string]string{"CUSTOM": "original"}}
+	before := normalize.Normalize(inv)
+	secret := "ghs" + "_invalid-env-test-token"
+	for _, env := range []map[string]*string{
+		{"PATH": &secret}, {"HOME": nil}, {"GH_HOST": &secret}, {"GHOK_EVENT_ID": &secret},
+		{"DYLD_INSERT_LIBRARIES": &secret}, {"BAD-NAME": &secret}, {"CUSTOM": new(secret + "\x00")},
+	} {
+		next, after, cleanup, err := Apply(inv, before, protocol.TransformResponse{
+			SchemaVersion: 1,
+			Set:           map[string]any{"/operations/0/texts/title/value": "new"},
+			Env:           env,
+		})
+		cleanup()
+		if !errors.Is(err, ErrInvalidResponse) {
+			t.Fatalf("invalid environment outcome: %v", err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Fatal("environment value leaked in diagnostic")
+		}
+		if !reflect.DeepEqual(next, inv) || !reflect.DeepEqual(after, before) || inv.Env["CUSTOM"] != "original" {
+			t.Fatal("invalid environment edit was not atomic")
+		}
+	}
+}
+
+func TestApplyFailedLaterEditPreservesPreviousEnvironment(t *testing.T) {
+	inv := model.Invocation{Argv: []string{"pr", "edit", "12", "--title", "old"}, Env: map[string]string{"CUSTOM": "original"}}
+	before := normalize.Normalize(inv)
+	first, firstResult, cleanup, err := Apply(inv, before, protocol.TransformResponse{
+		SchemaVersion: 1,
+		Set:           map[string]any{"/operations/0/texts/title/value": "first"},
+		Env:           map[string]*string{"CUSTOM": new("first")},
+	})
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, after, cleanup, err := Apply(first, firstResult, protocol.TransformResponse{
+		SchemaVersion: 1,
+		Set:           map[string]any{"/operations/0/texts/title/value": 42},
+		Env:           map[string]*string{"CUSTOM": new("second")},
+	})
+	defer cleanup()
+	if !errors.Is(err, ErrUnsupportedEdit) {
+		t.Fatalf("unsupported edit outcome: %v", err)
+	}
+	if !reflect.DeepEqual(next, first) || !reflect.DeepEqual(after, firstResult) || first.Env["CUSTOM"] != "first" || inv.Env["CUSTOM"] != "original" {
+		t.Fatal("failed later edit changed a previous environment snapshot")
 	}
 }

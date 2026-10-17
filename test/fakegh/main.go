@@ -51,6 +51,11 @@ func main() {
 		if path := os.Getenv("FAKEGH_HOOK_RECORD"); path != "" {
 			must(os.WriteFile(path, input, 0600))
 		}
+		if path := os.Getenv("FAKEGH_HOOK_ENV_RECORD"); path != "" {
+			data, err := json.Marshal(os.Environ())
+			must(err)
+			must(os.WriteFile(path, data, 0600))
+		}
 		ready(os.Getenv("FAKEGH_HOOK_READY"))
 		pause(os.Getenv("FAKEGH_HOOK_SLEEP"))
 		if response, ok := os.LookupEnv("FAKEGH_HOOK_RESPONSE"); ok {

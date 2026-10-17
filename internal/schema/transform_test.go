@@ -45,3 +45,37 @@ func TestTransformResponseSchema(t *testing.T) {
 		t.Fatal("response paths lack constraints")
 	}
 }
+
+func TestTransformEnvironmentSchema(t *testing.T) {
+	s := mustSchema(t, "transform-response")
+	for _, env := range []map[string]any{
+		{},
+		{"GH_TOKEN": "ghs" + "_schema-test-token", "GITHUB_TOKEN": nil, "_CUSTOM_1": "", "GH_PROMPT_DISABLED": "1", "lowercase": "日本語\nvalue"},
+	} {
+		if err := checkSchema(s, map[string]any{"schemaVersion": 1, "env": env}, "$"); err != nil {
+			t.Fatalf("valid environment rejected: %v", err)
+		}
+	}
+	for _, env := range []any{
+		nil, []any{}, "text", 42, true,
+		map[string]any{"CUSTOM": 42}, map[string]any{"CUSTOM": true},
+		map[string]any{"CUSTOM": []any{"secret"}}, map[string]any{"CUSTOM": map[string]any{"nested": "secret"}},
+		map[string]any{"CUSTOM": "before\x00after"},
+	} {
+		if err := checkSchema(s, map[string]any{"schemaVersion": 1, "env": env}, "$"); err == nil {
+			t.Fatal("invalid environment accepted")
+		}
+	}
+	for _, name := range []string{
+		"", "1CUSTOM", "A=B", "A-B", "A.B", "A B", "A\n", "A\x00B", "日本語",
+		"GHOK_", "GHOK_EVENT_ID", "GH_PATH", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "HOME", "PATH",
+		"LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_", "DYLD_INSERT_LIBRARIES", "GH_HOST", "GH_REPO",
+	} {
+		for _, value := range []any{"set", nil} {
+			doc := map[string]any{"schemaVersion": 1, "env": map[string]any{name: value}}
+			if err := checkSchema(s, doc, "$"); err == nil {
+				t.Fatalf("invalid environment name %q accepted", name)
+			}
+		}
+	}
+}

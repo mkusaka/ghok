@@ -60,4 +60,13 @@ hooks:
 #       command: ["./transforms/attribute-session"]
 #       timeout: 5s
 #       onError: deny # Failures stop execution with 78 even in observe mode.
-#       # allow instead rolls back ALL transforms and executes the original request.
+#       # allow instead rolls back ALL request/env edits and executes the original invocation.
+#     # Trusted credential swap; build first:
+#     # go build -o "$config_dir/transforms/gain-token" ./examples/transforms/gain-token
+#     - id: gain-token
+#       match:
+#         operation: "pr.merge.*"
+#       command: ["./transforms/gain-token"]
+#       timeout: 15s # Default 5s, maximum 10m; token minting may need longer.
+#       onError: deny
+#       # Runs gain [--profile $GAIN_PROFILE] token; sets GH_TOKEN, unsets GITHUB_TOKEN.

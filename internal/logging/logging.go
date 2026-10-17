@@ -38,9 +38,11 @@ type Record struct {
 
 // Transformed records the applied request without retaining its prose.
 type Transformed struct {
-	Argv       []string         `json:"argv"`
-	Transforms []string         `json:"transforms"`
-	Texts      map[string]int64 `json:"texts,omitempty"`
+	Argv       []string          `json:"argv"`
+	Transforms []string          `json:"transforms"`
+	Texts      map[string]int64  `json:"texts,omitempty"`
+	Env        []string          `json:"env,omitempty"`
+	EnvBy      map[string]string `json:"envBy,omitempty"`
 }
 
 // NewInvocationID returns a cryptographically random 128-bit lowercase hex ID.
@@ -82,6 +84,13 @@ func redactRecordCopy(r *redact.Redactor, record Record) Record {
 		transformed := *record.Transformed
 		transformed.Argv = minimizeArgv(r, transformed.Argv)
 		transformed.Transforms = redactStrings(r, transformed.Transforms)
+		transformed.Env = redactStrings(r, transformed.Env)
+		if transformed.EnvBy != nil {
+			transformed.EnvBy = make(map[string]string, len(record.Transformed.EnvBy))
+			for name, id := range record.Transformed.EnvBy {
+				transformed.EnvBy[r.String(name)] = r.String(id)
+			}
+		}
 		record.Transformed = &transformed
 	}
 	record.Alias = r.String(record.Alias)

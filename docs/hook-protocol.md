@@ -62,6 +62,7 @@ runtime input-validation step.
 | stdinTTY | boolean | no | Original stdin is a terminal. |
 | realGh | string | yes | Discovered real executable path. |
 | tokenKind | string | yes | Kind of env token gh will use: `app` (`ghs_`, GitHub App installation, e.g. gain or Actions), `user` (`ghp_`/`gho_`/`ghu_`/`github_pat_`), `unknown`, or `none` (gh's stored login). The token itself is never included. |
+| envChanged | string array | yes | Sorted set/unset names changed by transforms; values are never included. |
 
 ### Classification and operation records
 
@@ -573,7 +574,7 @@ Transforms are trusted executables, not hook decisions. Configure `transforms.pr
 as a list; user entries run first, then trusted project entries, serially. Each is
 matched against the current request after the preceding successful edit. IDs share
 one namespace with pre/post hooks. Supported keys are `id`, `match`, `command`,
-`env`, `timeout` (default `5s`), `onError` (`deny`, default, or `allow`),
+`env`, `timeout` (default `5s`, maximum `10m`; token minting may need `15s`), `onError` (`deny`, default, or `allow`),
 `redactInput`, and project-only `files`. Scheduling/dependency keys (`parallel`,
 `background`, `wait`, `wait-all`, `dependsOn`), `optional`, and `captureOutput`
 are not supported. Any `transforms.post` value is a configuration error:
@@ -588,6 +589,38 @@ return one schema-version-1 JSON object:
 ```json
 {"schemaVersion":1,"set":{"/operations/0/texts/body/value":"new body"},"unset":[]}
 ```
+
+The optional response `env` is a flat object of environment names to strings
+(set, including an empty string) or `null` (unset), for example
+`{"schemaVersion":1,"env":{"GH_TOKEN":"<minted token>","GITHUB_TOKEN":null}}`.
+Omit `env` for no environment edit; `env: null` is invalid. Names must match
+`^[A-Za-z_][A-Za-z0-9_]*$`; string values must not contain NUL.
+Environment edits have three tiers:
+
+* Forbidden: `GHOK_*`, `GH_PATH`, `GH_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`,
+  `PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_*`, and reserved targeting
+  variables `GH_HOST` and `GH_REPO`.
+* Credentials: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and
+  `GITHUB_ENTERPRISE_TOKEN` may be set/unset; token kind is recomputed with the
+  existing github.com precedence (`GH_TOKEN`, then `GITHUB_TOKEN`); enterprise
+  tokens are not currently classified.
+* Other valid names may be freely set/unset.
+
+Invalid environment edits are `invalid-response`. Request and environment
+edits apply atomically; later entries win for the same variable. Each transform's
+selection and command environment use the state before that entry, so an edit
+cannot re-trigger its own transform. Later transforms see prior successful edits.
+Final `invocation.tokenKind`, `match.token` and `match.env` use the edited
+environment, including tokenKind in PRE hook input.
+gh and POST processes receive the edited environment; PRE processes retain the original environment.
+
+`invocation.envChanged` is an optional sorted list of changed names, never values.
+JSONL `transformed.env` and `transformed.envBy` contain only sorted changed
+names and name-to-transform attribution, respectively. Explain/hooks-test
+transformed metadata also reports unset names (`envUnset`) and final `tokenKind`;
+environment values are never displayed, even with `--show-secrets`.
+Every set value is registered with the shared redactor before diagnostics or
+hook input, including values from non-credential variables.
 
 `set` maps strict JSON pointers to replacement JSON values; `unset` lists paths
 to remove. Only these paths are allowed (N is a canonical zero-based operation
@@ -614,14 +647,14 @@ family, effect, execution, origin and level stay unchanged; edited values must
 match, and untouched text values/parameters stay unchanged. Transport provenance
 may change when a shared JSON file is rewritten. Evidence, detail,
 unresolved/resolution metadata and resolver-filled target fields do not establish
-write-back identity. A no-op preserves original argv and bytes; a changed request
-executes expanded argv. File/stdin edits use 0600 temporary files and never mutate
+write-back identity. A no-op or environment-only edit preserves original execution
+argv and bytes; a changed request executes expanded argv. File/stdin edits use 0600 temporary files and never mutate
 original inputs. Failed attempts remove their temporary files; successful
 transport is removed after gh finishes.
 
 `onError: deny` exits 78 without gh in **both** policy modes. `onError: allow`
-rolls back the entire transform chain, skips its remaining entries, then applies
-policy/hooks to the original request. Policy and ordinary pre/post hooks see the
+rolls back the entire transform chain's request and environment edits, skips its
+remaining entries, then applies policy/hooks to the original request and environment. Policy and ordinary pre/post hooks see the
 final request. `explain`, `hooks test`, and `hooks test --print-input` run transforms
 before their evaluation/preview, but never execute the requested gh command;
 `normalize` remains a pure inspection of the original request.

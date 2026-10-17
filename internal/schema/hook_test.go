@@ -38,6 +38,9 @@ func TestHookInputSchema(t *testing.T) {
 		if _, present := invocation["argv"]; present {
 			t.Fatal("empty argv must be omitted")
 		}
+		if _, present := invocation["envChanged"]; present {
+			t.Fatal("empty environment changes must be omitted")
+		}
 		if err := checkSchema(s, doc, "$"); err != nil {
 			t.Fatal(err)
 		}
@@ -51,6 +54,8 @@ func TestHookInputSchema(t *testing.T) {
 		{"invalid-event", func(doc map[string]any) { doc["event"] = "during" }},
 		{"null-operations", func(doc map[string]any) { doc["operations"] = nil }},
 		{"null-argv", func(doc map[string]any) { doc["invocation"].(map[string]any)["argv"] = nil }},
+		{"null-env-changed", func(doc map[string]any) { doc["invocation"].(map[string]any)["envChanged"] = nil }},
+		{"invalid-env-changed", func(doc map[string]any) { doc["invocation"].(map[string]any)["envChanged"] = []any{1} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := hookDocument(t, input)
@@ -60,6 +65,7 @@ func TestHookInputSchema(t *testing.T) {
 			}
 		})
 	}
+	input.Invocation.EnvChanged = []string{"GH_TOKEN", "GITHUB_TOKEN"}
 	input.Operations = []model.Operation{{
 		Family: "pr.merge", Action: "pr.merge.direct", Effect: model.EffectWrite, Execution: model.ExecutionWillRun,
 		Target:     model.Target{Kind: "pullRequest", Number: model.IntPtr(7)},

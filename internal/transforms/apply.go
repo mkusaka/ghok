@@ -48,14 +48,41 @@ func Apply(inv model.Invocation, before model.Result, response protocol.Transfor
 		cleanup()
 		return inv, before, func() {}, err
 	}
+	if err := protocol.ValidateTransformEnv(response.Env); err != nil {
+		return fail(fmt.Errorf("%w: %v", ErrInvalidResponse, err))
+	}
 	edits, err := parseEdits(before, response)
 	if err != nil {
 		return fail(err)
 	}
-	if len(edits) == 0 {
+	envChanged := false
+	for name, value := range response.Env {
+		old, present := inv.Env[name]
+		if (value == nil && present) || (value != nil && (!present || old != *value)) {
+			envChanged = true
+			break
+		}
+	}
+	if len(edits) == 0 && !envChanged {
 		return inv, before, cleanup, nil
 	}
 	next := inv
+	if envChanged {
+		next.Env = make(map[string]string, len(inv.Env)+len(response.Env))
+		for name, value := range inv.Env {
+			next.Env[name] = value
+		}
+		for name, value := range response.Env {
+			if value == nil {
+				delete(next.Env, name)
+			} else {
+				next.Env[name] = *value
+			}
+		}
+	}
+	if len(edits) == 0 {
+		return next, normalize.Normalize(next), cleanup, nil
+	}
 	next.Argv = append([]string(nil), before.Source.Argv...)
 	if next.Argv == nil {
 		next.Argv = append([]string(nil), inv.Argv...)

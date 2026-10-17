@@ -11,7 +11,28 @@ import (
 
 const TransformPathPattern = `^/operations/(0|[1-9][0-9]*)/(texts/(title|body|notes)/value|parameters/([^/~]|~[01])+|target/(repository|number))$`
 
+const TransformEnvNamePattern = `^[A-Za-z_][A-Za-z0-9_]*$`
+const TransformEnvForbiddenPattern = `^(GHOK_.*|DYLD_.*|GH_PATH|GH_CONFIG_DIR|XDG_CONFIG_HOME|HOME|PATH|LD_PRELOAD|LD_LIBRARY_PATH|GH_HOST|GH_REPO)$`
+
 var transformPath = regexp.MustCompile(TransformPathPattern)
+var transformEnvName = regexp.MustCompile(TransformEnvNamePattern)
+var transformEnvForbidden = regexp.MustCompile(TransformEnvForbiddenPattern)
+
+// ValidateTransformEnv validates environment edits without exposing their values.
+func ValidateTransformEnv(env map[string]*string) error {
+	for name, value := range env {
+		if !transformEnvName.MatchString(name) {
+			return fmt.Errorf("invalid transform environment variable name")
+		}
+		if transformEnvForbidden.MatchString(name) {
+			return fmt.Errorf("forbidden transform environment variable %s", name)
+		}
+		if value != nil && strings.ContainsRune(*value, '\x00') {
+			return fmt.Errorf("transform environment variable %s contains NUL", name)
+		}
+	}
+	return nil
+}
 
 // ValidateTransformPath accepts only the editable JSON pointer namespace.
 func ValidateTransformPath(path string) error {
@@ -50,10 +71,13 @@ func ParseTransformResponse(data []byte) (TransformResponse, error) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return TransformResponse{}, err
 	}
-	for _, key := range []string{"set", "unset"} {
+	for _, key := range []string{"set", "unset", "env"} {
 		if raw, exists := fields[key]; exists && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			return TransformResponse{}, fmt.Errorf("transform %s cannot be null", key)
 		}
+	}
+	if err := ValidateTransformEnv(response.Env); err != nil {
+		return TransformResponse{}, err
 	}
 	seen := make(map[string]bool, len(response.Set)+len(response.Unset))
 	for path := range response.Set {
@@ -93,7 +117,7 @@ func uniqueJSON(d *json.Decoder) error {
 			}
 			key, ok := token.(string)
 			if !ok || keys[key] {
-				return fmt.Errorf("duplicate or invalid JSON key %q", token)
+				return fmt.Errorf("duplicate or invalid JSON key")
 			}
 			keys[key] = true
 			if err := uniqueJSON(d); err != nil {

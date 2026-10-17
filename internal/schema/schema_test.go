@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"testing"
 
@@ -104,9 +105,11 @@ func TestConfigTemplatesMatchSchema(t *testing.T) {
 	}
 }
 
-// checkSchema is a minimal validator for the subset of JSON Schema that
-// Generate emits (type, properties, additionalProperties, items, enum, const, oneOf, required).
+// checkSchema is a minimal validator for the JSON Schema subset Generate emits.
 func checkSchema(s map[string]any, v any, at string) error {
+	if negated, ok := s["not"].(map[string]any); ok && checkSchema(negated, v, at) == nil {
+		return fmt.Errorf("%s: matches forbidden schema", at)
+	}
 	if alts, ok := s["oneOf"].([]any); ok {
 		for _, a := range alts {
 			if checkSchema(a.(map[string]any), v, at) == nil {
@@ -121,6 +124,11 @@ func checkSchema(s map[string]any, v any, at string) error {
 	if c, ok := s["const"]; ok && fmt.Sprint(c) != fmt.Sprint(v) {
 		return fmt.Errorf("%s: want constant %v, got %v", at, c, v)
 	}
+	if pattern, ok := s["pattern"].(string); ok {
+		if value, ok := v.(string); ok && !regexp.MustCompile(pattern).MatchString(value) {
+			return fmt.Errorf("%s: string does not match pattern", at)
+		}
+	}
 	switch s["type"] {
 	case "object":
 		m, ok := v.(map[string]any)
@@ -134,6 +142,11 @@ func checkSchema(s map[string]any, v any, at string) error {
 			}
 		}
 		for k, val := range m {
+			if names, ok := s["propertyNames"].(map[string]any); ok {
+				if err := checkSchema(names, k, at); err != nil {
+					return err
+				}
+			}
 			p, ok := props[k].(map[string]any)
 			if !ok {
 				if ap, ok := s["additionalProperties"].(map[string]any); ok {
@@ -173,6 +186,10 @@ func checkSchema(s map[string]any, v any, at string) error {
 	case "boolean":
 		if _, ok := v.(bool); !ok {
 			return fmt.Errorf("%s: want boolean", at)
+		}
+	case "null":
+		if v != nil {
+			return fmt.Errorf("%s: want null", at)
 		}
 	}
 	return nil

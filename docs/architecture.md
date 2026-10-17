@@ -64,7 +64,7 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    leave stdin untouched and record unavailable analysis.
 8. Normalize alias-expanded arguments; run trusted user then project transforms
    serially, rematching each current result and re-normalizing each atomic edit.
-   No-op execution uses original argv; changed requests use expanded argv.
+   No-op and environment-only edits use original argv; changed requests use expanded argv.
    Dispatcher selects API normalization only when expanded argv starts `api`;
    root flags before `api` currently remain L1 (see normalization limitations).
 9. Resolve only context relevant to potentially matching repository/host policy
@@ -194,5 +194,12 @@ re-normalization changes exactly the requested semantic values. It rejects
 ambiguous write-back instead of guessing. The caller owns successful temporary
 transport cleanup; failed applications clean up immediately. A deny failure
 always exits 78, including observe mode. An allow failure discards the whole
-chain and resumes with the original invocation; it does not retain a partially
-transformed request. Inactive project transforms never become policy gates.
+chain and resumes with the original request and environment; it does not retain a
+partially transformed invocation. Request/environment edits are atomic and later
+entries win. Selection and command environment use the state before each entry,
+without self-retriggering; environment-only edits preserve original execution argv.
+Final matching and token kind use the edited environment. gh and POST processes
+receive it; PRE processes retain the original environment while their input
+describes the edited token kind. Set values enter the shared redactor before
+diagnostics; only sorted changed names and attribution are logged.
+Inactive project transforms never become policy gates.

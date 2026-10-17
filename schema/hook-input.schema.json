@@ -138,6 +138,13 @@
         "cwd": {
           "type": "string"
         },
+        "envChanged": {
+          "description": "Sorted names of environment variables changed by request transforms; never their values.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "expanded": {
           "items": {
             "type": "string"

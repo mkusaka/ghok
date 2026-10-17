@@ -4,6 +4,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 
@@ -40,10 +41,33 @@ func (r *Runner) Transform(ctx context.Context, t config.Transform, in protocol.
 				env[key] = value
 			}
 		}
-		in = redact.New(env).Input(in)
+		inputRedactor := r.Redactor
+		if inputRedactor == nil {
+			inputRedactor = redact.New(env)
+		}
+		in = inputRedactor.Input(in)
 	}
 	var response protocol.TransformResponse
 	result := r.executeResponse(ctx, config.PhasePre, h, in, func(data []byte) error {
+		// Learn values before executeResponse redacts stderr/errors, including
+		// responses rejected by strict validation or a nonzero process exit.
+		if r.Redactor != nil {
+			var fields struct {
+				Env map[string]json.RawMessage `json:"env"`
+			}
+			if json.Unmarshal(data, &fields) == nil {
+				values := make([]string, 0, len(fields.Env))
+				for _, raw := range fields.Env {
+					var value string
+					if json.Unmarshal(raw, &value) == nil {
+						values = append(values, value)
+					}
+				}
+				if len(values) > 0 {
+					r.Redactor.AddSecrets(values...)
+				}
+			}
+		}
 		var err error
 		response, err = protocol.ParseTransformResponse(data)
 		return err

@@ -157,6 +157,8 @@ func (r *Redactor) input(in protocol.Input) protocol.Input {
 	out.Invocation.Expanded = r.Argv(in.Invocation.Expanded)
 	out.Invocation.Cwd = r.String(in.Invocation.Cwd)
 	out.Invocation.RealGh = r.String(in.Invocation.RealGh)
+	out.Invocation.TokenKind = r.String(in.Invocation.TokenKind)
+	out.Invocation.EnvChanged = r.strings(in.Invocation.EnvChanged)
 	out.Classification = r.classification(in.Classification)
 	out.Operations = r.operations(in.Operations)
 	out.Errors = r.strings(in.Errors)

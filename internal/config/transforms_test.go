@@ -48,6 +48,22 @@ func TestTransformConfig(t *testing.T) {
 	}
 }
 
+func TestTransformTimeoutRange(t *testing.T) {
+	for _, timeout := range []string{"15s", MaxHookTimeout.String()} {
+		c, err := Parse([]byte("version: 1\ntransforms: {pre: [{id: edit, command: [filter], timeout: "+timeout+"}]}\n"), "")
+		if err != nil {
+			t.Fatalf("timeout %s rejected: %v", timeout, err)
+		}
+		if c.Transforms[0].Timeout.D().String() != timeout {
+			t.Fatalf("timeout %s was not retained", timeout)
+		}
+	}
+	timeout := (MaxHookTimeout + 1).String()
+	if _, err := Parse([]byte("version: 1\ntransforms: {pre: [{id: edit, command: [filter], timeout: "+timeout+"}]}\n"), ""); err == nil {
+		t.Fatal("timeout above the hook maximum accepted")
+	}
+}
+
 func TestTransformSelectiveTrustAndNoGate(t *testing.T) {
 	repo, env, _ := trustRepositoryFixture(t)
 	body := "version: 1\nhooks: {pre: [{id: gate, command: [./hook]}]}\ntransforms: {pre: [{id: edit, command: [./hook], files: [own]}]}\ntrust: {include: [shared]}\n"

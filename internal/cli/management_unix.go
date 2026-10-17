@@ -388,17 +388,11 @@ func managementFailure(err error) int {
 
 func managementJSON(v any, r *redact.Redactor) int {
 	if r != nil {
-		data, err := json.Marshal(v)
+		var err error
+		v, err = managementRedacted(v, r)
 		if err != nil {
 			return managementFailure(err)
 		}
-		var value any
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.UseNumber()
-		if err := decoder.Decode(&value); err != nil {
-			return managementFailure(err)
-		}
-		v = r.Value(value)
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
@@ -406,6 +400,20 @@ func managementJSON(v any, r *redact.Redactor) int {
 		return managementFailure(err)
 	}
 	return 0
+}
+
+func managementRedacted(v any, r *redact.Redactor) (any, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return r.Value(value), nil
 }
 
 func managementLoad(env map[string]string) (*config.Config, []string, string, error) {

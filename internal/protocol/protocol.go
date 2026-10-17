@@ -42,7 +42,8 @@ type InvocationInfo struct {
 	RealGh   string   `json:"realGh,omitempty"`
 	// TokenKind is the kind of env token gh will use: app|user|unknown|none
 	// (see config match.token). The token itself is never included.
-	TokenKind string `json:"tokenKind,omitempty" enum:"app,user,unknown,none" doc:"Credential kind from the environment token prefix; never the token itself."`
+	TokenKind  string   `json:"tokenKind,omitempty" enum:"app,user,unknown,none" doc:"Credential kind from the environment token prefix; never the token itself."`
+	EnvChanged []string `json:"envChanged,omitempty" doc:"Sorted names of environment variables changed by request transforms; never their values."`
 }
 
 type PolicyInfo struct {
@@ -91,9 +92,10 @@ type Response struct {
 
 // TransformResponse atomically edits the normalized request.
 type TransformResponse struct {
-	SchemaVersion int            `json:"schemaVersion" const:"1"`
-	Set           map[string]any `json:"set,omitempty"`
-	Unset         []string       `json:"unset,omitempty"`
+	SchemaVersion int                `json:"schemaVersion" const:"1"`
+	Set           map[string]any     `json:"set,omitempty"`
+	Unset         []string           `json:"unset,omitempty"`
+	Env           map[string]*string `json:"env,omitempty" doc:"Environment edits; string values set variables and null unsets them."`
 }
 
 // Outcome is how a hook execution went, independent of its Decision.
