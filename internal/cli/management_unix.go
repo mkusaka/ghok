@@ -245,8 +245,8 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 	initCmd := managementCommand("init", "Create a commented config file with a JSON Schema reference", code, func(_ *cobra.Command, _ []string) int {
 		return managementConfigInit(scope)
 	})
-	initCmd.Example = "  ghok config init                # <repo root>/.ghok.yaml\n  ghok config init --scope user   # the global config.yaml"
-	initCmd.Flags().StringVar(&scope, "scope", config.ScopeProject, "project: <repo root>/.ghok.yaml; user: the global config.yaml")
+	initCmd.Example = "  ghok config init                # <repo root>/.ghok.yaml\n  ghok config init --scope local  # <repo root>/.ghok.local.yaml (personal, git-excluded)\n  ghok config init --scope user   # the global config.yaml"
+	initCmd.Flags().StringVar(&scope, "scope", config.ScopeProject, "project: <repo root>/.ghok.yaml; local: <repo root>/.ghok.local.yaml; user: the global config.yaml")
 	for _, name := range []string{"trust", "untrust"} {
 		cmd := managementCommand(name+" [PATH]", "Manage trust for project hooks in the current .ghok.yaml or PATH", code, func(cmd *cobra.Command, args []string) int {
 			path := ""
@@ -718,8 +718,17 @@ func managementConfigInit(scope string) int {
 		return managementFailure(err)
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "Created "+path)
-	if scope == config.ScopeProject {
+	switch scope {
+	case config.ScopeProject:
 		_, _ = fmt.Fprintln(os.Stdout, "Project rules apply automatically. If you add hooks, inspect them and run ghok config trust to enable them.")
+	case config.ScopeLocal:
+		exclude, err := config.ExcludeLocal(filepath.Dir(path))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ghok: could not add it to .git/info/exclude ("+err.Error()+"); keep it uncommitted yourself")
+		} else {
+			_, _ = fmt.Fprintln(os.Stdout, "Excluded from git in "+exclude)
+		}
+		_, _ = fmt.Fprintln(os.Stdout, "Local hooks and transforms run without trust; ghok ignores the file while git tracks it.")
 	}
 	return 0
 }

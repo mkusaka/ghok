@@ -309,12 +309,24 @@ Create a commented starter file (with a yaml-language-server schema reference):
 
 ```sh
 ghok config init                 # <repository root>/.ghok.yaml (default scope: project)
+ghok config init --scope local   # <repository root>/.ghok.local.yaml (personal)
 ghok config init --scope user    # the global config.yaml
 ```
 
-Neither overwrites an existing file. The project file lives at the repository
+None overwrites an existing file. The project file lives at the repository
 root, so it can be committed and shared. Its declarative policy applies
 automatically, but cloning a repository never activates its hooks.
+
+`.ghok.local.yaml` is a personal config for one checkout, like `CLAUDE.local.md`.
+Layers load in the order user config → `.ghok.yaml` → `.ghok.local.yaml`; local
+hooks and transforms run after the project's. Because you write it yourself, its
+hooks and transforms run **without** `ghok config trust`. Otherwise it follows the
+project rules: policy can only tighten, and `runtime`, `logging`, `trust` and
+hook `files` are rejected. `config init --scope local` adds `/.ghok.local.yaml`
+to the repository's `.git/info/exclude` (never `.gitignore`). ghok ignores the
+file while git tracks it, because a committed copy would let any clone run hooks
+without trust. It works with or without a `.ghok.yaml`, and is per checkout, so
+each worktree has its own.
 
 The config format has a JSON Schema generated from ghok's Go config types:
 [`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and

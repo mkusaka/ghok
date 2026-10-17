@@ -20,6 +20,14 @@ var projectForbidden = []string{"runtime", "logging"}
 // LoadEffective never executes hooks. Valid project policy always applies; only
 // content-trusted project hooks are active. Project failures retain user config.
 func LoadEffective(global, cwd string, env map[string]string) (*Config, []string, error) {
+	c, notes, err := loadUserAndProject(global, cwd, env)
+	if err != nil {
+		return c, notes, err
+	}
+	return mergeLocal(c, notes, cwd, env)
+}
+
+func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []string, error) {
 	if global == "" {
 		global = DefaultPath(env)
 	}

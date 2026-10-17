@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -370,4 +371,20 @@ func TestProjectTrustIncludeEditRetainsRules(t *testing.T) {
 		t.Fatal("included-file edit bypassed project deny rule")
 	}
 	assertNoProjectHook(t, s)
+}
+
+// A personal .ghok.local.yaml hook runs on the first invocation, without trust.
+func TestLocalConfigHookRunsWithoutTrust(t *testing.T) {
+	s := newSandbox(t)
+	h := fmt.Sprintf("{id: local, command: [%q], env: {FAKEGH_MODE: hook, FAKEGH_HOOK_RECORD: %q}}", fakeBinary, filepath.Join(s.root, "local.json"))
+	if err := os.Mkdir(filepath.Join(s.cwd, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.cwd, ".ghok.local.yaml"), []byte("version: 1\nhooks: {pre: ["+h+"]}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.gh(nil, "version").code(t, 0)
+	if in := s.hookInput("local"); in.HookID != "local" {
+		t.Fatalf("local hook input: %+v", in)
+	}
 }

@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/project.schema.json
+#
+# ghok local config. Created by `ghok config init --scope local`.
+#
+# Personal settings for this checkout only (like CLAUDE.local.md). Keep it
+# uncommitted: `config init` added it to .git/info/exclude, and ghok ignores it
+# while git tracks it. Loaded after the user config and .ghok.yaml. Its hooks and
+# transforms run WITHOUT `ghok config trust`; policy can only tighten the others.
+# runtime, logging and trust are not allowed here.
+# Docs: https://github.com/mkusaka/ghok
+
+version: 1
+
+policy:
+  rules: []
+  #  - id: no-merge-from-here
+  #    match: {operation: "pr.merge.*"}
+  #    decision: deny
+  #    reason: merge from the web UI
+
+hooks: {}
+#  pre:
+#    - id: my-check
+#      command: ["./scripts/my-check"]   # relative to the repository root
+
+transforms: {}
+#  pre:
+#    - id: attribute-session
+#      match: {operation: ["comment.create", "*.comment.create"]}
+#      command: ["/absolute/path/attribute-session"]

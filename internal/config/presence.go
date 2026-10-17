@@ -12,7 +12,11 @@ func HasConfig(cwd string, env map[string]string) bool {
 		return true
 	}
 	project, err := findProject(cwd, env["HOME"])
-	return project != "" || err != nil
+	if project != "" || err != nil {
+		return true
+	}
+	local, err := localPath(cwd, env["HOME"])
+	return local != "" || err != nil
 }
 
 // IgnoredProject identifies the manifest whose enabled hooks were withheld.
