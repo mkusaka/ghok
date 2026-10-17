@@ -610,6 +610,10 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "continuedOnError": {
+            "description": "A pre-hook deny was made non-blocking by continueOnError; the original diagnostic result is preserved.",
+            "type": "boolean"
+          },
           "decision": {
             "description": "Response decision, meaningful when outcome is ok.",
             "enum": [
@@ -623,7 +627,7 @@
             "type": "integer"
           },
           "effective": {
-            "description": "Decision used after phase and onError handling.",
+            "description": "Decision used after phase, onError and continueOnError handling.",
             "enum": [
               "allow",
               "deny",

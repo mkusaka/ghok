@@ -122,6 +122,9 @@ func (c *Config) Validate() error {
 		if h.Phase == PhasePost && h.OnError == OnErrorDeny {
 			add(p+".onError", "post hooks cannot deny")
 		}
+		if h.Phase == PhasePost && h.ContinueOnError {
+			add(p+".continueOnError", "allowed only for pre hooks; post hooks never block")
+		}
 		if h.Timeout <= 0 || h.Timeout.D() > MaxHookTimeout {
 			add(p+".timeout", "must be > 0 and <= "+MaxHookTimeout.String())
 		}

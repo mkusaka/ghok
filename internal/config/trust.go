@@ -511,7 +511,7 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	}
 	notes = append(notes, trustFileNotes(selectedTrustFiles(files, selected))...)
 	for _, h := range p.Hooks {
-		if selected[h.ID] && h.Phase == PhasePre && h.OnError == OnErrorDeny {
+		if selected[h.ID] && h.Phase == PhasePre && h.OnError == OnErrorDeny && !h.ContinueOnError {
 			for _, file := range filesForHook(files, h.ID) {
 				if file.Missing {
 					notes = append(notes, fmt.Sprintf("Warning: gate hook %s dependency file %s is missing", h.ID, file.Path))

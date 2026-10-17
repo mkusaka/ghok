@@ -10,7 +10,7 @@ func TestTransformConfigSchema(t *testing.T) {
 		if err := checkSchema(s, doc, "$"); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"parallel", "background", "wait", "wait-all", "dependsOn", "optional", "captureOutput", "enabled", "phase"} {
+		for _, key := range []string{"parallel", "background", "wait", "wait-all", "dependsOn", "optional", "captureOutput", "enabled", "phase", "continueOnError"} {
 			transform[key] = nil
 			if err := checkSchema(s, doc, "$"); err == nil {
 				t.Fatalf("%s accepted %s", name, key)

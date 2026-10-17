@@ -135,7 +135,7 @@ func (r *Runner) executeResponse(parent context.Context, phase string, h config.
 		result.Message = r.redact(result.Message)
 		result.Error = r.redact(result.Error)
 		result.Stderr = r.redact(result.Stderr)
-		result.Effective = effective(phase, h, result)
+		classify(phase, h, &result)
 	}()
 	fail := func(err error) {
 		result.Outcome = protocol.OutcomeError

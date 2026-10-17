@@ -105,7 +105,7 @@ const (
 	OutcomeOK              Outcome = "ok"
 	OutcomeError           Outcome = "error" // non-zero exit, spawn failure
 	OutcomeTimeout         Outcome = "timeout"
-	OutcomeCanceled        Outcome = "canceled"         // context canceled (e.g. earlier deny, wrapper signal)
+	OutcomeCanceled        Outcome = "canceled"         // context canceled (e.g. wrapper signal)
 	OutcomeInvalidResponse Outcome = "invalid-response" // unparsable JSON / unknown decision
 	OutcomeSkipped         Outcome = "skipped"          // optional + missing, disabled, dependency failed
 	OutcomeUnsupportedEdit Outcome = "unsupported-edit"
@@ -119,12 +119,13 @@ type HookResult struct {
 	Decision Decision `json:"decision,omitempty" enum:"allow,deny,abstain" doc:"Response decision, meaningful when outcome is ok."`
 	Reason   string   `json:"reason,omitempty"`
 	Message  string   `json:"message,omitempty"`
-	// Effective is the decision after applying onError (what aggregation used).
-	Effective  Decision `json:"effective,omitempty" enum:"allow,deny,abstain" doc:"Decision used after phase and onError handling."`
-	ExitCode   int      `json:"exitCode"`
-	DurationMs int64    `json:"durationMs"`
-	Error      string   `json:"error,omitempty"`
-	Stderr     string   `json:"stderr,omitempty"` // truncated, redacted
+	// Effective is the decision after phase, onError and continueOnError handling.
+	Effective        Decision `json:"effective,omitempty" enum:"allow,deny,abstain" doc:"Decision used after phase, onError and continueOnError handling."`
+	ContinuedOnError bool     `json:"continuedOnError,omitempty" doc:"A pre-hook deny was made non-blocking by continueOnError; the original diagnostic result is preserved."`
+	ExitCode         int      `json:"exitCode"`
+	DurationMs       int64    `json:"durationMs"`
+	Error            string   `json:"error,omitempty"`
+	Stderr           string   `json:"stderr,omitempty"` // truncated, redacted
 	// Started distinguishes launch failure from a signaled hook (both exit -1).
 	Started bool `json:"-"`
 }

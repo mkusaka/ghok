@@ -324,13 +324,14 @@ func wrapper(args []string, argv0, via string) int {
 		process.Result{ExitCode: -1, Signal: caught}.Exit()
 	}
 	decision := decide(cfg.Policy.Mode, evaluation, pre, stdinSkipped)
-	attachHookStderr(decision.Denials, pre, cfg.Hooks)
 	record.Decision = decision.Decision
 	if decision.Decision == "deny" {
+		attachHookStderr(decision.Denials, pre, cfg.Hooks)
 		printDenials(os.Stderr, decision.Denials, redactor.String)
 		logRecord()
 		return decision.ExitCode
 	}
+	printContinuedWarnings(os.Stderr, pre, cfg.Hooks, redactor.String)
 	if decision.RelabelPolicy {
 		logPolicy := *record.Policy
 		logPolicy.Decision = protocol.DecisionAllow

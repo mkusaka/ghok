@@ -189,7 +189,7 @@ func managementHooksList(asJSON bool) int {
 	}
 	for _, h := range display {
 		enabled := h.Enabled == nil || *h.Enabled
-		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(fmt.Sprintf("%s phase=%s enabled=%t background=%t timeout=%s onError=%s optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Background, h.Timeout.D(), h.OnError, h.Optional, h.CaptureOutput))))
+		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String(fmt.Sprintf("%s phase=%s enabled=%t background=%t timeout=%s onError=%s continueOnError=%t optional=%t captureOutput=%t", h.ID, h.Phase, enabled, h.Background, h.Timeout.D(), h.OnError, h.ContinueOnError, h.Optional, h.CaptureOutput))))
 		if h.Ignored != "" {
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  ignored ("+h.Ignored+")")))
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  "+h.Inactive)))

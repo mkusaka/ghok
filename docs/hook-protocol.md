@@ -196,7 +196,8 @@ go to logs.
 | outcome | string | no | Execution outcome below. |
 | decision | string | yes | Response decision, meaningful for outcome=ok. |
 | reason, message | string | yes | Redacted response/execution explanation. |
-| effective | string | yes | Decision used after phase/onError handling. |
+| effective | string | yes | Decision used after phase/onError/continueOnError handling. |
+| continuedOnError | boolean | yes | True when continueOnError changed a pre deny to effective abstain; outcome/decision remain unchanged. |
 | exitCode | integer | no | Hook process status, -1 if unstarted/signaled. |
 | durationMs | integer | no | Hook execution duration. |
 | error | string | yes | Redacted spawn/wait/timeout/response error. |
@@ -310,9 +311,9 @@ gh execution.
 | ok | Exit zero, valid response or empty stdout | Hook decision. |
 | error | Spawn failure, nonzero exit, wait/copy error | onError. |
 | timeout | Hook deadline expires | onError. |
-| canceled | Parent signal/context or earlier pre denial | onError; cannot undo existing denial. |
+| canceled | Parent signal/context | onError. |
 | invalid-response | Protocol/overflow error | onError. |
-| skipped | Optional unavailable command, disabled/phase mismatch, missing/failed dependency, defensive cycle/duplicate | abstain. |
+| skipped | After pre-hook denial, optional unavailable command, disabled/phase mismatch, missing/failed dependency, defensive cycle/duplicate | abstain. |
 
 Pre onError: deny -> deny (default), allow -> allow, ignore -> abstain.
 Post effective decision and aggregate are **always abstain**, even if its valid
@@ -320,14 +321,38 @@ response says deny. Post onError defaults ignore; config rejects post onError=de
 A timeout handler exiting zero still has timeout outcome. ExitCode is diagnostic,
 not a shortcut for determining outcome.
 
+Pre hooks may set `continueOnError: true`. `onError` still classifies failures,
+then any resulting deny (returned by the hook or produced by `onError: deny`)
+becomes **effective abstain**, never allow. `outcome`, `decision` and diagnostics
+retain what happened; `continuedOnError: true` records the override in results,
+logs, `hooks test` text/JSON and dependents' `previous`. Such dependencies count
+as satisfied even when the real outcome is non-ok. No deny means no override
+or continued flag. Post hooks reject the option because they never block;
+transforms reject it with guidance to use `onError: allow`.
+
+When gh will run (enforce allow or observe), each continued denial prints:
+
+```text
+ghok: warning from hook check (continue-on-error)
+  Review required.
+```
+
+The warning uses message, else reason, else error. Error outcomes include the
+last two non-empty stderr lines, capped at 200 bytes each; stderr is withheld
+for `redactInput` hooks. Credential redaction and the denial terminal sanitizer
+apply, with 40-line/4-KiB/500-character limits for the entire warning. If another
+denial prevents gh from running, continued results are logged without warnings.
+`hooks list` shows `continueOnError`; `hooks test` never runs gh or prints these
+execution-only warnings. Its execution-error exit status remains diagnostic.
+
 Deny dominates all allows. Enforce aggregates policy and pre-hook denial before
 starting gh: content denials exit **77** (`EX_NOPERM`), hook-`onError`-only denials
 exit **78** (`EX_CONFIG`). Mixed content/error denial exits 77. Invalid config
 that fails closed, or a matching inactive gate, exits 78 when no content denial
 exists. ghok internal errors remain 1; missing real gh is 127.
-Observe logs would-deny but executes gh unchanged; denial cancellation still
-short-circuits that hook batch. Normal real-gh exits/signals are reproduced
-after post-hooks. Management usage errors are 2; `hooks test` failures,
+Observe logs would-deny but executes gh unchanged; effective denial still skips
+pending hooks, while already-running hooks finish within their own timeout.
+Normal real-gh exits/signals are reproduced after post-hooks. Management usage errors are 2; `hooks test` failures,
 denials and expectation mismatches remain **1**, not 77/78. Explain displays
 policy without hook execution and exits zero even on displayed deny.
 
@@ -486,20 +511,24 @@ usage errors exit 2.
   only after all of its hooks finished.
 - runtime.hookConcurrency (default 4) caps running hooks; excess hooks queue.
   Completion order is not result order.
-- A failed or abstaining hook does not stop later hooks; an effective pre deny
-  cancels all of them. Ordering guarantees between hooks come from waits and
+- A failed or abstaining hook does not stop later hooks unless `onError` makes
+  it an effective deny. Ordering guarantees between hooks come from waits and
   dependsOn only; use dependsOn to run a hook only after a gate allowed.
 - dependsOn lists earlier hook IDs in the same phase. Config rejects unknown
   IDs, later hooks, duplicates, and cross-phase dependencies. A dependency
   inside a parallel block serialises that pair. A dependency that is not
   selected leaves its dependent skipped rather than forcing its match.
-- A non-optional dependent skips after a non-ok dependency; an optional
-  dependent may receive failed dependency records. Direct dependencies are
-  delivered in previous, in dependsOn order. Denied pre dependencies still
-  trigger global short-circuit, including optional dependents.
-- Any effective pre deny cancels pending/running hooks. Returned diagnostics
-  include canceled hooks in selection order; terminal denial entries put
-  content denials before hook-error denials as specified above.
+- A non-optional dependent skips after a non-ok dependency, except when that
+  result has `continuedOnError: true`; an optional dependent may receive failed
+  dependency records. Direct dependencies are delivered in previous, in
+  dependsOn order, with their real outcome and decision. Effective pre denials
+  still skip pending hooks, including optional dependents.
+- Any effective pre deny skips hooks not yet started with outcome `skipped`
+  and reason `after pre-hook denial`. Already-running parallel siblings and
+  background hooks finish within their own timeout; denial does not cancel
+  them. The phase waits for them before reporting its aggregate. Returned
+  diagnostics remain in selection order; terminal denial entries put content
+  denials before hook-error denials as specified above.
 - Cancellation sends TERM to each hook group, waits 500 ms, sends KILL even if
   the leader already exited, and waits the direct child. Retained inherited
   pipes after normal exit cause bounded wait error and group KILL. Descendants

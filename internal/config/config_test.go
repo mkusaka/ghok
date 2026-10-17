@@ -103,6 +103,7 @@ func TestValidationPaths(t *testing.T) {
 		{"hooks[0].command", func(c *Config) { c.Hooks[0].Command = []string{" "} }},
 		{"hooks[0].onError", func(c *Config) { c.Hooks[0].OnError = "bad" }},
 		{"hooks[1].onError", func(c *Config) { c.Hooks[1].OnError = "deny" }},
+		{"hooks[1].continueOnError", func(c *Config) { c.Hooks[1].ContinueOnError = true }},
 		{"hooks[0].timeout", func(c *Config) { c.Hooks[0].Timeout = 0 }},
 		{"hooks[0].timeout", func(c *Config) { c.Hooks[0].Timeout = Duration(MaxHookTimeout + 1) }},
 		{"hooks[0].maxOutputBytes", func(c *Config) { c.Hooks[0].MaxOutputBytes = 0 }},
@@ -149,6 +150,27 @@ func TestValidationPaths(t *testing.T) {
 	c.Hooks[1].DependsOn = []string{"a"}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("valid DAG/boundary: %v", err)
+	}
+}
+
+func TestContinueOnErrorConfig(t *testing.T) {
+	for _, onError := range []string{"deny", "allow", "ignore"} {
+		data := []byte("version: 1\nhooks: {pre: [{id: h, command: [h], continueOnError: true, onError: " + onError + "}]}\n")
+		c, err := Parse(data, "")
+		if err != nil || len(c.Hooks) != 1 || !c.Hooks[0].ContinueOnError {
+			t.Fatalf("pre onError %s: %+v, %v", onError, c, err)
+		}
+	}
+	for _, value := range []string{"false", "true"} {
+		data := []byte("version: 1\nhooks: {post: [{id: h, command: [h], continueOnError: " + value + "}]}\n")
+		_, err := Parse(data, "")
+		if value == "false" {
+			if err != nil {
+				t.Fatalf("post false: %v", err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "continueOnError") || !strings.Contains(err.Error(), "post hooks never block") {
+			t.Fatalf("post true: %v", err)
+		}
 	}
 }
 

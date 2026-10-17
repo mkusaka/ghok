@@ -8,7 +8,7 @@
 # Hooks run only after each user inspects them and runs `ghok config trust`.
 # Trust is per hook: its definition, command file, `files` and trust.include.
 # Changing one hook untrusts only that hook; a changed gate (pre hook with
-# onError deny) denies matching commands in enforce mode until re-trusted.
+# onError deny and continueOnError disabled) denies matching commands in enforce mode until re-trusted.
 # Interpreters, PATH tools and unlisted imports/data are not hashed: list them in
 # the hook's `files` or, for every hook, in trust.include.
 # Docs: https://github.com/mkusaka/ghok

@@ -48,6 +48,19 @@ func TestTransformConfig(t *testing.T) {
 	}
 }
 
+func TestTransformRejectsContinueOnError(t *testing.T) {
+	for _, value := range []string{"true", "false", "null"} {
+		data := []byte("version: 1\ntransforms: {pre: [{id: edit, command: [./filter], continueOnError: " + value + "}]}\n")
+		_, userErr := Parse(data, "")
+		_, _, projectErr := parseProject(data, "/repo/.ghok.yaml")
+		for _, err := range []error{userErr, projectErr} {
+			if err == nil || !strings.Contains(err.Error(), "transforms.pre[0].continueOnError") || !strings.Contains(err.Error(), "use onError: allow") {
+				t.Fatalf("continueOnError %s: %v", value, err)
+			}
+		}
+	}
+}
+
 func TestTransformTimeoutRange(t *testing.T) {
 	for _, timeout := range []string{"15s", MaxHookTimeout.String()} {
 		c, err := Parse([]byte("version: 1\ntransforms: {pre: [{id: edit, command: [filter], timeout: "+timeout+"}]}\n"), "")

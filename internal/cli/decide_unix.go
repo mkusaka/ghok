@@ -27,25 +27,26 @@ type denial struct {
 // visible without opening the log. Hooks with redactInput handle sensitive
 // data, so their stderr is withheld.
 func attachHookStderr(denials []denial, pre hooks.Aggregate, configured []config.Hook) {
-	redactInput := map[string]bool{}
-	for _, h := range configured {
-		redactInput[h.ID] = h.RedactInput
-	}
-	stderr := map[string]string{}
+	results := make(map[string]protocol.HookResult, len(pre.Results))
 	for _, r := range pre.Results {
-		stderr[r.HookID] = r.Stderr
+		results[r.HookID] = r
 	}
 	for i := range denials {
 		d := &denials[i]
 		if d.Source != "hook" || d.ErrorKind == "" {
 			continue
 		}
-		if redactInput[d.ID] {
-			d.Stderr = []string{"(withheld; redactInput)"}
-			continue
-		}
-		d.Stderr = stderrTail(stderr[d.ID], 2, 200)
+		d.Stderr = hookStderr(results[d.ID], configured)
 	}
+}
+
+func hookStderr(result protocol.HookResult, configured []config.Hook) []string {
+	for _, h := range configured {
+		if h.ID == result.HookID && h.RedactInput {
+			return []string{"(withheld; redactInput)"}
+		}
+	}
+	return stderrTail(result.Stderr, 2, 200)
 }
 
 // stderrTail returns the last n non-empty lines, each cut to max bytes:
@@ -121,14 +122,7 @@ func decide(mode string, evaluation policy.Evaluation, pre hooks.Aggregate, stdi
 					if h.Effective != protocol.DecisionDeny || (h.Outcome == protocol.OutcomeOK) != content {
 						continue
 					}
-					message := h.Message
-					if message == "" {
-						message = h.Reason
-					}
-					if message == "" {
-						message = h.Error
-					}
-					d := denial{Source: "hook", ID: h.HookID, Message: message}
+					d := denial{Source: "hook", ID: h.HookID, Message: hookMessage(h)}
 					if content {
 						decision.ExitCode = 77
 					} else {
@@ -148,6 +142,16 @@ func decide(mode string, evaluation policy.Evaluation, pre hooks.Aggregate, stdi
 		decision.RelabelPolicy = true
 	}
 	return decision
+}
+
+func hookMessage(h protocol.HookResult) string {
+	if h.Message != "" {
+		return h.Message
+	}
+	if h.Reason != "" {
+		return h.Reason
+	}
+	return h.Error
 }
 
 func hookErrorKind(h protocol.HookResult) string {
@@ -196,5 +200,31 @@ func printDenials(w io.Writer, denials []denial, redact func(string) string) {
 			entry += "\n      stderr: " + redact(line)
 		}
 		_, _ = fmt.Fprintln(w, terminalText(entry))
+	}
+}
+
+// printWarning is shared by gh-runs-only diagnostics. Callers must first rule
+// out an enforced denial; the entire warning uses the denial display bounds.
+func printWarning(w io.Writer, source, id, detail, message string, redact func(string) string) {
+	entry := "ghok: warning from " + source + " " + strings.ReplaceAll(redact(id), "\n", `\n`)
+	if detail != "" {
+		entry += " (" + strings.ReplaceAll(detail, "\n", `\n`) + ")"
+	}
+	entry += "\n  " + strings.ReplaceAll(redact(message), "\n", "\n  ")
+	_, _ = fmt.Fprintln(w, terminalText(entry))
+}
+
+func printContinuedWarnings(w io.Writer, pre hooks.Aggregate, configured []config.Hook, redact func(string) string) {
+	for _, result := range pre.Results {
+		if !result.ContinuedOnError {
+			continue
+		}
+		message := hookMessage(result)
+		if result.Outcome != protocol.OutcomeOK {
+			for _, line := range hookStderr(result, configured) {
+				message += "\n  stderr: " + line
+			}
+		}
+		printWarning(w, "hook", result.HookID, "continue-on-error", message, redact)
 	}
 }

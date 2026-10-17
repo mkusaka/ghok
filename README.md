@@ -458,7 +458,8 @@ Covered files are deduplicated and list all affected hook IDs. A covered byte,
 executable-bit or missing-file change revokes only its users' trust. Policy-only
 configs skip manifest computation.
 
-A **gate** is a pre-hook with effective `onError: deny` (the pre default).
+A **gate** is a pre-hook with effective `onError: deny` (the pre default) and
+`continueOnError` disabled.
 In enforce mode, matching invocations fail closed with `config <id>` / exit 78
 if a gate changed since trust, or is untrusted while another project hook is
 trusted and enabled. Observe records would-deny without blocking. A never-trusted
@@ -585,17 +586,18 @@ hooks:
   every hook before deciding, and project hooks start after all user hooks.
 - `runtime.hookConcurrency` (default 4; Actions allows 10) caps how many hooks
   run at once; the rest queue.
-- Unlike Actions, an effective pre-hook deny cancels every running hook at once,
-  because the denial is final. Other failures follow each hook's `onError` and
-  never stop later hooks. `dependsOn` (earlier hooks only) skips a hook unless
-  its dependencies succeeded and passes their results in `previous`; use it, not
-  list position, when a hook must run only after a gate allowed.
+- An effective pre-hook deny skips hooks not yet started (`skipped`, reason
+  `after pre-hook denial`); running siblings/background hooks finish within their
+  own timeout before the phase reports its decision. Wrapper signals still
+  cancel hooks. Other failures follow each hook's `onError`.
+  `dependsOn` (earlier hooks only) skips a hook unless its dependencies succeeded
+  and passes their results in `previous`; use it, not list position, when a hook
+  must run only after a gate allowed.
 - `cancel` is not supported: hooks are short-lived and have a `timeout`.
 - `ghok config validate` rejects empty or nested `parallel` blocks, extra keys
   beside `parallel`/`wait`/`wait-all`, and waits for IDs that are not earlier
   background hooks of the same list. `ghok hooks list` shows each hook's
-  `background` flag and the
-  hooks it waits for.
+  `background` and `continueOnError` flags and the hooks it waits for.
 
 A hook reads one schema-version-1 JSON document from stdin and writes one
 response to stdout, for example:
@@ -603,6 +605,16 @@ response to stdout, for example:
 ```json
 {"schemaVersion":1,"decision":"deny","reason":"admin merge is not permitted"}
 ```
+
+For a non-blocking pre check, set `continueOnError: true`. A returned deny or
+failure under `onError: deny` retains its real `outcome`/`decision`, but becomes
+`effective: abstain` with `continuedOnError: true`. Dependents count it as
+satisfied and receive its real result in `previous`. It cannot skip later hooks
+or block gh. If gh runs, stderr prints
+`ghok: warning from hook <id> (continue-on-error)` followed by the message, reason
+or error, using the denial sanitizer and stderr-tail/redactInput rules. Another enforced denial suppresses
+the warning, not the logged result. `hooks test` shows continued results in text
+and JSON. Post hooks reject the option; transforms must use `onError: allow`.
 
 Exit zero with empty stdout means abstain; nonzero exit, timeout, or invalid
 response is an **outcome**, handled by `onError`. Commands are argv arrays,

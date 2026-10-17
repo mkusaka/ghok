@@ -119,3 +119,58 @@ func TestStderrTailCapsLineLength(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestContinuedWarningDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name, message, reason, want string
+		outcome                     protocol.Outcome
+		redactInput                 bool
+	}{
+		{"message", "review\nsecret\x1b[31m", "unused", "  review\n  [REDACTED]\\x1b[31m\n", protocol.OutcomeOK, false},
+		{"reason", "", "review required", "  review required\n", protocol.OutcomeOK, false},
+		{"error", "", "", "  exit status 23\n    stderr: loading\n    stderr: secret tail\n", protocol.OutcomeError, false},
+		{"withheld", "", "", "  exit status 23\n    stderr: (withheld; redactInput)\n", protocol.OutcomeError, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pre := hooks.Aggregate{Results: []protocol.HookResult{
+				{HookID: "advice", Outcome: tc.outcome, Message: tc.message, Reason: tc.reason, Error: "exit status 23", Stderr: "discarded\nloading\nsecret tail\n", ContinuedOnError: true},
+				{HookID: "ordinary", Outcome: protocol.OutcomeOK, Decision: protocol.DecisionAllow},
+			}}
+			var stderr bytes.Buffer
+			printContinuedWarnings(&stderr, pre, []config.Hook{{ID: "advice", RedactInput: tc.redactInput}}, func(s string) string {
+				return strings.ReplaceAll(s, "secret", "[REDACTED]")
+			})
+			want := "ghok: warning from hook advice (continue-on-error)\n" + strings.ReplaceAll(tc.want, "secret", "[REDACTED]")
+			if stderr.String() != want {
+				t.Fatalf("stderr=%q, want=%q", stderr.String(), want)
+			}
+		})
+	}
+}
+
+func TestWarningSanitizesAndBoundsWholeEntry(t *testing.T) {
+	var stderr bytes.Buffer
+	printWarning(&stderr, "hook", "secret\r\ninjected", "continue-on-error",
+		strings.Repeat("secret\x1b[31m"+strings.Repeat("界", 500)+"\n", 50),
+		func(s string) string { return strings.ReplaceAll(s, "secret", "[REDACTED]") })
+	out := stderr.String()
+	if !strings.HasPrefix(out, "ghok: warning from hook [REDACTED]\\x0d\\ninjected (continue-on-error)\n") ||
+		strings.ContainsAny(out, "\x1b\r") || strings.Contains(out, "secret") ||
+		!strings.Contains(out, "truncated)") || len(out) > 4<<10 || strings.Count(out, "\n") > 40 {
+		t.Fatalf("unsafe or unbounded warning: %q", out)
+	}
+}
+
+func TestWarningRedactionPreservesGrammar(t *testing.T) {
+	for _, secret := range []string{"ghok", "hook", "continue-on-error"} {
+		t.Run(secret, func(t *testing.T) {
+			var stderr bytes.Buffer
+			printWarning(&stderr, "hook", secret, "continue-on-error", secret, func(s string) string {
+				return strings.ReplaceAll(s, secret, "[REDACTED]")
+			})
+			if want := "ghok: warning from hook [REDACTED] (continue-on-error)\n  [REDACTED]\n"; stderr.String() != want {
+				t.Fatalf("stderr=%q, want=%q", stderr.String(), want)
+			}
+		})
+	}
+}

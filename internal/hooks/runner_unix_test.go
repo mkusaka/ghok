@@ -75,7 +75,7 @@ func TestResponseOutcomes(t *testing.T) {
 			r := &Runner{Env: hermetic(t)}
 			got := one(t, h, r)
 			v := got.Results[0]
-			if v.Outcome != c.outcome || v.Decision != c.decision || v.ExitCode != c.code {
+			if v.Outcome != c.outcome || v.Decision != c.decision || v.ExitCode != c.code || v.ContinuedOnError {
 				t.Fatalf("%+v", v)
 			}
 			if c.name == "deny" && (got.Message != "user message" || v.Reason != "policy reason") {
@@ -112,6 +112,92 @@ func TestOnErrorAndPost(t *testing.T) {
 	got := one(t, h, &Runner{Env: hermetic(t)})
 	if got.Decision == protocol.DecisionDeny || got.Results[0].Decision != protocol.DecisionDeny || got.Message != "" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestContinueOnErrorClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, phase, onError string
+		outcome              protocol.Outcome
+		decision             protocol.Decision
+		effective            protocol.Decision
+		continued            bool
+	}{
+		{"content deny", "pre", "", protocol.OutcomeOK, protocol.DecisionDeny, protocol.DecisionAbstain, true},
+		{"allow", "pre", "", protocol.OutcomeOK, protocol.DecisionAllow, protocol.DecisionAllow, false},
+		{"abstain", "pre", "", protocol.OutcomeOK, protocol.DecisionAbstain, protocol.DecisionAbstain, false},
+		{"default error deny", "pre", "", protocol.OutcomeError, "", protocol.DecisionAbstain, true},
+		{"explicit error deny", "pre", "deny", protocol.OutcomeError, "", protocol.DecisionAbstain, true},
+		{"error allow", "pre", "allow", protocol.OutcomeError, "", protocol.DecisionAllow, false},
+		{"error ignore", "pre", "ignore", protocol.OutcomeError, "", protocol.DecisionAbstain, false},
+		{"timeout", "pre", "deny", protocol.OutcomeTimeout, "", protocol.DecisionAbstain, true},
+		{"canceled", "pre", "deny", protocol.OutcomeCanceled, "", protocol.DecisionAbstain, true},
+		{"invalid response", "pre", "deny", protocol.OutcomeInvalidResponse, "", protocol.DecisionAbstain, true},
+		{"skipped", "pre", "deny", protocol.OutcomeSkipped, "", protocol.DecisionAbstain, false},
+		{"post deny", "post", "deny", protocol.OutcomeOK, protocol.DecisionDeny, protocol.DecisionAbstain, false},
+		{"post error", "post", "deny", protocol.OutcomeError, "", protocol.DecisionAbstain, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := config.Hook{OnError: tc.onError, ContinueOnError: true}
+			result := protocol.HookResult{Outcome: tc.outcome, Decision: tc.decision, Reason: "original reason", Message: "original message", Error: "original error"}
+			want := result
+			want.Effective, want.ContinuedOnError = tc.effective, tc.continued
+			classify(tc.phase, h, &result)
+			if !reflect.DeepEqual(result, want) {
+				t.Fatalf("result: %+v; want %+v", result, want)
+			}
+			if tc.outcome != protocol.OutcomeOK {
+				got := (&Runner{}).diagnostic(tc.phase, h, tc.outcome, "diagnostic reason")
+				if got.Effective != tc.effective || got.ContinuedOnError != tc.continued || got.Outcome != tc.outcome || got.Reason != "diagnostic reason" {
+					t.Fatalf("diagnostic: %+v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestContinueOnErrorDependencies(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		outcome    protocol.Outcome
+		decision   protocol.Decision
+		reason     string
+		message    string
+		exitCode   int
+	}{
+		{"content deny", `printf '{"decision":"deny","reason":"policy reason","message":"denial message"}'`, protocol.OutcomeOK, protocol.DecisionDeny, "policy reason", "denial message", 0},
+		{"error deny", "exit 7", protocol.OutcomeError, "", "", "", 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := filepath.Join(t.TempDir(), "previous.json")
+			first := hook("continued", script(t, tc.body))
+			first.OnError, first.ContinueOnError = config.OnErrorDeny, true
+			second := hook("dependent", script(t, `cat > "$CAPTURE"; printf '{"decision":"allow"}'`))
+			second.DependsOn = []string{first.ID}
+			second.Env = map[string]string{"CAPTURE": capture}
+			got := (&Runner{Env: hermetic(t)}).Run(context.Background(), "pre", []config.Hook{first, second}, input())
+			result := got.Results[0]
+			if got.Decision != protocol.DecisionAllow || got.Message != "" || got.Results[1].Outcome != protocol.OutcomeOK ||
+				result.Outcome != tc.outcome || result.Decision != tc.decision || result.Effective != protocol.DecisionAbstain ||
+				!result.ContinuedOnError || result.Reason != tc.reason || result.Message != tc.message || result.ExitCode != tc.exitCode {
+				t.Fatalf("%+v", got)
+			}
+			if tc.outcome != protocol.OutcomeOK && result.Error == "" {
+				t.Fatalf("error not preserved: %+v", result)
+			}
+			data, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded protocol.Input
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			result.Started = false // Process-start metadata is not part of the JSON protocol.
+			if len(decoded.Previous) != 1 || !reflect.DeepEqual(decoded.Previous[0], result) {
+				t.Fatalf("previous: %+v; want %+v", decoded.Previous, result)
+			}
+		})
 	}
 }
 
@@ -371,7 +457,7 @@ func TestSequentialDenyCannotBeOverridden(t *testing.T) {
 	last := hook("last", script(t, `printf ran > "$MARKER"; printf '{"decision":"allow"}'`))
 	last.Env = map[string]string{"MARKER": marker}
 	got := (&Runner{Env: hermetic(t)}).Run(context.Background(), "pre", []config.Hook{a, d, last}, input())
-	if got.Decision != protocol.DecisionDeny || got.Message != "blocked" || got.Results[2].Outcome != protocol.OutcomeCanceled {
+	if got.Decision != protocol.DecisionDeny || got.Message != "blocked" || got.Results[2].Outcome != protocol.OutcomeSkipped || got.Results[2].Reason != "after pre-hook denial" {
 		t.Fatalf("%+v", got)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
@@ -412,14 +498,72 @@ func TestConcurrencyAndDeterministicAggregation(t *testing.T) {
 		}
 	}
 	// A later hook waits for the earlier hook to be running, then denies first.
-	first := hook("earlier", script(t, `trap 'wait; exit 0' TERM; printf ready > "$READY"; sleep 30 & wait`))
+	first := hook("earlier", script(t, `printf ready > "$READY"; while [ ! -f "$DENIED" ]; do sleep 0.02; done; sleep 0.1; printf '{"decision":"allow"}'`))
 	first.OnError, first.Background = "ignore", true
-	first.Env = map[string]string{"READY": filepath.Join(dir, "earlier-ready")}
-	deny := hook("later", script(t, `while [ ! -f "$READY" ]; do sleep 0.02; done; printf '{"decision":"deny","message":"later denial"}'`))
+	first.Env = map[string]string{"READY": filepath.Join(dir, "earlier-ready"), "DENIED": filepath.Join(dir, "later-denied")}
+	deny := hook("later", script(t, `while [ ! -f "$READY" ]; do sleep 0.02; done; printf denied > "$DENIED"; printf '{"decision":"deny","message":"later denial"}'`))
 	deny.Env = first.Env
 	got = r.Run(ctx, "pre", []config.Hook{first, deny}, input())
-	if got.Decision != protocol.DecisionDeny || got.Message != "later denial" || got.Results[0].HookID != "earlier" || got.Results[0].Outcome != protocol.OutcomeCanceled || got.Results[1].Outcome != protocol.OutcomeOK {
+	if got.Decision != protocol.DecisionDeny || got.Message != "later denial" || got.Results[0].HookID != "earlier" || got.Results[0].Outcome != protocol.OutcomeOK || got.Results[1].Outcome != protocol.OutcomeOK {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestPreDenialDoesNotCancelRunningHooks(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		siblingFirst    bool
+		siblingDecision protocol.Decision
+		message         string
+	}{
+		{"background sibling", true, protocol.DecisionAllow, "first denial"},
+		{"foreground sibling", false, protocol.DecisionAllow, "first denial"},
+		{"first denial in selection order", true, protocol.DecisionDeny, "sibling denial"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			env := map[string]string{
+				"READY":    filepath.Join(dir, "ready"),
+				"DENIED":   filepath.Join(dir, "denied"),
+				"DONE":     filepath.Join(dir, "done"),
+				"PENDING":  filepath.Join(dir, "pending"),
+				"DECISION": string(tc.siblingDecision),
+			}
+			sibling := hook("sibling", script(t, `printf ready > "$READY"; while [ ! -f "$DENIED" ]; do sleep 0.02; done; sleep 0.1; printf done > "$DONE"; printf '{"decision":"%s","message":"sibling denial"}' "$DECISION"`))
+			deny := hook("deny", script(t, `while [ ! -f "$READY" ]; do sleep 0.02; done; printf denied > "$DENIED"; printf '{"decision":"deny","message":"first denial"}'`))
+			pending := hook("pending", script(t, `printf ran > "$PENDING"`))
+			sibling.Env, deny.Env, pending.Env = env, env, env
+			selected := []config.Hook{sibling, deny, pending}
+			siblingIndex := 0
+			if !tc.siblingFirst {
+				selected = []config.Hook{deny, sibling, pending}
+				siblingIndex = 1
+			}
+			selected[0].Background = true
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			got := (&Runner{Concurrency: 2, Env: hermetic(t)}).Run(ctx, "pre", selected, input())
+			if got.Decision != protocol.DecisionDeny || got.Message != tc.message || got.Results[siblingIndex].Outcome != protocol.OutcomeOK ||
+				got.Results[siblingIndex].Decision != tc.siblingDecision || !got.Results[siblingIndex].Started {
+				t.Fatalf("%+v", got)
+			}
+			for i, h := range selected {
+				if got.Results[i].HookID != h.ID {
+					t.Fatalf("result order: %+v", got.Results)
+				}
+			}
+			skipped := got.Results[2]
+			if skipped.Outcome != protocol.OutcomeSkipped || skipped.Reason != "after pre-hook denial" ||
+				skipped.Effective != protocol.DecisionAbstain || skipped.Started || skipped.ContinuedOnError {
+				t.Fatalf("pending: %+v", skipped)
+			}
+			if _, err := os.Stat(env["DONE"]); err != nil {
+				t.Fatalf("running sibling did not finish: %v", err)
+			}
+			if _, err := os.Stat(env["PENDING"]); !os.IsNotExist(err) {
+				t.Fatalf("pending hook started: %v", err)
+			}
+		})
 	}
 }
 

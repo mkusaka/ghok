@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -127,6 +128,7 @@ func TestHookTrustDefinitionFields(t *testing.T) {
 		{"env", "", "env: {SETTING: changed}"},
 		{"timeout", "", "timeout: 3s"},
 		{"onError", "", "onError: allow"},
+		{"continueOnError", "", "continueOnError: true"},
 		{"optional", "", "optional: true"},
 		{"enabled", "", "enabled: false"},
 		{"redactInput", "", "redactInput: true"},
@@ -181,6 +183,29 @@ func TestHookTrustDefinitionFields(t *testing.T) {
 			}
 			if after.HookDigests[id] == before.HookDigests["a"] || after.HookDigests["sibling"] != before.HookDigests["sibling"] {
 				t.Fatalf("definition field failed to isolate digest change: before=%+v after=%+v", before.HookDigests, after.HookDigests)
+			}
+		})
+	}
+}
+
+func TestContinueOnErrorChangeRevokesTrust(t *testing.T) {
+	for _, initial := range []bool{false, true} {
+		t.Run(fmt.Sprint(initial), func(t *testing.T) {
+			repo, env, _ := trustRepositoryFixture(t)
+			project := filepath.Join(repo, ".ghok.yaml")
+			body := func(value bool) string {
+				return fmt.Sprintf("version: 1\nhooks: {pre: [{id: review, command: [./hook], continueOnError: %t}, {id: sibling, command: [./hook]}]}\n", value)
+			}
+			writeFixture(t, project, body(initial))
+			if _, _, _, _, err := TrustProject("", repo, env, false, false); err != nil {
+				t.Fatal(err)
+			}
+			before := hookTrustRecord(t, repo, env)
+			writeFixture(t, project, body(!initial))
+			c := assertHookTrust(t, repo, env, []string{"sibling"}, []string{"review"})
+			ignored := c.IgnoredHooks[0]
+			if ignored.Reason != "changed since trust" || ignored.Digest == before.HookDigests["review"] || ignored.GateBlocked != initial {
+				t.Fatalf("continueOnError toggle retained trust or wrong gate classification: %+v", ignored)
 			}
 		})
 	}
@@ -369,6 +394,7 @@ func TestIgnoredHookGateBlocking(t *testing.T) {
 		{"never trusted", "pre", "", false, false},
 		{"default deny", "pre", "", true, true},
 		{"explicit deny", "pre", ", onError: deny", true, true},
+		{"continued", "pre", ", continueOnError: true", true, false},
 		{"allow", "pre", ", onError: allow", true, false},
 		{"ignore", "pre", ", onError: ignore", true, false},
 		{"disabled", "pre", ", enabled: false", true, false},

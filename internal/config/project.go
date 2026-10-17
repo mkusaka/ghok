@@ -124,7 +124,7 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 			if !exists {
 				continue
 			}
-			gate := h.Phase == PhasePre && h.OnError == OnErrorDeny
+			gate := h.Phase == PhasePre && h.OnError == OnErrorDeny && !h.ContinueOnError
 			meta.GateBlocked = gate && (h.Enabled == nil || *h.Enabled) && (meta.Reason == "changed since trust" || active > 0)
 			withheld[h.ID] = meta
 			note := fmt.Sprintf("hook %s ignored (%s)", h.ID, meta.Reason)

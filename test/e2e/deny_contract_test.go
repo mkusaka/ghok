@@ -94,20 +94,21 @@ func TestDenyContractMixedOrdering(t *testing.T) {
 		failed := s.hook("failed", config.PhasePre)
 		failed.OnError = config.OnErrorDeny
 		failed.Env["FAKEGH_HOOK_EXIT"] = "23"
-		canceled := s.hook("canceled", config.PhasePre)
-		canceled.OnError = config.OnErrorDeny
-		canceled.DependsOn = []string{"failed"}
-		c.Hooks = []config.Hook{failed, canceled}
+		pending := s.hook("pending", config.PhasePre)
+		pending.OnError = config.OnErrorDeny
+		pending.DependsOn = []string{"failed"}
+		c.Hooks = []config.Hook{failed, pending}
 	})
 	got := s.gh(nil, "api", "-X", "POST", "repos/acme/project/unknown")
 	got.code(t, 77)
 	s.absentRecord()
-	want := "ghok: denied by rule z-first (+4 more)\n  - rule z-first: first configured (api.post.unknown)\n  - rule a-second: second configured (api.post.unknown)\n  - policy unknownMutation: unclassified-write: unknownMutation policy (api.post.unknown)\n  - hook failed: exit status 23\n  - hook canceled: canceled after pre-hook denial\n"
+	want := "ghok: denied by rule z-first (+3 more)\n  - rule z-first: first configured (api.post.unknown)\n  - rule a-second: second configured (api.post.unknown)\n  - policy unknownMutation: unclassified-write: unknownMutation policy (api.post.unknown)\n  - hook failed: exit status 23\n"
 	if string(got.stderr) != want {
 		t.Fatalf("stderr=%q, want=%q", got.stderr, want)
 	}
 	logs := s.logs()
-	if len(logs) != 1 || len(logs[0].Hooks) != 2 || logs[0].Hooks[1].Outcome != protocol.OutcomeCanceled {
+	if len(logs) != 1 || len(logs[0].Hooks) != 2 || logs[0].Hooks[1].Outcome != protocol.OutcomeSkipped ||
+		logs[0].Hooks[1].Reason != "after pre-hook denial" || logs[0].Hooks[1].Effective != protocol.DecisionAbstain {
 		t.Fatalf("full hook results not retained: %+v", logs)
 	}
 }

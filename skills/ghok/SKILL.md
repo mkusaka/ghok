@@ -107,8 +107,9 @@ Never overwrite an existing config; edit it instead.
   Missing files have markers; their creation also revokes affected trust.
   Absolute external executables, interpreters, PATH tools and unlisted files
   are not hashed. Policy-only configs skip manifest computation.
-  A gate is a pre-hook with effective `onError: deny` (the default). In enforce
-  mode a changed gate denies matching invocations with `config <id>` / exit 78.
+  A gate is a pre-hook with effective `onError: deny` (the default) and
+  `continueOnError` disabled. In enforce mode a changed gate denies matching
+  invocations with `config <id>` / exit 78.
   A new untrusted gate also denies when another project hook is trusted/enabled.
   Observe records would-deny; a never-trusted project only ignores hooks/warns.
   Trust follows content: a hook digest trusted anywhere is trusted in every
@@ -245,8 +246,18 @@ Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
 - Skip operations whose `execution` is `not-selected` or `skipped`.
 - Hooks run in config order (user, then project), with GitHub Actions-style concurrency:
   `- parallel: [hooks]` blocks, `background: true` hooks, and `- wait: id|[ids]` /
-  `- wait-all:` items (capped by `runtime.hookConcurrency`, default 4). A pre deny cancels
-  all running hooks. `dependsOn` names earlier hooks only. There is no `priority`/`cancel`.
+  `- wait-all:` items (capped by `runtime.hookConcurrency`, default 4). A pre deny skips
+  pending hooks (`skipped`, reason `after pre-hook denial`); running hooks finish
+  within their own timeout before aggregation. Signals still cancel them.
+  `dependsOn` names earlier hooks only. There is no `priority`/`cancel`.
+- Pre-only `continueOnError: true` makes a returned deny or `onError: deny` failure
+  non-blocking: real `outcome`/`decision` stay, `effective` becomes `abstain`,
+  `continuedOnError: true` is logged/shown by `hooks test`. Dependents run and see
+  the real result in `previous`. If gh runs, a sanitized/redacted
+  `ghok: warning from hook <id> (continue-on-error)` prints its message/reason/error
+  and the same stderr tail as an error denial (withheld for `redactInput` hooks).
+  Another enforced denial suppresses the warning. Post hooks reject this option;
+  transforms use `onError: allow`. `hooks list` shows the setting.
 - Post hooks can be limited to gh's outcome: `match: {result: failure}` (non-zero exit,
   signal or start failure) or `match: {exitCode: [1]}`; test with
   `ghok hooks test --phase post --exit-code 1 -- <gh args>`.

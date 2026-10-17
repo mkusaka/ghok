@@ -89,9 +89,17 @@ func effective(phase string, h config.Hook, result protocol.HookResult) protocol
 	}
 }
 
+func classify(phase string, h config.Hook, result *protocol.HookResult) {
+	result.Effective = effective(phase, h, *result)
+	if phase == config.PhasePre && h.ContinueOnError && result.Effective == protocol.DecisionDeny {
+		result.Effective = protocol.DecisionAbstain
+		result.ContinuedOnError = true
+	}
+}
+
 func (r *Runner) diagnostic(phase string, h config.Hook, outcome protocol.Outcome, reason string) protocol.HookResult {
 	v := protocol.HookResult{HookID: h.ID, Phase: phase, Outcome: outcome, ExitCode: -1, Reason: r.redact(reason)}
-	v.Effective = effective(phase, h, v)
+	classify(phase, h, &v)
 	return v
 }
 
@@ -128,8 +136,8 @@ func PrepareInput(phase string, h config.Hook, in protocol.Input, redactor *reda
 	return in
 }
 
-// Run returns results in selection order. A pre denial cancels every remaining
-// hook, including already running hooks; post decisions are informational only.
+// Run returns results in selection order. A pre denial skips pending hooks but
+// lets running hooks finish; post decisions are informational only.
 func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in protocol.Input) Aggregate {
 	aggregate := Aggregate{Decision: protocol.DecisionAbstain}
 	if len(hooks) == 0 {
@@ -140,8 +148,6 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	type completion struct {
 		index  int
 		result protocol.HookResult
@@ -166,7 +172,6 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 		remaining--
 		if phase == config.PhasePre && result.Effective == protocol.DecisionDeny {
 			denied = true
-			cancel()
 		}
 	}
 	for remaining > 0 {
@@ -175,12 +180,13 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 			if state[i] != 0 {
 				continue
 			}
-			if denied || runCtx.Err() != nil {
-				reason := "context canceled"
-				if denied {
-					reason = "canceled after pre-hook denial"
-				}
-				finish(i, r.diagnostic(phase, h, protocol.OutcomeCanceled, reason))
+			if denied {
+				finish(i, r.diagnostic(phase, h, protocol.OutcomeSkipped, "after pre-hook denial"))
+				progressed = true
+				continue
+			}
+			if ctx.Err() != nil {
+				finish(i, r.diagnostic(phase, h, protocol.OutcomeCanceled, "context canceled"))
 				progressed = true
 				continue
 			}
@@ -206,7 +212,7 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 					continue
 				}
 				prev := aggregate.Results[j]
-				if phase == config.PhasePre && prev.Effective == protocol.DecisionDeny || !h.Optional && prev.Outcome != protocol.OutcomeOK {
+				if !prev.ContinuedOnError && (phase == config.PhasePre && prev.Effective == protocol.DecisionDeny || !h.Optional && prev.Outcome != protocol.OutcomeOK) {
 					skip = "dependency did not succeed: " + dep
 					break
 				}
@@ -252,7 +258,7 @@ func (r *Runner) Run(ctx context.Context, phase string, hooks []config.Hook, in 
 			running++
 			progressed = true
 			go func(i int, h config.Hook, input protocol.Input) {
-				completed <- completion{i, r.execute(runCtx, phase, h, input)}
+				completed <- completion{i, r.execute(ctx, phase, h, input)}
 			}(i, h, input)
 		}
 		if remaining == 0 {

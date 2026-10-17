@@ -145,8 +145,8 @@ only those hooks, retaining all other hooks' previous digests and review baselin
 Without `--hook`, trust covers all project hooks.
 
 Each hook's v2 digest covers its canonical, defaulted definition (`id`, `phase`,
-`match`, `command`, `env`, `timeout`, `onError`, `dependsOn`, `optional`, `enabled`,
-`captureOutput`, `redactInput`, `maxOutputBytes`, `background`, `files`) and its
+`match`, `command`, `env`, `timeout`, `onError`, `continueOnError`, `dependsOn`,
+`optional`, `enabled`, `captureOutput`, `redactInput`, `maxOutputBytes`, `background`, `files`) and its
 dependency files. Definitions use deterministic JSON; map key order is irrelevant.
 YAML bytes, comments, formatting, policy and list position are not inputs.
 Express ordering guarantees with `dependsOn`; reordering unrelated hooks does
@@ -166,7 +166,8 @@ effective `runtime.fileMaxBytes`. Missing files have markers; creating one or
 changing a file's bytes/executable bit revokes trust for its users.
 Trust review warns about missing gate dependency files.
 
-A **gate** is an enabled pre-hook with effective `onError: deny` (the pre default).
+A **gate** is an enabled pre-hook with effective `onError: deny` (the pre default)
+and `continueOnError` disabled. Continued hooks never become blocking inactive gates.
 If its recorded digest differs, matching invocations fail closed in enforce mode
 with `ghok: denied by config <id>` and exit 78. An untrusted gate also fails closed
 when another hook from the project is trusted and enabled. Observe mode records

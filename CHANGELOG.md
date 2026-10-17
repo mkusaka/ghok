@@ -8,6 +8,21 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Breaking
+
+- Pre-hook denial no longer cancels running hooks: parallel siblings and background
+  hooks finish within their own timeout before aggregation. Hooks not yet started
+  are `skipped` with reason `after pre-hook denial`; wrapper signals still cancel.
+
+### Added
+
+- Pre-hook `continueOnError: true` keeps returned/onError denials non-blocking,
+  records their real outcome/decision with `effective: abstain` and
+  `continuedOnError: true`, and satisfies dependents. Continued denials print
+  sanitized, redacted warnings only when gh runs; other enforced denials suppress
+  warnings without hiding logs. Hooks list/test and generated schemas expose the
+  option/results; post hooks and transforms reject it.
+
 ## [v0.0.16] - 2026-10-17
 
 ### Added

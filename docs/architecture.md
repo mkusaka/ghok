@@ -72,6 +72,9 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    Evaluate policy plus matching trust-blocked gates (`config <id>`); run selected
    pre-hooks with raw input (per-hook redactInput is opt-in). Enforce content
    denial exits 77; hook-error/config-only denial exits 78. Observe records would-deny.
+   A pre denial skips pending hooks, not running siblings; aggregation waits for
+   those hooks. Pre `continueOnError` records a real denial as effective abstain,
+   satisfies dependents and warns only when gh runs.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
 

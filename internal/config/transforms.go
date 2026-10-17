@@ -70,6 +70,9 @@ func (l *TransformList) UnmarshalYAML(n *yaml.Node) error {
 		if item.Kind != yaml.MappingNode {
 			return fmt.Errorf("transforms.pre[%d] must be a mapping", i)
 		}
+		if field(item, "continueOnError") != nil {
+			return fmt.Errorf("transforms.pre[%d].continueOnError is not allowed; use onError: allow", i)
+		}
 		for _, key := range []string{"parallel", "background", "wait", "wait-all", "dependsOn", "optional", "captureOutput", "enabled", "maxOutputBytes", "phase"} {
 			if field(item, key) != nil {
 				return fmt.Errorf("transforms.pre[%d].%s is not allowed", i, key)

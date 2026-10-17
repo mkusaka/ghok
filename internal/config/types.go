@@ -110,12 +110,13 @@ const (
 type Hook struct {
 	ID string `yaml:"id" json:"id" required:"true"`
 	// Phase comes from the hooks.pre/hooks.post list holding the hook.
-	Phase   string            `yaml:"-" json:"phase" enum:"pre,post"`
-	Match   Match             `yaml:"match" json:"match"`
-	Command []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
-	Env     map[string]string `yaml:"env" json:"env,omitempty"`
-	Timeout Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."` // default 10s
-	OnError string            `yaml:"onError" json:"onError" enum:"deny,allow,ignore"`     // pre default deny, post default ignore
+	Phase           string            `yaml:"-" json:"phase" enum:"pre,post"`
+	Match           Match             `yaml:"match" json:"match"`
+	Command         []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
+	Env             map[string]string `yaml:"env" json:"env,omitempty"`
+	Timeout         Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."` // default 10s
+	OnError         string            `yaml:"onError" json:"onError" enum:"deny,allow,ignore"`     // pre default deny, post default ignore
+	ContinueOnError bool              `yaml:"continueOnError" json:"continueOnError,omitempty" doc:"Pre hooks only: make a resulting deny non-blocking while preserving the hook's diagnostic result."`
 	// Background starts the hook without waiting for it (GitHub Actions
 	// steps[*].background); a later wait/wait-all item or the end of the phase
 	// joins it. Members of a parallel block are background hooks.
