@@ -63,6 +63,7 @@ ghok config init --scope user        # global config.yaml (`ghok config path` sh
 ghok config validate                 # all errors at once; exit 1 if invalid
 ghok schema config                  # global config JSON Schema
 ghok schema project-config          # project .ghok.yaml JSON Schema
+ghok schema local-config            # personal .ghok.local.yaml JSON Schema
 ```
 
 Generated files are commented and start with a `yaml-language-server` `$schema` line.

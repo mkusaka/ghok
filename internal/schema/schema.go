@@ -23,16 +23,23 @@ func Generate(name string) (map[string]any, error) {
 	var s map[string]any
 	filename := name + ".schema.json"
 	switch name {
-	case "config", "project-config":
+	case "config", "project-config", "local-config":
 		s = schemaFor(reflect.TypeFor[config.Config](), "", "yaml")
 		props := s["properties"].(map[string]any)
+		if name != "config" {
+			delete(props, "runtime")
+			delete(props, "logging")
+		}
 		if name == "project-config" {
 			filename = "project.schema.json"
 			s["title"] = "ghok project .ghok.yaml"
-			delete(props, "runtime")
-			delete(props, "logging")
 		} else {
 			s["title"] = "ghok config.yaml"
+			if name == "local-config" {
+				filename = "local.schema.json"
+				s["title"] = "ghok personal .ghok.local.yaml"
+			}
+			// Only .ghok.yaml is trust-gated: no trust section or hook files.
 			delete(props, "trust")
 			// The hook schema map is shared by hook and parallel items.
 			pre := props["hooks"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)

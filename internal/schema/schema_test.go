@@ -16,7 +16,7 @@ import (
 // The committed schema files must match the tagged Go contracts.
 func TestSchemaFilesUpToDate(t *testing.T) {
 	for name, filename := range map[string]string{
-		"config": "config.schema.json", "project-config": "project.schema.json",
+		"config": "config.schema.json", "project-config": "project.schema.json", "local-config": "local.schema.json",
 		"hook-input": "hook-input.schema.json", "hook-response": "hook-response.schema.json",
 		"transform-response": "transform-response.schema.json",
 	} {
@@ -85,7 +85,7 @@ func TestConfigTemplatesMatchSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := map[string]string{"HOME": home, "GHOK_CONFIG_DIR": filepath.Join(home, "cfg")}
-	for scope, name := range map[string]string{config.ScopeUser: "config", config.ScopeProject: "project-config"} {
+	for scope, name := range map[string]string{config.ScopeUser: "config", config.ScopeProject: "project-config", config.ScopeLocal: "local-config"} {
 		path, err := config.Init(scope, repo, env)
 		if err != nil {
 			t.Fatal(err)

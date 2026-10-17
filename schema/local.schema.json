@@ -1,0 +1,1572 @@
+{
+  "$id": "https://raw.githubusercontent.com/mkusaka/ghok/main/schema/local.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hooks": {
+      "additionalProperties": false,
+      "properties": {
+        "post": {
+          "description": "Hooks and control items of the post phase, run in order.",
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "background": {
+                    "description": "Start without waiting; join with a later wait/wait-all item, a parallel block's end, or the end of the phase.",
+                    "type": "boolean"
+                  },
+                  "captureOutput": {
+                    "description": "Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input.",
+                    "type": "boolean"
+                  },
+                  "command": {
+                    "description": "Executable and arguments; relative paths resolve against the config file directory.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "dependsOn": {
+                    "description": "IDs of hooks (same phase) that must finish first.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "match": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "command": {
+                        "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "effect": {
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "read",
+                              "write",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "read",
+                                "write",
+                                "unknown"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "env": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                        "type": "object"
+                      },
+                      "exitCode": {
+                        "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                        "items": {
+                          "type": "integer"
+                        },
+                        "type": "array"
+                      },
+                      "hosts": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "level": {
+                        "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "L1",
+                              "L2",
+                              "L3",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "L1",
+                                "L2",
+                                "L3",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "operation": {
+                        "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "repositories": {
+                        "description": "owner/repo globs (case-insensitive).",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "result": {
+                        "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "success",
+                              "failure"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "success",
+                                "failure"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "token": {
+                        "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "app",
+                              "user",
+                              "unknown",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "app",
+                                "user",
+                                "unknown",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "maxOutputBytes": {
+                    "type": "integer"
+                  },
+                  "onError": {
+                    "enum": [
+                      "deny",
+                      "allow",
+                      "ignore"
+                    ],
+                    "type": "string"
+                  },
+                  "optional": {
+                    "description": "Skip instead of failing when the command is missing or not executable.",
+                    "type": "boolean"
+                  },
+                  "redactInput": {
+                    "description": "Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input.",
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "description": "Go duration, e.g. 10s.",
+                    "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "command"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Run these hooks concurrently as background hooks, then wait for all of them (GitHub Actions steps parallel).",
+                "properties": {
+                  "parallel": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "background": {
+                          "description": "Start without waiting; join with a later wait/wait-all item, a parallel block's end, or the end of the phase.",
+                          "type": "boolean"
+                        },
+                        "captureOutput": {
+                          "description": "Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input.",
+                          "type": "boolean"
+                        },
+                        "command": {
+                          "description": "Executable and arguments; relative paths resolve against the config file directory.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "dependsOn": {
+                          "description": "IDs of hooks (same phase) that must finish first.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "match": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "command": {
+                              "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "effect": {
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "read",
+                                    "write",
+                                    "unknown"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "read",
+                                      "write",
+                                      "unknown"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "env": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                              "type": "object"
+                            },
+                            "exitCode": {
+                              "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                              "items": {
+                                "type": "integer"
+                              },
+                              "type": "array"
+                            },
+                            "hosts": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "level": {
+                              "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "L1",
+                                    "L2",
+                                    "L3",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "L1",
+                                      "L2",
+                                      "L3",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "operation": {
+                              "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "repositories": {
+                              "description": "owner/repo globs (case-insensitive).",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "result": {
+                              "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "success",
+                                    "failure"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "success",
+                                      "failure"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "token": {
+                              "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "app",
+                                    "user",
+                                    "unknown",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "app",
+                                      "user",
+                                      "unknown",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "maxOutputBytes": {
+                          "type": "integer"
+                        },
+                        "onError": {
+                          "enum": [
+                            "deny",
+                            "allow",
+                            "ignore"
+                          ],
+                          "type": "string"
+                        },
+                        "optional": {
+                          "description": "Skip instead of failing when the command is missing or not executable.",
+                          "type": "boolean"
+                        },
+                        "redactInput": {
+                          "description": "Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input.",
+                          "type": "boolean"
+                        },
+                        "timeout": {
+                          "description": "Go duration, e.g. 10s.",
+                          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "command"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "parallel"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Wait for earlier background hooks of this list by ID.",
+                "properties": {
+                  "wait": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "wait"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Wait for every earlier background hook of this list; takes no value.",
+                "properties": {
+                  "wait-all": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "wait-all"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "pre": {
+          "description": "Hooks and control items of the pre phase, run in order.",
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "background": {
+                    "description": "Start without waiting; join with a later wait/wait-all item, a parallel block's end, or the end of the phase.",
+                    "type": "boolean"
+                  },
+                  "captureOutput": {
+                    "description": "Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input.",
+                    "type": "boolean"
+                  },
+                  "command": {
+                    "description": "Executable and arguments; relative paths resolve against the config file directory.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "dependsOn": {
+                    "description": "IDs of hooks (same phase) that must finish first.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "match": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "command": {
+                        "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "effect": {
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "read",
+                              "write",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "read",
+                                "write",
+                                "unknown"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "env": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                        "type": "object"
+                      },
+                      "exitCode": {
+                        "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                        "items": {
+                          "type": "integer"
+                        },
+                        "type": "array"
+                      },
+                      "hosts": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "level": {
+                        "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "L1",
+                              "L2",
+                              "L3",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "L1",
+                                "L2",
+                                "L3",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "operation": {
+                        "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "repositories": {
+                        "description": "owner/repo globs (case-insensitive).",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "result": {
+                        "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "success",
+                              "failure"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "success",
+                                "failure"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "token": {
+                        "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                        "oneOf": [
+                          {
+                            "enum": [
+                              "app",
+                              "user",
+                              "unknown",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "enum": [
+                                "app",
+                                "user",
+                                "unknown",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "maxOutputBytes": {
+                    "type": "integer"
+                  },
+                  "onError": {
+                    "enum": [
+                      "deny",
+                      "allow",
+                      "ignore"
+                    ],
+                    "type": "string"
+                  },
+                  "optional": {
+                    "description": "Skip instead of failing when the command is missing or not executable.",
+                    "type": "boolean"
+                  },
+                  "redactInput": {
+                    "description": "Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input.",
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "description": "Go duration, e.g. 10s.",
+                    "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "command"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Run these hooks concurrently as background hooks, then wait for all of them (GitHub Actions steps parallel).",
+                "properties": {
+                  "parallel": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "background": {
+                          "description": "Start without waiting; join with a later wait/wait-all item, a parallel block's end, or the end of the phase.",
+                          "type": "boolean"
+                        },
+                        "captureOutput": {
+                          "description": "Post hooks only: include gh stdout/stderr (base64, bounded) in the hook input.",
+                          "type": "boolean"
+                        },
+                        "command": {
+                          "description": "Executable and arguments; relative paths resolve against the config file directory.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "dependsOn": {
+                          "description": "IDs of hooks (same phase) that must finish first.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "match": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "command": {
+                              "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "effect": {
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "read",
+                                    "write",
+                                    "unknown"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "read",
+                                      "write",
+                                      "unknown"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "env": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                              "type": "object"
+                            },
+                            "exitCode": {
+                              "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                              "items": {
+                                "type": "integer"
+                              },
+                              "type": "array"
+                            },
+                            "hosts": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "level": {
+                              "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "L1",
+                                    "L2",
+                                    "L3",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "L1",
+                                      "L2",
+                                      "L3",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "operation": {
+                              "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "repositories": {
+                              "description": "owner/repo globs (case-insensitive).",
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "result": {
+                              "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "success",
+                                    "failure"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "success",
+                                      "failure"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            },
+                            "token": {
+                              "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                              "oneOf": [
+                                {
+                                  "enum": [
+                                    "app",
+                                    "user",
+                                    "unknown",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "items": {
+                                    "enum": [
+                                      "app",
+                                      "user",
+                                      "unknown",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              ]
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "maxOutputBytes": {
+                          "type": "integer"
+                        },
+                        "onError": {
+                          "enum": [
+                            "deny",
+                            "allow",
+                            "ignore"
+                          ],
+                          "type": "string"
+                        },
+                        "optional": {
+                          "description": "Skip instead of failing when the command is missing or not executable.",
+                          "type": "boolean"
+                        },
+                        "redactInput": {
+                          "description": "Redact credentials in this hook's input; enable for hooks that forward input elsewhere. Default false: hooks receive raw input.",
+                          "type": "boolean"
+                        },
+                        "timeout": {
+                          "description": "Go duration, e.g. 10s.",
+                          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "command"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "parallel"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Wait for earlier background hooks of this list by ID.",
+                "properties": {
+                  "wait": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "wait"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Wait for every earlier background hook of this list; takes no value.",
+                "properties": {
+                  "wait-all": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "wait-all"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "policy": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "observe: classify and log only; enforce: deny according to rules, unknown handling and pre-hooks.",
+          "enum": [
+            "observe",
+            "enforce"
+          ],
+          "type": "string"
+        },
+        "protectedRepositories": {
+          "description": "owner/repo globs; unclassified or unresolved writes against them use protectedUnknown.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protectedUnknown": {
+          "description": "Handling of unclassified/unresolved writes that may target a protected repository.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "decision": {
+                "enum": [
+                  "deny",
+                  "audit"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "match": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "effect": {
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "read",
+                          "write",
+                          "unknown"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "read",
+                            "write",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                    "type": "object"
+                  },
+                  "exitCode": {
+                    "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "hosts": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "level": {
+                    "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "L1",
+                          "L2",
+                          "L3",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "L1",
+                            "L2",
+                            "L3",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "operation": {
+                    "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "repositories": {
+                    "description": "owner/repo globs (case-insensitive).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "result": {
+                    "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "success",
+                          "failure"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "success",
+                            "failure"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "token": {
+                    "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "app",
+                          "user",
+                          "unknown",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "app",
+                            "user",
+                            "unknown",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "onUnresolved": {
+                "description": "deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match.",
+                "enum": [
+                  "deny",
+                  "ignore"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "decision"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "unknownInput": {
+          "description": "Handling of input-unavailable/input-too-large operations, including stdin analysis timeouts; default audit.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        },
+        "unknownMutation": {
+          "description": "Handling of readable write/unknown operations that could not be classified; unreadable input uses unknownInput.",
+          "enum": [
+            "allow",
+            "deny",
+            "audit"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "transforms": {
+      "additionalProperties": false,
+      "properties": {
+        "pre": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "id": {
+                "type": "string"
+              },
+              "match": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "effect": {
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "read",
+                          "write",
+                          "unknown"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "read",
+                            "write",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                    "type": "object"
+                  },
+                  "exitCode": {
+                    "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "hosts": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "level": {
+                    "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "L1",
+                          "L2",
+                          "L3",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "L1",
+                            "L2",
+                            "L3",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "operation": {
+                    "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "repositories": {
+                    "description": "owner/repo globs (case-insensitive).",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "result": {
+                    "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "success",
+                          "failure"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "success",
+                            "failure"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "token": {
+                    "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "app",
+                          "user",
+                          "unknown",
+                          "none"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "enum": [
+                            "app",
+                            "user",
+                            "unknown",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "onError": {
+                "enum": [
+                  "deny",
+                  "allow"
+                ],
+                "type": "string"
+              },
+              "redactInput": {
+                "type": "boolean"
+              },
+              "timeout": {
+                "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "command"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "description": "Config format version; must be 1.",
+      "enum": [
+        1
+      ],
+      "type": "integer"
+    }
+  },
+  "title": "ghok personal .ghok.local.yaml",
+  "type": "object"
+}

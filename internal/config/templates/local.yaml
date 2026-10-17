@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/project.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/local.schema.json
 #
 # ghok local config. Created by `ghok config init --scope local`.
 #

@@ -10,7 +10,7 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Added
 
-- `.ghok.local.yaml`: a personal, uncommitted config at the repository root, loaded after `.ghok.yaml` (like `CLAUDE.local.md`). Its hooks and transforms run without trust; it is ignored while git tracks it; policy can only tighten. `ghok config init --scope local` creates it and adds it to `.git/info/exclude`.
+- `.ghok.local.yaml`: a personal, uncommitted config at the repository root, loaded after `.ghok.yaml` (like `CLAUDE.local.md`). Its hooks and transforms run without trust; it is ignored while git tracks it; policy can only tighten. `ghok config init --scope local` creates it and adds it to `.git/info/exclude`. Its JSON Schema is `schema/local.schema.json` (`ghok schema local-config`).
 
 ## [v0.0.12] - 2026-10-16
 

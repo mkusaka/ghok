@@ -331,7 +331,9 @@ each worktree has its own.
 The config format has a JSON Schema generated from ghok's Go config types:
 [`schema/config.schema.json`](schema/config.schema.json) for `config.yaml` and
 [`schema/project.schema.json`](schema/project.schema.json) for a project
-`.ghok.yaml`. Print them with `ghok schema config` or `ghok schema project-config`;
+`.ghok.yaml`, and [`schema/local.schema.json`](schema/local.schema.json) for
+`.ghok.local.yaml`. Print them with `ghok schema config`, `ghok schema project-config`
+or `ghok schema local-config`;
 regenerate all schemas with `go generate ./internal/schema` (also `make schema`).
 Curate field tags in the Go types and starter templates, not generated JSON.
 For editor completion, start the YAML file with:

@@ -14,7 +14,7 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/model` | Result, Operation, Invocation, APIRequest, ResolvedContext | Schema-version-1 shared contracts, not execution logic. |
 | `internal/protocol` | Hook Input/Response/HookResult and decisions/outcomes | JSON stdin/stdout protocol. |
 | `internal/config` | Defaults, strict YAML validation, alias reading, trusted project merge | No automatic execution of repository configuration. |
-| `internal/schema` | Tagged reflection generator for config/project-config/hook-input/hook-response JSON Schemas | Development generation and `ghok schema`; not runtime hook validation. |
+| `internal/schema` | Tagged reflection generator for config/project-config/local-config/hook-input/hook-response/transform-response JSON Schemas | Development generation and `ghok schema`; not runtime hook validation. |
 | `internal/install` | Real-gh discovery, owned shim lifecycle, depth guard, doctor | Stable PATH-facing paths; never modify real gh or shell rc files. |
 | `internal/normalize` | Alias expansion then native/REST/GraphQL dispatch | No ambient filesystem/network/stdin access; injected Invocation reads only. |
 | `internal/normalize/apiargs` | gh API flags and typed/raw nested fields | Shared reconstruction rules based on cli/cli 2.102.0. |

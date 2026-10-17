@@ -228,7 +228,7 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		return managementConfig("path", "")
 	})
 	schemaCommands := managementGroup("schema", "Print JSON Schemas for configuration, hooks and transforms", code)
-	for _, name := range []string{"config", "project-config", "hook-input", "hook-response", "transform-response"} {
+	for _, name := range []string{"config", "project-config", "local-config", "hook-input", "hook-response", "transform-response"} {
 		cmd := managementCommand(name, "Print the "+name+" JSON Schema", code, func(cmd *cobra.Command, _ []string) int {
 			body, err := schema.JSON(cmd.Name())
 			if err == nil {
