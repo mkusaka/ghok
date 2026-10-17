@@ -106,3 +106,36 @@ func TestTransformSerialCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestTransformWarningPropagation(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		ok   bool
+	}{
+		{`printf '{"schemaVersion":1,"warning":"review this"}'`, true},
+		{`printf '{"schemaVersion":1,"warning":"review this","set":{"/operations/0/target/number":2}}'`, true},
+		{`printf '{"schemaVersion":1,"warning":"review this"}'; exit 3`, false},
+		{`printf '{"schemaVersion":1,"warning":"review this","unknown":true}'`, false},
+		{`printf '{"schemaVersion":1,"warning":42}'`, false},
+	} {
+		r := Runner{Env: hermetic(t)}
+		response, result := r.Transform(context.Background(), config.Transform{ID: "warning", Command: []string{script(t, tc.body)}}, input())
+		if tc.ok {
+			if result.Outcome != protocol.OutcomeOK || result.Warning != "review this" || response.Warning != "review this" {
+				t.Fatalf("warning lost: response=%+v result=%+v", response, result)
+			}
+		} else if result.Outcome == protocol.OutcomeOK || result.Warning != "" || response.Warning != "" {
+			t.Fatalf("failed warning escaped: response=%+v result=%+v", response, result)
+		}
+	}
+}
+
+func TestTransformWarningRedactedDiagnostic(t *testing.T) {
+	secret := "warning-" + "credential"
+	r := Runner{Env: hermetic(t), Redact: func(s string) string { return strings.ReplaceAll(s, secret, "[REDACTED]") }}
+	body := `printf '{"schemaVersion":1,"warning":"` + secret + `"}'`
+	response, result := r.Transform(context.Background(), config.Transform{ID: "warning", Command: []string{script(t, body)}}, input())
+	if result.Warning != "[REDACTED]" || response.Warning != secret {
+		t.Fatalf("warning diagnostic or original response changed: response=%+v result=%+v", response, result)
+	}
+}

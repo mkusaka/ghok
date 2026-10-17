@@ -80,12 +80,20 @@ const (
 	DecisionAudit   Decision = "audit" // policy engine only: allow + flag
 )
 
+// Warning annotates an allowed request without changing its decision.
+type Warning struct {
+	Source string `json:"source"`
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+}
+
 // Response is read from a hook's stdout. Empty stdout with exit 0 = abstain.
 // Non-zero exit is an error Outcome regardless of stdout.
 type Response struct {
 	SchemaVersion int      `json:"schemaVersion,omitempty" const:"1" doc:"Hook protocol version; omit or use 1."`
 	Decision      Decision `json:"decision" enum:"allow,deny,abstain" doc:"Hook decision; allow cannot override another hook's denial."`
 	Reason        string   `json:"reason,omitempty"`
+	Warning       string   `json:"warning,omitempty"`
 	// Message is shown to the user on stderr when the final decision is deny.
 	Message string `json:"message,omitempty"`
 }
@@ -96,6 +104,7 @@ type TransformResponse struct {
 	Set           map[string]any     `json:"set,omitempty"`
 	Unset         []string           `json:"unset,omitempty"`
 	Env           map[string]*string `json:"env,omitempty" doc:"Environment edits; string values set variables and null unsets them."`
+	Warning       string             `json:"warning,omitempty"`
 }
 
 // Outcome is how a hook execution went, independent of its Decision.
@@ -119,6 +128,7 @@ type HookResult struct {
 	Decision Decision `json:"decision,omitempty" enum:"allow,deny,abstain" doc:"Response decision, meaningful when outcome is ok."`
 	Reason   string   `json:"reason,omitempty"`
 	Message  string   `json:"message,omitempty"`
+	Warning  string   `json:"warning,omitempty"`
 	// Effective is the decision after phase, onError and continueOnError handling.
 	Effective        Decision `json:"effective,omitempty" enum:"allow,deny,abstain" doc:"Decision used after phase, onError and continueOnError handling."`
 	ContinuedOnError bool     `json:"continuedOnError,omitempty" doc:"A pre-hook deny was made non-blocking by continueOnError; the original diagnostic result is preserved."`

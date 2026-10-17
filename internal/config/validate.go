@@ -96,7 +96,7 @@ func (c *Config) Validate() error {
 			add(p+".id", "duplicate rule ID "+r.ID)
 		}
 		rules[r.ID] = true
-		enum(p+".decision", r.Decision, "deny", "audit")
+		enum(p+".decision", r.Decision, "deny", "audit", "warn")
 		if r.OnUnresolved != "" {
 			enum(p+".onUnresolved", r.OnUnresolved, "deny", "ignore")
 		}

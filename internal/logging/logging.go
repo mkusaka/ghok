@@ -30,6 +30,7 @@ type Record struct {
 	Errors         []string              `json:"errors,omitempty"`
 	Policy         *protocol.PolicyInfo  `json:"policy,omitempty"`
 	Hooks          []protocol.HookResult `json:"hooks,omitempty"`
+	Warnings       []protocol.Warning    `json:"warnings,omitempty"`
 	Decision       string                `json:"decision"`
 	Exec           *protocol.ExecResult  `json:"exec,omitempty"`
 	Diagnostics    []string              `json:"diagnostics,omitempty"`
@@ -96,6 +97,13 @@ func redactRecordCopy(r *redact.Redactor, record Record) Record {
 	record.Alias = r.String(record.Alias)
 	record.Decision = r.String(record.Decision)
 	record.Diagnostics = redactStrings(r, record.Diagnostics)
+	if record.Warnings != nil {
+		warnings := make([]protocol.Warning, len(record.Warnings))
+		for i, warning := range record.Warnings {
+			warnings[i] = protocol.Warning{Source: r.String(warning.Source), ID: r.String(warning.ID), Text: r.String(warning.Text)}
+		}
+		record.Warnings = warnings
+	}
 	if record.Source != nil {
 		source := *record.Source
 		source.Kind = r.String(minimizeString(source.Kind, "kind"))
@@ -126,6 +134,7 @@ func redactRecordCopy(r *redact.Redactor, record Record) Record {
 			hook.Decision = protocol.Decision(r.String(string(hook.Decision)))
 			hook.Reason = r.String(hook.Reason)
 			hook.Message = r.String(hook.Message)
+			hook.Warning = r.String(hook.Warning)
 			hook.Effective = protocol.Decision(r.String(string(hook.Effective)))
 			hook.Error = r.String(hook.Error)
 			hook.Stderr = r.String(hook.Stderr)
@@ -156,6 +165,9 @@ func redactStrings(r *redact.Redactor, values []string) []string {
 }
 
 func significant(record Record) bool {
+	if len(record.Warnings) != 0 {
+		return true
+	}
 	if record.Decision != "allow" && record.Decision != "passthrough" {
 		return true
 	}

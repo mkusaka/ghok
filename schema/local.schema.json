@@ -1135,7 +1135,8 @@
               "decision": {
                 "enum": [
                   "deny",
-                  "audit"
+                  "audit",
+                  "warn"
                 ],
                 "type": "string"
               },

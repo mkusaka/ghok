@@ -10,7 +10,7 @@ operation, and ordinary commands do not require network context lookups.
 | Module | Responsibility | Boundary |
 | --- | --- | --- |
 | `cmd/ghok` | Dispatch by basename of argv[0]; linker version/commit | `gh` invokes wrapper; management `ghok exec` explicitly enters the same pipeline. |
-| `internal/cli` | Wire config/discovery/analysis/resolution/policy/hooks/process/logging | Preserve original execution argv and bytes; enforce only in enforce mode. |
+| `internal/cli` | Wire config/discovery/analysis/resolution/policy/hooks/process/logging | Preserve original execution argv and bytes unless transformed; policy/hooks enforce only in enforce mode, transform failures may deny in either mode. |
 | `internal/model` | Result, Operation, Invocation, APIRequest, ResolvedContext | Schema-version-1 shared contracts, not execution logic. |
 | `internal/protocol` | Hook Input/Response/HookResult and decisions/outcomes | JSON stdin/stdout protocol. |
 | `internal/config` | Defaults, strict YAML validation, alias reading, trusted project merge | No automatic execution of repository configuration. |
@@ -75,8 +75,13 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    A pre denial skips pending hooks, not running siblings; aggregation waits for
    those hooks. Pre `continueOnError` records a real denial as effective abstain,
    satisfies dependents and warns only when gh runs.
+   Pre-only warn rules allow with advisory text; successful transforms and
+   allow/abstain hooks may also warn. If gh runs, emit rules, transforms, then
+   pre-hook warnings in deterministic configuration/result/selection order.
 10. Select post-hooks. Exec if none and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
+    Post-hook warnings follow gh output; warnings never change its status.
+    Decision-level logs retain warned records, including allowed invocations.
 
 Resolver API calls and pre-hooks share a cancelable SIGINT/SIGTERM/SIGHUP
 watcher, excluding startup-ignored signals. Stop/join it before Exec/Run;

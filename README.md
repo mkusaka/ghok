@@ -43,6 +43,10 @@ shim-valued `GHOK_REAL_GH` / `runtime.realGh`; recursion depth and nested-token
 checks, policy, hooks, logging, status and signals are identical to the shim.
 It is **not a policy bypass** and does not require installing a shim on PATH.
 Hooks and JSONL logs record `invocation.via: "exec"` or `"shim"`.
+All arguments following `exec` are handed to gh verbatim; `--` is optional,
+and bare `ghok exec` runs gh with no arguments. On a terminal, wrapped
+`gh --version` / `gh version` adds a ghok version/path line after gh's output;
+piped version output stays unchanged.
 
 ### Request transforms
 
@@ -633,8 +637,11 @@ See the complete [hook protocol](docs/hook-protocol.md).
 
 Machine-readable contracts: [`schema/hook-input.schema.json`](schema/hook-input.schema.json)
 and [`schema/hook-response.schema.json`](schema/hook-response.schema.json), also
-printed by `ghok schema hook-input` and `ghok schema hook-response`. Generate
-TypeScript types for a hook with:
+printed by `ghok schema hook-input` and `ghok schema hook-response`.
+The sixth contract is [`schema/transform-response.schema.json`](schema/transform-response.schema.json),
+printed by `ghok schema transform-response`; together with the three config
+schemas above these are all six published schemas.
+Generate TypeScript types for a hook with:
 
 ```sh
 npx json-schema-to-typescript schema/hook-input.schema.json > hook-input.d.ts
@@ -711,6 +718,50 @@ still apply. Explain and `hooks test --json` identify deciding maybe-matches as
 multi-mutation document participates; proven skipped/unselected fields do not.
 Operation globs match **action**, not family: `pr.merge.*` covers descendants,
 while `pr.merge` is an exact action. Match criteria are AND, list entries OR.
+
+
+### Non-blocking warnings
+
+A pre-only rule with `decision: warn` allows the request and uses `reason` as
+warning text; it is not a new policy decision and cannot override a deny.
+It works in observe and enforce modes. The default `onUnresolved: deny` still
+matches unresolved repository/host criteria conservatively: such a warn rule
+warns, rather than denying. Use `onUnresolved: ignore` to skip that maybe-match.
+
+```yaml
+policy:
+  rules:
+    - id: review-merge
+      match: {operation: "pr.merge.*"}
+      decision: warn
+      reason: Check the release window before merging.
+```
+
+`match` has no parameter predicate. To warn only for `--admin`, inspect
+`operations[].parameters.admin` in a hook instead. Successful hooks may return
+`{"schemaVersion":1,"decision":"abstain","warning":"Review the release window."}`;
+`allow` also accepts `warning`, but `deny` ignores it (even with
+`continueOnError`). Successful transforms may return `warning` alongside edits
+or alone. See the [dynamic read-only hook](examples/hooks/warn-merge.sh), which
+uses POSIX sh, jq, read-only `gh api` labels and local time. Hook-internal gh
+calls inherit the verified nested token and do not recursively run policy/hooks.
+
+Only when gh will run, stderr prints `ghok: warning from rule <id>`,
+`ghok: warning from transform <id>`, then `ghok: warning from hook <id>`,
+in rule configuration, transform result and pre-hook selection order, respectively.
+Post-hook warnings print after gh output in post-hook selection order and never
+change its status. Enforced denials suppress execution-only warnings, not their
+diagnostic records. Warnings use credential redaction and the terminal sanitizer:
+40 lines/4 KiB per entry and 500 Unicode characters per line, with visible
+truncation; JSON/log values are not terminal-escaped or display-truncated.
+Decision-level logs retain warned invocations even when the decision is allow.
+
+`explain` shows a Warnings section and `explain --json` includes structured
+`warnings` (`source`, `id`, `text`); hook outcomes remain unknown because explain
+does not run hooks. `hooks test` text/JSON exposes rule, transform and hook
+warnings without printing execution-only stderr warnings or running the requested
+gh command. Warnings do not change `--expect`, `--expect-policy`,
+`--expect-hooks`, aggregate/final decisions or diagnostic exit statuses.
 
 `runtime.resolveAPI: auto` (default) permits bounded read-only API lookups when
 repository/host criteria could affect a rule or enabled pre/post hook, in either
@@ -986,7 +1037,7 @@ measured; startup allocations describe the parent, not the child. Methodology:
   nested invocations. This remains a guardrail, not a security boundary.
 - Unknown new syntax: inspect `ghok normalize`/`explain` and its unresolved
   reasons. Do not treat a nonempty candidate repository as confirmed.
-- Denial returns 1 before gh starts. Real-gh spawn failures return 126/127;
+- Denial returns 77 (content) or 78 (hook/config/transform error) before gh starts. Real-gh spawn failures return 126/127;
   executed commands keep their exit status/signal. Foreground wrapper-directed
   SIGINT/SIGQUIT, inherited ignored signals, output capture, and core-dump flags
   have [documented transparency limits](docs/compatibility.md).

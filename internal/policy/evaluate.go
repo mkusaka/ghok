@@ -39,10 +39,11 @@ type Denial struct {
 }
 
 type Evaluation struct {
-	Mode      string            `json:"mode"`
-	Decision  protocol.Decision `json:"decision"`
-	WouldDeny bool              `json:"wouldDeny"`
-	Reasons   []string          `json:"reasons,omitempty"`
+	Mode      string             `json:"mode"`
+	Decision  protocol.Decision  `json:"decision"`
+	WouldDeny bool               `json:"wouldDeny"`
+	Reasons   []string           `json:"reasons,omitempty"`
+	Warnings  []protocol.Warning `json:"warnings,omitempty"`
 	// DenyReasons contains only deny-causing reasons, even in observe mode.
 	// Operation-scoped reasons include the action; Reasons retains diagnostics.
 	DenyReasons []string       `json:"denyReasons,omitempty"`
@@ -169,6 +170,9 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		}
 		if matched {
 			e.Rules = append(e.Rules, rule.ID)
+			if rule.Decision == "warn" {
+				e.Warnings = append(e.Warnings, protocol.Warning{Source: "rule", ID: rule.ID, Text: rule.Reason})
+			}
 		}
 	}
 	for i, op := range s.Result.Operations {

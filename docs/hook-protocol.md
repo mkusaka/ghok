@@ -56,7 +56,7 @@ runtime input-validation step.
 | via | string | no | `shim` for the gh shim, `exec` for `ghok exec -- <gh args>`; identical enforcement pipeline. |
 | argv | string array | yes | Original arguments after argv[0]; absent means empty; raw unless redactInput is enabled. |
 | alias | string | yes | First expanded plain alias name. |
-| expanded | string array | yes | Alias-expanded analysis argv; raw unless redactInput is enabled. Real gh still receives original argv. |
+| expanded | string array | yes | Alias-expanded analysis argv; raw unless redactInput is enabled. Real gh receives original argv unless a trusted transform changes the request. |
 | cwd | string | no | Invocation working directory. Hook inherits this cwd. |
 | isTTY | boolean | no | Original stdout is a terminal. Capture can make child stdout non-TTY. |
 | stdinTTY | boolean | no | Original stdin is a terminal. |
@@ -196,6 +196,7 @@ go to logs.
 | outcome | string | no | Execution outcome below. |
 | decision | string | yes | Response decision, meaningful for outcome=ok. |
 | reason, message | string | yes | Redacted response/execution explanation. |
+| warning | string | yes | Non-blocking text from a successful allow/abstain response; ignored for deny, including continued deny. |
 | effective | string | yes | Decision used after phase/onError/continueOnError handling. |
 | continuedOnError | boolean | yes | True when continueOnError changed a pre deny to effective abstain; outcome/decision remain unchanged. |
 | exitCode | integer | no | Hook process status, -1 if unstarted/signaled. |
@@ -215,6 +216,7 @@ go to logs.
 | decision | string | yes for nonempty response | Only `allow`, `deny`, `abstain`; policy-only `audit` is not a hook decision. |
 | reason | string | no | Recorded explanation; fallback denial diagnostic. |
 | message | string | no | User-facing denial message on stderr. |
+| warning | string | no | Non-blocking text for successful allow/abstain only; ignored for deny. |
 
 Exit zero with empty/whitespace stdout yields ok/abstain. Nonzero exit is error
 regardless of stdout. Unknown JSON object keys are currently ignored, not
@@ -222,6 +224,18 @@ strictly rejected. Multiple documents, trailing garbage, invalid JSON/types,
 unknown decisions/versions, and stdout overflow produce invalid-response.
 Overflow invalidates even an otherwise valid retained JSON prefix: unseen bytes
 cannot establish a valid single document. Stderr alone is not a failure.
+
+Warnings never create a `warn` hook decision. They are credential-redacted at
+display/log boundaries. When gh runs, pre-hook warnings print in selection
+order after rule and transform warnings; post-hook warnings print in selection
+order after gh output. Enforced denial suppresses execution-only warning output.
+Terminal warnings use the same sanitizer and per-entry 40-line/4-KiB/
+500-character bounds as denials; JSON and logs retain structured values without
+terminal escaping/truncation. `hooks test` text/JSON exposes warnings but does
+not emit execution-only stderr warnings. Its expectation and exit rules are
+unchanged. Policy warn rules are pre-only allow-plus-warning, with `reason` as
+text; unresolved repository/host criteria still match conservatively under the
+default `onUnresolved: deny`. They cannot override another denial.
 
 ## Example pre event
 
@@ -341,9 +355,11 @@ The warning uses message, else reason, else error. Error outcomes include the
 last two non-empty stderr lines, capped at 200 bytes each; stderr is withheld
 for `redactInput` hooks. Credential redaction and the denial terminal sanitizer
 apply, with 40-line/4-KiB/500-character limits for the entire warning. If another
-denial prevents gh from running, continued results are logged without warnings.
+denial prevents gh from running, continued results are still logged, but no warning is printed.
 `hooks list` shows `continueOnError`; `hooks test` never runs gh or prints these
 execution-only warnings. Its execution-error exit status remains diagnostic.
+Continued diagnostics also enter the log's `warnings` list, so decision-level
+logging retains allowed invocations with these warnings.
 
 Deny dominates all allows. Enforce aggregates policy and pre-hook denial before
 starting gh: content denials exit **77** (`EX_NOPERM`), hook-`onError`-only denials
@@ -570,7 +586,7 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 
 | Setting | Default / constraint |
 | --- | --- |
-| id, phase, command | Required; unique ID, valid phase, nonempty argv. |
+| id, command | Required; unique ID and nonempty argv. The containing `hooks.pre` / `hooks.post` list sets phase; there is no per-hook `phase` key. |
 | enabled | true; disabled excluded from selection. |
 | background | false; true starts without blocking later hooks (parallel block members are background). |
 | dependsOn | none; earlier hooks of the same phase. |
@@ -584,7 +600,7 @@ There is no interactive TTY stdin; it contains protocol JSON only.
 | runtime.hookConcurrency | 4, positive; caps hooks running at once. |
 | runtime.captureLimit | 1 MiB retained per gh stdout/stderr stream when capture enabled. |
 | runtime.stdinMaxBytes / fileMaxBytes | 8 MiB analysis bounds. |
-| runtime.stdinTimeout | 30s. |
+| runtime.stdinTimeout | 3s. |
 | runtime.resolveTimeout | 2s for context API calls. |
 | runtime.resolveAPI | auto: implicit read-only API only for actionable repository/host matches, in observe or enforce; never: no implicit API. Logging alone does not resolve. |
 
@@ -621,6 +637,14 @@ return one schema-version-1 JSON object:
 ```json
 {"schemaVersion":1,"set":{"/operations/0/texts/body/value":"new body"},"unset":[]}
 ```
+
+An optional string `warning` reports a non-blocking advisory, with or without
+edits, only for a successful transform. For example:
+`{"schemaVersion":1,"warning":"Check the release window."}`.
+Failed transforms do not contribute warnings. Wrapper output orders rule
+warnings, transform-result warnings, then pre-hook warnings, only when gh runs;
+management explain/hooks-test reports them as diagnostics without running gh.
+Warnings are redacted and terminal-sanitized like hook warnings.
 
 ### Transform environment edits
 

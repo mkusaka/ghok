@@ -16,6 +16,13 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ### Added
 
+- Pre-only policy `decision: warn` allows with `reason` as advisory text;
+  successful allow/abstain hook responses and transform responses accept
+  `warning`. Deterministic, redacted/sanitized warnings print only when gh runs
+  (post warnings follow gh output), remain visible in explain/hooks-test
+  text/JSON and decision-level logs, and never change decisions or statuses.
+  Includes a POSIX sh+jq read-only dynamic merge-warning hook.
+
 - Pre-hook `continueOnError: true` keeps returned/onError denials non-blocking,
   records their real outcome/decision with `effective: abstain` and
   `continuedOnError: true`, and satisfies dependents. Continued denials print

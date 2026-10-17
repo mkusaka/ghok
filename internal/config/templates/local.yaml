@@ -15,7 +15,7 @@ policy:
   rules: []
   #  - id: no-merge-from-here
   #    match: {operation: "pr.merge.*"}
-  #    decision: deny
+  #    decision: deny # deny | audit | warn (pre-only allow + reason warning)
   #    reason: merge from the web UI
 
 hooks: {}

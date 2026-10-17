@@ -202,6 +202,7 @@ func (r *Redactor) input(in protocol.Input) protocol.Input {
 			out.Previous[i].Decision = protocol.Decision(r.String(string(hook.Decision)))
 			out.Previous[i].Reason = r.String(hook.Reason)
 			out.Previous[i].Message = r.String(hook.Message)
+			out.Previous[i].Warning = r.String(hook.Warning)
 			out.Previous[i].Effective = protocol.Decision(r.String(string(hook.Effective)))
 			out.Previous[i].Error = r.String(hook.Error)
 			out.Previous[i].Stderr = r.String(hook.Stderr)

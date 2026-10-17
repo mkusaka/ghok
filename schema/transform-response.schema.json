@@ -42,6 +42,9 @@
       },
       "type": "array",
       "uniqueItems": true
+    },
+    "warning": {
+      "type": "string"
     }
   },
   "required": [

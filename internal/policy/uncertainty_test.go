@@ -97,3 +97,46 @@ func TestRuleOnUnresolved(t *testing.T) {
 		t.Fatalf("definite mismatch matched: %+v", got)
 	}
 }
+
+func TestWarnRuleOrderAndPrecedence(t *testing.T) {
+	for _, decision := range []string{"", "audit", "deny"} {
+		p := config.Policy{Mode: config.ModeEnforce, Rules: []config.Rule{
+			{ID: "first", Decision: "warn", Reason: "first warning"},
+			{ID: "second", Decision: "warn", Reason: "second warning"},
+		}}
+		if decision != "" {
+			p.Rules = append(p.Rules, config.Rule{ID: "blocking", Decision: decision, Reason: "existing decision"})
+		}
+		s := subject(operation("pr.merge.direct", "org/repo", model.EffectWrite))
+		s.Result.Operations = append(s.Result.Operations, s.Result.Operations[0])
+		got := Evaluate(p, s)
+		want := protocol.DecisionAllow
+		if decision != "" {
+			want = protocol.Decision(decision)
+		}
+		if got.Decision != want || len(got.Warnings) != 2 || got.Warnings[0] != (protocol.Warning{Source: "rule", ID: "first", Text: "first warning"}) || got.Warnings[1].ID != "second" {
+			t.Fatalf("%s: %+v", decision, got)
+		}
+	}
+}
+
+func TestWarnUnresolvedAndInvocationOnly(t *testing.T) {
+	for _, behavior := range []string{"", "deny", "ignore"} {
+		p := config.Policy{Mode: config.ModeEnforce, Rules: []config.Rule{{
+			ID: "target", Decision: "warn", Reason: "review target",
+			Match: config.Match{Repositories: config.StringList{"org/*"}}, OnUnresolved: behavior,
+		}}}
+		got := Evaluate(p, subject(operation("pr.merge.direct", "", model.EffectWrite)))
+		want := 1
+		if behavior == "ignore" {
+			want = 0
+		}
+		if got.Decision != protocol.DecisionAllow || len(got.Warnings) != want {
+			t.Fatalf("%s: %+v", behavior, got)
+		}
+	}
+	p := config.Policy{Rules: []config.Rule{{ID: "invocation", Decision: "warn", Reason: "notice"}}}
+	if got := Evaluate(p, Subject{}); len(got.Warnings) != 1 || got.Decision != protocol.DecisionAllow {
+		t.Fatalf("invocation-only warning: %+v", got)
+	}
+}

@@ -510,3 +510,12 @@ func BenchmarkRedactorResult(b *testing.B) {
 }
 
 var benchmarkResult model.Result
+
+func TestPreviousWarningRedactedCopy(t *testing.T) {
+	secret := "warning-" + "credential"
+	in := protocol.Input{Previous: []protocol.HookResult{{Warning: secret}}}
+	got := redact.New(map[string]string{"GH_TOKEN": secret}).Input(in)
+	if got.Previous[0].Warning != replacement || in.Previous[0].Warning != secret {
+		t.Fatalf("warning redaction mutated input or leaked: got=%+v input=%+v", got.Previous, in.Previous)
+	}
+}

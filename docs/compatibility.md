@@ -48,11 +48,11 @@ signed/notarized. Windows and other operating systems are unsupported.
 
 | Surface | Behavior | Status / limit |
 | --- | --- | --- |
-| Original command arguments | Analysis may expand aliases; shim execution preserves argv[0]; `ghok exec` forces argv[0] to `gh`. Remaining argv is untouched. | Preserved. |
-| Environment/cwd | Original environment/cwd preserved plus incremented GHOK_DEPTH; GH_PATH is not rewritten. | Intentional metadata addition. |
+| Original command arguments | Analysis may expand aliases; shim execution preserves argv[0]; `ghok exec` forces argv[0] to `gh` and accepts all following arguments verbatim (`--` optional, no args allowed). | Original argv preserved unless a trusted transform changes the request; changed requests use expanded argv. |
+| Environment/cwd | Original cwd/environment plus incremented GHOK_DEPTH; GH_PATH is not rewritten. Trusted transform env edits affect gh and POST, not PRE process environments. | Intentional metadata and explicitly configured transform edits. |
 | Normal child exit | Original 0–255 status returned after post-hooks. | Preserved; pre-launch content denial is ghok exit 77, hook/config error denial 78. |
 | Spawn failure | ENOENT -> 127; other execution failures -> 126. Discovery failure -> 127. | Shell-style convention. |
-| Uncaptured stdout/stderr; unspooled stdin | Original descriptors inherited. Binary/empty/large output unchanged. | Preserved on both paths. |
+| Uncaptured stdout/stderr; unspooled stdin | Original descriptors inherited. Wrapped `gh --version` / `gh version` adds a ghok version/path line only on terminal stdout. | Other binary/empty/large output unchanged; piped version output unchanged. |
 | Interactive TTY and size | Real gh remains in shell's group; no PTY substitution. Resize reaches foreground group naturally. | Preserved without capture. |
 | Terminal/group SIGINT/SIGQUIT | Child receives terminal signal once. Foreground supervisor catches its own notification without forwarding it again. | Tested exactly-once terminal delivery. |
 | SIGINT/SIGQUIT directed only at wrapper pid while foreground | Cannot distinguish terminal notification from directed kill reliably; not forwarded. | **Not exactly transparent**; signal child/group instead. |
@@ -112,7 +112,7 @@ Observe logging, audit-only policies, and post-hooks alone never trigger capture
 gh inherits stdin immediately, and analysis/logs report `stdin not captured`.
 Normalize/explain inspection may still read non-TTY stdin regardless of policy.
 Interactive stdin is never pre-read.
-The default spool/file analysis limits are 8 MiB and stdin timeout 30 seconds;
+The default spool/file analysis limits are 8 MiB and stdin timeout 3 seconds;
 GraphQL has its own 1 MiB request/query limit. Parser failure/unknown root-flag
 API dispatch may prevent stdin analysis; see [normalization](normalization.md).
 

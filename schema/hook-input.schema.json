@@ -673,6 +673,9 @@
           },
           "stderr": {
             "type": "string"
+          },
+          "warning": {
+            "type": "string"
           }
         },
         "required": [

@@ -27,6 +27,11 @@
 version: 1
 policy:
   mode: enforce # observe would record denials without blocking gh.
+  rules:
+    - id: review-repository-deletion
+      match: {operation: repo.delete}
+      decision: warn # Allows; another deny still wins. Pre-only, in either mode.
+      reason: Confirm backups and downstream consumers before deleting a repository.
 hooks:
   pre:
     - id: deny-admin-merge
@@ -35,6 +40,17 @@ hooks:
       command: ["./hooks/deny-admin-merge"]
       timeout: 5s
       onError: deny
+    # Optional dynamic warning (POSIX sh + jq + gh; read-only API calls):
+    # Install: cp examples/hooks/warn-merge.sh "$config_dir/hooks/warn-merge.sh"
+    #          chmod 700 "$config_dir/hooks/warn-merge.sh"
+    # - id: warn-merge
+    #   match: {operation: "pr.merge.*"}
+    #   command: ["./hooks/warn-merge.sh"]
+    #   timeout: 5s
+    #   onError: allow
+    # Internal gh calls inherit verified nested passthrough, not recursive hooks.
+    # Returns schemaVersion 1 / abstain / warning for --admin, release labels,
+    # or local off-hours; no warning changes the decision or exit status.
   post:
     - id: audit-merge
       match:

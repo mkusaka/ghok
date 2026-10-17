@@ -227,6 +227,7 @@ func wrapper(args []string, argv0, via string) int {
 	if transformed.denial != nil {
 		caught := stopHelpers()
 		record.Hooks = transformed.results
+		record.Warnings = resultWarnings("transform", transformed.results)
 		record.Decision = "deny"
 		if caught != 0 {
 			record.Decision = "canceled"
@@ -311,6 +312,10 @@ func wrapper(args []string, argv0, via string) int {
 	// All helper children are reaped before relinquishing signal ownership.
 	caught := stopHelpers()
 	record.Hooks = append(transformed.results, pre.Results...)
+	record.Warnings = append(record.Warnings, evaluation.Warnings...)
+	transformWarnings := resultWarnings("transform", transformed.results)
+	record.Warnings = append(record.Warnings, transformWarnings...)
+	record.Warnings = append(record.Warnings, resultWarnings("hook", pre.Results)...)
 	if caught != 0 {
 		record.Decision = "canceled"
 		record.Exec = execInfo(process.Result{ExitCode: -1, Signal: caught})
@@ -331,7 +336,9 @@ func wrapper(args []string, argv0, via string) int {
 		logRecord()
 		return decision.ExitCode
 	}
-	printContinuedWarnings(os.Stderr, pre, cfg.Hooks, redactor.String)
+	printWarnings(os.Stderr, evaluation.Warnings, redactor.String)
+	printWarnings(os.Stderr, transformWarnings, redactor.String)
+	printHookWarnings(os.Stderr, pre, cfg.Hooks, redactor.String)
 	if decision.RelabelPolicy {
 		logPolicy := *record.Policy
 		logPolicy.Decision = protocol.DecisionAllow
@@ -368,11 +375,14 @@ func wrapper(args []string, argv0, via string) int {
 		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))
 	}
 	record.Hooks = append(record.Hooks, aggregate.Results...)
+	postWarnings := resultWarnings("hook", aggregate.Results)
+	record.Warnings = append(record.Warnings, postWarnings...)
 	record.Exec = input.Result
 	logRecord()
 	closeLog()
 	releaseNested()
 	transformed.cleanup()
+	printWarnings(os.Stderr, postWarnings, redactor.String)
 	execution.Exit()
 	return 0
 }

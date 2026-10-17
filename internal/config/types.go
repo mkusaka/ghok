@@ -63,7 +63,7 @@ type Policy struct {
 type Rule struct {
 	ID           string `yaml:"id" json:"id" required:"true"`
 	Match        Match  `yaml:"match" json:"match"`
-	Decision     string `yaml:"decision" json:"decision" enum:"deny,audit" required:"true"` // deny|audit (allow rules cannot override deny)
+	Decision     string `yaml:"decision" json:"decision" enum:"deny,audit,warn" required:"true"` // warn annotates allow; cannot override deny or audit
 	Reason       string `yaml:"reason" json:"reason"`
 	OnUnresolved string `yaml:"onUnresolved,omitempty" json:"onUnresolved,omitempty" enum:"deny,ignore" doc:"deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match."`
 }
@@ -158,7 +158,7 @@ type Logging struct {
 	Enabled             *bool  `yaml:"enabled" json:"enabled,omitempty"` // default true
 	IgnoredHooksWarning *bool  `yaml:"ignoredHooksWarning" json:"ignoredHooksWarning,omitempty" doc:"Warn on stderr about enabled project hooks withheld by trust, at most once per project manifest per ten minutes. Default true; user config only."`
 	Path                string `yaml:"path" json:"path,omitempty"` // default <config dir>/logs/ghok.jsonl
-	// Level: "info" logs every invocation; "decision" only non-allow decisions and errors.
+	// Level: "info" logs every invocation; "decision" logs warnings, non-allow decisions and errors.
 	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }
 

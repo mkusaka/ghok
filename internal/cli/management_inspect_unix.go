@@ -129,8 +129,14 @@ func (a *managementAnalysis) subject(phase string) policy.Subject {
 	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase, Token: policy.TokenKind(a.env), Env: a.env}
 }
 
+func (a *managementAnalysis) warnings() []protocol.Warning {
+	warnings := append([]protocol.Warning(nil), a.evaluation.Warnings...)
+	return append(warnings, resultWarnings("transform", a.transformResults)...)
+}
+
 type managementInspectOptions struct {
 	noResolve   bool
+	asJSON      bool
 	allowAPI    bool
 	showSecrets bool
 	printInput  bool
@@ -152,6 +158,9 @@ func managementInspect(command string, args []string, options managementInspectO
 			fmt.Fprintln(os.Stderr, "ghok:", r.String(diagnostic))
 		}
 		return managementJSON(r.Result(a.result), nil)
+	}
+	if options.asJSON {
+		return managementExplainJSON(a, options.showSecrets)
 	}
 	return managementExplain(a, options.showSecrets)
 }
@@ -305,6 +314,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	if results == nil {
 		results = []protocol.HookResult{}
 	}
+	warnings := append(a.warnings(), resultWarnings("hook", results)...)
 	if asJSON {
 		value := struct {
 			Phase     string                `json:"phase"`
@@ -321,9 +331,11 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 			} `json:"final"`
 			Transformed      *managementTransformed `json:"transformed,omitempty"`
 			TransformResults []protocol.HookResult  `json:"transformResults,omitempty"`
+			Warnings         []protocol.Warning     `json:"warnings,omitempty"`
 		}{Phase: phase, Synthetic: true, Results: results, Policy: a.evaluation}
 		value.Transformed = a.transformed()
 		value.TransformResults = a.transformResults
+		value.Warnings = warnings
 		value.Aggregate.Decision, value.Aggregate.Message = aggregate.Decision, aggregate.Message
 		value.Final.Decision, value.Final.WouldDeny = decision, wouldDeny
 		display, err := managementRedacted(value, r)
@@ -341,6 +353,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	} else {
 		_, _ = fmt.Fprintln(os.Stdout, "Synthetic hook test: original gh command is not executed.")
 		managementPrintTransformed(os.Stdout, a, false)
+		managementPrintWarnings(os.Stdout, warnings, r.String)
 		if phase == config.PhasePost {
 			_, _ = fmt.Fprintf(os.Stdout, "Post hooks receive a synthetic result (exitCode=%d).\n", exitCode)
 		}

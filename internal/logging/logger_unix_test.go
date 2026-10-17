@@ -703,3 +703,36 @@ func TestWriteWithholdsOrdinaryContent(t *testing.T) {
 		t.Fatal("absent source did not remain optional")
 	}
 }
+
+func TestWarnedAllowRetentionAndRedactedCopy(t *testing.T) {
+	secret := "warning-" + "credential"
+	record := Record{
+		Decision: "allow",
+		Warnings: []protocol.Warning{{Source: secret, ID: secret, Text: secret}},
+		Hooks:    []protocol.HookResult{{Warning: secret, Outcome: protocol.OutcomeOK}},
+	}
+	before, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "warnings.jsonl")
+	logger, err := OpenWithRedactor(path, "decision", redact.New(map[string]string{"GH_TOKEN": secret}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = logger.Close() }()
+	if err := logger.Write(Record{Decision: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Write(record); err != nil {
+		t.Fatal(err)
+	}
+	records := readRecords(t, path)
+	if len(records) != 1 || records[0].Decision != "allow" || len(records[0].Warnings) != 1 || records[0].Warnings[0] != (protocol.Warning{Source: "[REDACTED]", ID: "[REDACTED]", Text: "[REDACTED]"}) || records[0].Hooks[0].Warning != "[REDACTED]" {
+		t.Fatalf("warned allow not retained/redacted: %+v", records)
+	}
+	after, err := json.Marshal(record)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("logging mutated warning input: %s -> %s (%v)", before, after, err)
+	}
+}

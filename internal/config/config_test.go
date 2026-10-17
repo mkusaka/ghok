@@ -378,3 +378,13 @@ hooks:
 		t.Fatal(err)
 	}
 }
+
+func TestWarnOnlyConfigRuleDecision(t *testing.T) {
+	c, err := Parse([]byte("version: 1\npolicy:\n  rules:\n    - {id: notice, decision: warn, reason: review}\n"), "/config")
+	if err != nil || len(c.Policy.Rules) != 1 || c.Policy.Rules[0].Decision != "warn" {
+		t.Fatalf("warn rule: %+v %v", c, err)
+	}
+	if _, err := Parse([]byte("version: 1\npolicy:\n  rules:\n    - {id: notice, decision: allow}\n"), "/config"); err == nil {
+		t.Fatal("warn support widened allowed rule decisions")
+	}
+}

@@ -162,6 +162,8 @@ Use --hook ID to preview a matching configured hook; omit it for a generic input
 
 Print the hook aggregate (allow/deny/abstain), policy decision (allow/audit/deny),
 and FINAL decision separately. No matching hooks or all abstaining means hooks=abstain.
+Warnings are annotations, not decisions; text and JSON reports include rule,
+transform and hook warnings without adding any --expect values.
 FINAL combines policy and pre-hook denial with the configured mode; observe-mode
 would-deny is audit, not deny.
 
@@ -203,7 +205,9 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 		if name == "normalize" {
 			cmd.Flags().Bool("json", true, "print the normalization result as JSON (the only output format)")
 		} else {
+			cmd.Flags().BoolVar(&options.asJSON, "json", false, "print classification, policy, hook selection and warnings as JSON")
 			cmd.Flags().BoolVar(&options.showSecrets, "show-secrets", false, "show secrets in explain output; never affects hook payload redaction")
+			cmd.Long += "\nTrusted transforms run before evaluation; hooks and the original gh command never run.\nWarnings are reported in text or --json without changing the decision."
 		}
 		root.AddCommand(cmd)
 	}

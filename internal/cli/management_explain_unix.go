@@ -13,6 +13,7 @@ import (
 	"github.com/mkusaka/ghok/internal/hooks"
 	"github.com/mkusaka/ghok/internal/model"
 	"github.com/mkusaka/ghok/internal/policy"
+	"github.com/mkusaka/ghok/internal/protocol"
 	"github.com/mkusaka/ghok/internal/redact"
 )
 
@@ -32,6 +33,11 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	evaluation := a.evaluation
 	fmt.Fprintf(&output, "Decision: %s (mode=%s)\n", evaluation.Decision, evaluation.Mode)
 	managementPrintTransformed(&output, a, showSecrets)
+	warningRedactor := r.String
+	if showSecrets && !a.envEdited {
+		warningRedactor = func(s string) string { return s }
+	}
+	managementPrintWarnings(&output, a.warnings(), warningRedactor)
 	seenReasons := make(map[string]bool)
 	for _, reason := range evaluation.DenyReasons {
 		if !seenReasons[reason] {
@@ -152,6 +158,55 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 		return managementFailure(err)
 	}
 	return 0
+}
+
+func managementPrintWarnings(w io.Writer, warnings []protocol.Warning, redact func(string) string) {
+	if len(warnings) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Warnings:")
+	for _, warning := range warnings {
+		entry := "  " + warning.Source + " " + strings.ReplaceAll(redact(warning.ID), "\n", `\n`) + ":\n    " + strings.ReplaceAll(redact(warning.Text), "\n", "\n    ")
+		_, _ = fmt.Fprintln(w, terminalText(entry))
+	}
+}
+
+func managementExplainJSON(a *managementAnalysis, showSecrets bool) int {
+	value := struct {
+		Normalization    model.Result           `json:"normalization"`
+		Context          *model.ResolvedContext `json:"context,omitempty"`
+		Policy           policy.Evaluation      `json:"policy"`
+		Hooks            map[string][]string    `json:"hooks"`
+		Warnings         []protocol.Warning     `json:"warnings,omitempty"`
+		Transformed      *managementTransformed `json:"transformed,omitempty"`
+		TransformResults []protocol.HookResult  `json:"transformResults,omitempty"`
+		Notes            []string               `json:"notes,omitempty"`
+		Diagnostics      []string               `json:"diagnostics,omitempty"`
+	}{
+		Normalization: a.result, Context: a.context, Policy: a.evaluation,
+		Hooks: make(map[string][]string), Warnings: a.warnings(),
+		Transformed: a.transformed(), TransformResults: a.transformResults,
+		Notes: a.notes, Diagnostics: a.diagnostics,
+	}
+	runner := hooks.Runner{Hooks: a.config.Hooks}
+	for _, phase := range []string{config.PhasePre, config.PhasePost} {
+		ids := []string{}
+		for _, hook := range runner.Select(phase, a.subject(phase)) {
+			ids = append(ids, hook.ID)
+		}
+		value.Hooks[phase] = ids
+	}
+	if showSecrets && !a.envEdited {
+		return managementJSON(value, nil)
+	}
+	display, err := managementRedacted(value, a.redactor)
+	if err != nil {
+		return managementFailure(err)
+	}
+	if value.Transformed != nil {
+		display.(map[string]any)["transformed"] = value.Transformed
+	}
+	return managementJSON(display, nil)
 }
 
 func managementUnresolved(w io.Writer, indent string, values []model.Unresolved) {

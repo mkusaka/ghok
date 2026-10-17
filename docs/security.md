@@ -105,7 +105,7 @@ paths containing `/` resolve against their originating config directory; bare
 names search the hook's effective PATH. Timeout/cancellation kills ordinary
 members of the hook process group (TERM then KILL after 500 ms), not descendants
 that deliberately leave it. Interactive hooks and escaped-process cleanup are
-unsupported. Hook stderr/response diagnostics are redacted before display/logs.
+unsupported. Hook stderr/response diagnostics, including warnings, are redacted before display/logs.
 
 Hook-authored terminal diagnostics are sanitized **after** credential redaction:
 controls other than newline/tab, including ESC, BEL, CR, C1 and DEL, and invalid
@@ -359,8 +359,8 @@ count separately; zero is not proof of secret-free input.
 Exec-path logs precede execution and cannot include final gh status after a
 successful exec. If exec returns, a second record with the same invocation ID
 records `exec-error`, `exec.startError`, and the shell-style exit code (126/127).
-Info logs every invocation; decision logs retain non-allow decisions/errors/hook
-failures, not every ordinary nonzero child exit.
+Info logs every invocation; decision logs retain warned invocations as well as
+non-allow decisions/errors/hook failures, not every ordinary nonzero child exit.
 
 **Content minimization is log-only.** Known prose flags/keys (`body`, `title`,
 `message`, `description`, `subject`, `commitHeadline`, `commitBody`, `comment`,

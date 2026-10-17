@@ -137,7 +137,7 @@ func TestContinuedWarningDiagnostics(t *testing.T) {
 				{HookID: "ordinary", Outcome: protocol.OutcomeOK, Decision: protocol.DecisionAllow},
 			}}
 			var stderr bytes.Buffer
-			printContinuedWarnings(&stderr, pre, []config.Hook{{ID: "advice", RedactInput: tc.redactInput}}, func(s string) string {
+			printHookWarnings(&stderr, pre, []config.Hook{{ID: "advice", RedactInput: tc.redactInput}}, func(s string) string {
 				return strings.ReplaceAll(s, "secret", "[REDACTED]")
 			})
 			want := "ghok: warning from hook advice (continue-on-error)\n" + strings.ReplaceAll(tc.want, "secret", "[REDACTED]")

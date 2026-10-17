@@ -214,8 +214,31 @@ func printWarning(w io.Writer, source, id, detail, message string, redact func(s
 	_, _ = fmt.Fprintln(w, terminalText(entry))
 }
 
-func printContinuedWarnings(w io.Writer, pre hooks.Aggregate, configured []config.Hook, redact func(string) string) {
+func resultWarnings(source string, results []protocol.HookResult) []protocol.Warning {
+	var warnings []protocol.Warning
+	for _, result := range results {
+		text := result.Warning
+		if result.ContinuedOnError {
+			text = hookMessage(result)
+		}
+		if result.ContinuedOnError || result.Outcome == protocol.OutcomeOK && result.Decision != protocol.DecisionDeny && text != "" {
+			warnings = append(warnings, protocol.Warning{Source: source, ID: result.HookID, Text: text})
+		}
+	}
+	return warnings
+}
+
+func printWarnings(w io.Writer, warnings []protocol.Warning, redact func(string) string) {
+	for _, warning := range warnings {
+		printWarning(w, warning.Source, warning.ID, "", warning.Text, redact)
+	}
+}
+
+func printHookWarnings(w io.Writer, pre hooks.Aggregate, configured []config.Hook, redact func(string) string) {
 	for _, result := range pre.Results {
+		if result.Outcome == protocol.OutcomeOK && result.Decision != protocol.DecisionDeny && result.Warning != "" {
+			printWarning(w, "hook", result.HookID, "", result.Warning, redact)
+		}
 		if !result.ContinuedOnError {
 			continue
 		}

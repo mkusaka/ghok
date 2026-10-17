@@ -74,6 +74,8 @@ func (r *Runner) Transform(ctx context.Context, t config.Transform, in protocol.
 	})
 	if result.Outcome != protocol.OutcomeOK {
 		response = protocol.TransformResponse{}
+	} else {
+		result.Warning = r.redact(response.Warning)
 	}
 	return response, result
 }

@@ -22,6 +22,9 @@
       "const": 1,
       "description": "Hook protocol version; omit or use 1.",
       "type": "integer"
+    },
+    "warning": {
+      "type": "string"
     }
   },
   "required": [

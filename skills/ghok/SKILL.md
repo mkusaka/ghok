@@ -15,6 +15,9 @@ ghok has an executable-name-selected shim and a management CLI:
 `ghok exec` is useful for tests/CI/scripts without a shim on PATH. It runs the
 same pipeline once, forces real-gh argv[0] to `gh`, and is **not a policy bypass**.
 Hook input and logs record `invocation.via: "exec"` instead of `"shim"`.
+Following arguments are verbatim (`--` optional); bare `ghok exec` runs gh.
+Wrapped `gh --version` / `gh version` adds ghok version/path only on terminal
+stdout; piped output is unchanged.
 `eval "$(ghok shell-init zsh|bash)"` (fish: `ghok shell-init fish | source`) defines a
 `gh` function calling `ghok exec --`. In an interactive rc file, it applies only to
 shells that read that file. For non-interactive zsh, put the guarded zsh `eval` in
@@ -77,6 +80,9 @@ ghok config validate                 # all errors at once; exit 1 if invalid
 ghok schema config                  # global config JSON Schema
 ghok schema project-config          # project .ghok.yaml JSON Schema
 ghok schema local-config            # personal .ghok.local.yaml JSON Schema
+ghok schema hook-input
+ghok schema hook-response
+ghok schema transform-response      # six published contracts in total
 ```
 
 Generated files are commented and start with a `yaml-language-server` `$schema` line.
@@ -90,8 +96,8 @@ Never overwrite an existing config; edit it instead.
 - `.ghok.local.yaml` (repo root, personal, per checkout; `ghok config init --scope local`
   creates it and adds it to `.git/info/exclude`) loads after `.ghok.yaml`. Its hooks and
   transforms run without trust; it is ignored while git tracks it; policy only tightens.
-  Inspect hooks, then run `ghok config trust [PATH]` to activate them (`PATH`
-  defaults to the current repository-root `.ghok.yaml`).
+  Project hooks, unlike local hooks, require inspection and `ghok config trust [PATH]`
+  (`PATH` defaults to the current repository-root `.ghok.yaml`).
   Trust is per hook: canonical defaulted definition + repository-local executable
   + `hooks[].files` + top-level `trust.include` (**every hook**). YAML formatting,
   comments, policy and unrelated hook edits/reordering do not affect trust.
@@ -149,7 +155,10 @@ Never overwrite an existing config; edit it instead.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)
   fail closed for unclassified or unresolved writes to those repos.
-  `rules:` — `{id, match, decision: deny|audit, reason}`; no rule can override a deny.
+  `rules:` — `{id, match, decision: deny|audit|warn, reason}`; no rule can override a deny.
+  Pre-only `warn` allows plus warning text from `reason`, including conservative
+  unresolved repository/host matches under default `onUnresolved: deny`;
+  `onUnresolved: ignore` skips those matches.
 - **Match** (rules and hooks): `operation` (action glob, e.g. `pr.merge.*`), `command`
   (gh command prefix, e.g. `"pr merge"`), `repositories`, `hosts`,
   `effect` (`read|write|unknown`), `level`, `token` (`app` = GitHub App installation token
@@ -221,6 +230,20 @@ post hooks `result` with `exitCode`/`signal`). A pre-hook prints one JSON respon
 ```
 
 Print the JSON contracts with `ghok schema hook-input` / `ghok schema hook-response`.
+
+Successful allow/abstain hooks may return `warning`; deny ignores it even with
+`continueOnError`. Successful transforms also accept `warning` with or without
+edits. There is no `warn` hook/policy outcome. Only when gh runs, stderr emits
+rule, transform, then pre-hook warnings in configuration/result/selection order;
+post warnings follow gh output and never change its status. Enforced denials
+suppress execution-only warnings. Credential redaction and terminal bounds
+(40 lines/4 KiB, 500 characters/line) apply; structured JSON/log warnings retain
+`source`, `id`, `text` without terminal escaping. Decision logs keep warned
+allowed records. Explain text/`--json` and hooks-test text/JSON expose warnings;
+expectations and diagnostic exit rules stay unchanged. Match has no parameter
+predicate: use a hook to warn only on `parameters.admin`. See
+[`warn-merge.sh`](../../examples/hooks/warn-merge.sh) (POSIX sh+jq, read-only gh
+API labels and local time); internal gh calls use verified nested passthrough.
 In a source checkout, generate TypeScript types with:
 
 ```sh
@@ -344,7 +367,8 @@ entries unset them; `env: null` is invalid. Names must match
 `GHOK_*`, `GH_PATH`, `GH_CONFIG_DIR`, `XDG_CONFIG_HOME`, `HOME`, `PATH`,
 `LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_*`, `GH_HOST`, `GH_REPO`.
 Credential names `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`,
-`GITHUB_ENTERPRISE_TOKEN` are allowed and recompute host-scoped token kind;
+`GITHUB_ENTERPRISE_TOKEN` are allowed; token kind is recomputed from `GH_TOKEN`,
+then `GITHUB_TOKEN` (enterprise token kinds are not currently classified);
 other valid names are unrestricted. Invalid edits are `invalid-response`.
 Request/environment edits are atomic; later entries win. Selection and command
 environment use state before each transform; no self-retriggering.

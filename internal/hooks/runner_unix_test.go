@@ -647,3 +647,36 @@ func BenchmarkRunOneTrivialHook(b *testing.B) {
 		}
 	}
 }
+
+func TestHookWarningOnlySuccessfulNonDeny(t *testing.T) {
+	for _, decision := range []string{"allow", "abstain", "deny", "warn"} {
+		for _, continued := range []bool{false, true} {
+			h := hook("warning", script(t, fmt.Sprintf(`printf '{"decision":%q,"warning":"review this"}'`, decision)))
+			h.ContinueOnError = continued
+			got := one(t, h, &Runner{Env: hermetic(t)}).Results[0]
+			want := ""
+			if decision == "allow" || decision == "abstain" {
+				want = "review this"
+			}
+			if got.Warning != want {
+				t.Fatalf("%s continued=%t: %+v", decision, continued, got)
+			}
+			if decision == "warn" && got.Outcome != protocol.OutcomeInvalidResponse {
+				t.Fatalf("warn became a hook decision: %+v", got)
+			}
+		}
+	}
+	h := hook("failed", script(t, `printf '{"decision":"allow","warning":"discard"}'; exit 3`))
+	if got := one(t, h, &Runner{Env: hermetic(t)}).Results[0]; got.Warning != "" || got.Outcome != protocol.OutcomeError {
+		t.Fatalf("failed warning escaped: %+v", got)
+	}
+}
+
+func TestHookWarningRedaction(t *testing.T) {
+	secret := "warning-" + "credential"
+	h := hook("warning", script(t, fmt.Sprintf(`printf '{"decision":"allow","warning":%q}'`, secret)))
+	r := &Runner{Env: hermetic(t), Redact: func(s string) string { return strings.ReplaceAll(s, secret, "[REDACTED]") }}
+	if got := one(t, h, r).Results[0]; got.Warning != "[REDACTED]" {
+		t.Fatalf("warning not redacted: %+v", got)
+	}
+}

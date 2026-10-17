@@ -33,10 +33,10 @@ policy:
   # allow | audit | deny (default: deny, i.e. fail closed)
   protectedUnknown: deny
 
-  # Declarative rules evaluated without running hooks. decision: deny | audit.
+  # Declarative pre-only rules. decision: deny | audit | warn (allow + reason warning).
   # match criteria are ANDed; a list within one criterion is ORed.
   rules: []
-  #  - id: no-admin-merge
+  #  - id: no-direct-merge
   #    match:
   #      operation: pr.merge.direct     # action glob, e.g. "pr.merge.*"
   #      repositories: ["my-org/*"]     # owner/repo globs
@@ -103,5 +103,5 @@ logging: {}
 #  enabled: true
 #  ignoredHooksWarning: true         # stderr reminder for untrusted/changed project hooks (10 min per manifest)
 #  path: /absolute/path/ghok.jsonl  # default: <config dir>/logs/ghok.jsonl
-#  level: info                       # info: every invocation | decision: non-allow only
+#  level: info                       # info: every invocation | decision: non-allow, warnings or errors
 

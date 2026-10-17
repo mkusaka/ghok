@@ -133,6 +133,7 @@ func (r *Runner) executeResponse(parent context.Context, phase string, h config.
 		result.DurationMs = r.now().Sub(start).Milliseconds()
 		result.Reason = r.redact(result.Reason)
 		result.Message = r.redact(result.Message)
+		result.Warning = r.redact(result.Warning)
 		result.Error = r.redact(result.Error)
 		result.Stderr = r.redact(result.Stderr)
 		classify(phase, h, &result)
@@ -278,5 +279,8 @@ func (r *Runner) executeResponse(parent context.Context, phase string, h config.
 	result.Decision = response.Decision
 	result.Reason = response.Reason
 	result.Message = response.Message
+	if response.Decision == protocol.DecisionAllow || response.Decision == protocol.DecisionAbstain {
+		result.Warning = response.Warning
+	}
 	return
 }
