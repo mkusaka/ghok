@@ -140,3 +140,28 @@ hooks:
 		t.Fatalf("got %v, want %q", err, want)
 	}
 }
+
+// Regression: project parallel siblings must not wait for each other, while
+// still waiting for user background hooks (implicit wait-all per file).
+func TestProjectParallelSiblingsDoNotWait(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	env := map[string]string{"HOME": root, "GHOK_CONFIG_DIR": filepath.Join(root, "config")}
+	writeFixture(t, filepath.Join(repo, ".git"), "gitdir: elsewhere\n")
+	writeFixture(t, filepath.Join(env["GHOK_CONFIG_DIR"], "config.yaml"), "version: 1\nhooks: {pre: [{id: u, command: [u], background: true}]}\n")
+	writeFixture(t, filepath.Join(repo, ".ghok.yaml"), "version: 1\nhooks:\n  pre:\n    - parallel:\n        - {id: a, command: [./a]}\n        - {id: b, command: [./b]}\n")
+	if _, _, _, _, err := TrustProject("", repo, env, false, true); err != nil {
+		t.Fatal(err)
+	}
+	c, notes, err := LoadEffective("", repo, env)
+	if err != nil {
+		t.Fatalf("%v %v", err, notes)
+	}
+	waits := map[string][]string{}
+	for _, h := range c.Hooks {
+		waits[h.ID] = h.Wait
+	}
+	if !reflect.DeepEqual(waits["a"], []string{"u"}) || !reflect.DeepEqual(waits["b"], []string{"u"}) {
+		t.Fatalf("waits=%v", waits)
+	}
+}

@@ -270,11 +270,15 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			hookIDs, _ := cmd.Flags().GetStringArray("hook")
 			return managementConfigTrust(cmd.Name(), path, dryRun, noDiff, showSecrets, hookIDs)
 		})
+		cmd.Long = "Manage per-hook trust for the repository-root .ghok.yaml (PATH defaults to that file).\nUse repo or dir to manage permanent trust in an existing, valid user config."
 		flag := "list"
+		flagHelp := "list per-hook records and user trust.repositories/directories; mark the entry matching here"
 		if name == "untrust" {
 			flag = "all"
+			flagHelp = "remove every per-hook trust record; leave trust.repositories/directories unchanged"
+			cmd.Long += "\n--all removes only per-hook trust records; trust.repositories/directories are unchanged."
 		}
-		cmd.Flags().Bool(flag, false, "manage all stored project trust without PATH")
+		cmd.Flags().Bool(flag, false, flagHelp)
 		if name == "trust" {
 			cmd.Flags().Bool("dry-run", false, "show changes and what would be trusted without writing anything")
 			cmd.Flags().Bool("no-diff", false, "omit the stored-content diff")
@@ -286,6 +290,9 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 			cmd.MarkFlagsMutuallyExclusive("no-diff", "show-secrets")
 		}
 		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (args[0] == "repo" || args[0] == "dir") {
+				return fmt.Errorf("use the %s subcommand", args[0])
+			}
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 				return err
 			}
@@ -294,6 +301,28 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 				return fmt.Errorf("--%s cannot be combined with PATH", flag)
 			}
 			return nil
+		}
+		for _, kind := range []string{"repo", "dir"} {
+			use := "repo [PATH]"
+			short := "Manage permanent trust for a repository and all its worktrees"
+			args := cobra.MaximumNArgs(1)
+			if kind == "dir" {
+				use = "dir DIR"
+				short = "Manage permanent trust for an existing directory and repositories below it"
+				args = cobra.ExactArgs(1)
+			}
+			sub := managementCommand(use, short, code, func(sub *cobra.Command, args []string) int {
+				path := "."
+				if len(args) != 0 {
+					path = args[0]
+				}
+				dryRun, _ := sub.Flags().GetBool("dry-run")
+				return managementConfigPathTrust(sub.Name(), path, sub.Parent().Name() == "untrust", dryRun)
+			})
+			sub.Args = args
+			sub.Long = short + ".\nRequires an existing, valid user config; run `ghok config init --scope user` first.\nRepository paths resolve to the main worktree root; directory paths must exist.\nEdits preserve comments, file mode and config symlinks; --dry-run prints the diff without writing."
+			sub.Flags().Bool("dry-run", false, "print the user config diff without writing")
+			cmd.AddCommand(sub)
 		}
 		configCommands.AddCommand(cmd)
 	}

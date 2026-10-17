@@ -5,7 +5,9 @@
 # Commit this file to share policy and hooks with everyone using the repository.
 # Declarative tightening, rules and protected repositories apply automatically;
 # they can never weaken the user policy. runtime/logging are not allowed here.
-# Inspect hooks and run `ghok config trust`, unless user `trust.skip` covers this repository.
+# Inspect hooks and run `ghok config trust`, unless user trust.repositories or
+# trust.directories covers this repository. Those fields are user-only: a project
+# cannot trust itself; setting either here rejects the project overlay.
 # Trust is per hook: its definition, command file, `files` and trust.include.
 # Changing one hook untrusts only that hook; a changed gate (pre hook with
 # onError deny and continueOnError disabled) denies matching commands in enforce mode until re-trusted.

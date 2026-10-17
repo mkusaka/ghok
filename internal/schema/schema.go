@@ -34,7 +34,8 @@ func Generate(name string) (map[string]any, error) {
 		if name == "project-config" {
 			filename = "project.schema.json"
 			s["title"] = "ghok project .ghok.yaml"
-			delete(trustProps, "skip")
+			delete(trustProps, "repositories")
+			delete(trustProps, "directories")
 		} else {
 			s["title"] = "ghok config.yaml"
 			if name == "local-config" {

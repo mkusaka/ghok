@@ -84,8 +84,20 @@ func (index *Index) Search(query, version string, limit int) []Result {
 }
 
 func (index *Index) Suggest(id string) []string {
+	// Complete a partial ID before ranking prose, whose length changes as docs grow.
+	ids := make([]string, 0, 3)
+	for _, section := range index.Sections {
+		if strings.HasPrefix(section.ID, id) {
+			ids = append(ids, section.ID)
+			if len(ids) == 3 {
+				return ids
+			}
+		}
+	}
+	if len(ids) != 0 {
+		return ids
+	}
 	results := index.Search(id, "dev", 3)
-	ids := make([]string, 0, len(results))
 	for _, result := range results {
 		ids = append(ids, result.ID)
 	}

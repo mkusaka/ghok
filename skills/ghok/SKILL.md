@@ -90,13 +90,21 @@ Never overwrite an existing config; edit it instead.
 
 - **Project `.ghok.yaml`** (repository root, commit it to share) automatically
   tightens policy and adds rules/protected repos; it cannot set `runtime` or
-  `logging`. `trust.include` is project-only. User-only `trust.skip: ["~/src/github.com/me/"]`
-  runs project hooks without trust for repos under those paths (trailing `/` = prefix,
-  else exact; linked worktrees match via their main worktree).
+  `logging`. `trust.include` is project-only and forbidden in user config.
+  User-only `trust.repositories: ["~/src/github.com/me/repo"]` matches exact
+  repository roots and all linked worktrees; `trust.directories: ["~/src/my-org"]`
+  covers a directory itself and descendants on path boundaries, not sibling prefixes.
+  Entries are absolute or `~/...`, symlinks resolve, and trailing slashes have no
+  special meaning. Matching checks checkout and main worktree roots. Covered
+  project hooks/transforms run without per-hook trust, including changed gates.
+  Arbitrary code pulled into these locations runs as the user without another
+  per-hook review. Projects setting either field have their overlay rejected;
+  repositories cannot trust themselves. Unknown trust keys are errors.
 - `.ghok.local.yaml` (repo root, personal, per checkout; `ghok config init --scope local`
   creates it and adds it to `.git/info/exclude`) loads after `.ghok.yaml`. Its hooks and
   transforms run without trust; it is ignored while git tracks it; policy only tightens.
-  Project hooks, unlike local hooks, require inspection and `ghok config trust [PATH]`
+  Local config forbids `trust` entirely. Project hooks not covered by user path
+  trust require inspection and `ghok config trust [PATH]`
   (`PATH` defaults to the current repository-root `.ghok.yaml`).
   Trust is per hook: canonical defaulted definition + repository-local executable
   + `hooks[].files` + top-level `trust.include` (**every hook**). YAML formatting,
@@ -125,7 +133,9 @@ Never overwrite an existing config; edit it instead.
   trust and review baselines. Omitting `--hook` trusts all project hooks.
   Trust output lists every hashed file, hook IDs, resolved commands and coverage
   limits. `ghok config trust --list` shows digests, first paths, trusted timestamps,
-  hook IDs, per-file executable bits and hashes/missing markers, plus store notes.
+  hook IDs, per-file executable bits and hashes/missing markers, plus store notes
+  and user `trust.repositories` / `trust.directories`; `(matches here)` marks the
+  selected matching entry.
   Re-trusting records HEAD, resolved Git common directory and normalized origin;
   provenance never changes the digest. `ghok config trust --dry-run [PATH]`
   validates and prints the proposed trust without writing trust/blob/cache state.
@@ -143,7 +153,8 @@ Never overwrite an existing config; edit it instead.
   notes. Binary files show short hashes; over-20,000-line sides omit the diff.
   No Git executable, object lookup or fetch is used; HEAD is list-only provenance.
   `ghok config untrust [PATH]` idempotently removes the whole project record,
-  leaving policy; `--all` clears every record and purges stored copies.
+  leaving policy; `--all` clears every per-hook record and purges stored copies,
+  but retains user path entries.
   Trust/untrust garbage-collect unreferenced copies and reject missing/non-root configs.
   Malformed/old entries are skipped with named notes; other valid grants stay.
   Invalid top-level stores grant no trust; declarative policy stays.
@@ -151,6 +162,14 @@ Never overwrite an existing config; edit it instead.
   and ignored-hook IDs/digests/reasons per ten minutes, at most three
   changed filenames. User `logging.ignoredHooksWarning: false` opts out; denied,
   nested, invalid-config, disabled-hook-only and policy-only paths do not warn.
+  Use `ghok config trust repo [PATH]` (default `.`; an existing directory in the
+  repository) or `ghok config trust dir DIR` (existing directory) for path trust;
+  `ghok config untrust repo [PATH]` / `ghok config untrust dir DIR` remove entries.
+  First initialize a valid user config with `ghok config init --scope user`.
+  Path edits preserve comments, file mode and symlinks by editing the resolved
+  config target; `--dry-run` previews the diff without writes.
+  Per-hook success suggests `ghok config trust repo .` when not path-covered;
+  ignored-project warnings point there too without changing gate-denial rules.
 - **Policy** (`policy:`): `mode: observe` (default; log only, never blocks) or `enforce`.
   `unknownMutation: allow|audit|deny` for writes ghok cannot classify.
   `protectedRepositories` (owner/repo globs) + `protectedUnknown` (default `deny`)

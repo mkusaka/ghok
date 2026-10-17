@@ -1640,10 +1640,17 @@
     },
     "trust": {
       "additionalProperties": false,
-      "description": "Project-only files added to the hook trust manifest.",
+      "description": "Project hook trust manifests and user-trusted repository paths.",
       "properties": {
-        "skip": {
-          "description": "User config only: repository paths whose project hooks and transforms run without trust. A pattern ending in / matches that directory and everything below it; otherwise the path must match exactly. ~ expands to HOME. A repository matches when its checkout or its main worktree (for linked git worktrees) matches.",
+        "directories": {
+          "description": "User only: trusted directories and all descendant repositories, as absolute paths or ~/...; linked worktrees also match their main worktree.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repositories": {
+          "description": "User only: exact trusted repository roots, as absolute paths or ~/...; linked worktrees also match their main worktree.",
           "items": {
             "type": "string"
           },

@@ -122,6 +122,9 @@ func TestIgnoredHooksWarningThrottleAndManifestChanges(t *testing.T) {
 		if bytes.Count(result.stderr, []byte("\n")) != 1 || !bytes.Contains(result.stderr, []byte("2 project hooks")) || !bytes.Contains(result.stderr, []byte(reason)) || !bytes.Contains(result.stderr, []byte("ghok config trust")) {
 			t.Fatalf("missing one-line actionable hook warning: %s", result.stderr)
 		}
+		if !bytes.Contains(result.stderr, []byte("ghok config trust repo .")) {
+			t.Fatalf("missing permanent repository trust hint: %s", result.stderr)
+		}
 		return result.stderr
 	}
 	invoke(true, "untrusted")

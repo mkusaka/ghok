@@ -6,7 +6,8 @@
 # uncommitted: `config init` added it to .git/info/exclude, and ghok ignores it
 # while git tracks it. Loaded after the user config and .ghok.yaml. Its hooks and
 # transforms run WITHOUT `ghok config trust`; policy can only tighten the others.
-# runtime, logging and trust are not allowed here.
+# runtime, logging and trust are not allowed here (including repositories/directories).
+# Path trust belongs only in user config; a repository cannot trust itself.
 # Docs: https://github.com/mkusaka/ghok
 
 version: 1

@@ -80,12 +80,12 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	withheld := make(map[string]IgnoredHook)
 	var ignored *IgnoredProject
-	skipped := ""
+	key, entry := "", ""
 	if len(p.Hooks)+len(p.Transforms) != 0 {
-		skipped = trustSkipMatch(c.Trust.Skip, filepath.Dir(project), env)
+		key, entry = TrustMatch(c.Trust, filepath.Dir(project), env)
 	}
-	if skipped != "" {
-		notes = append(notes, fmt.Sprintf("Project hooks and transforms run without trust (user trust.skip %q)", skipped))
+	if entry != "" {
+		notes = append(notes, fmt.Sprintf("Project hooks and transforms run without per-hook trust (user trust.%s %q)", key, entry))
 	} else if len(p.Hooks)+len(p.Transforms) != 0 {
 		files, err := projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
@@ -198,8 +198,10 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 		}
 	}
 	// A repository must never be able to waive its own trust.
-	if v := field(field(n, "trust"), "skip"); v != nil {
-		restricted = append(restricted, fmt.Errorf("line %d: project %s: cannot set trust.skip (user config only)", v.Line, project))
+	for _, key := range []string{"repositories", "directories"} {
+		if v := field(field(n, "trust"), key); v != nil {
+			restricted = append(restricted, fmt.Errorf("line %d: project %s: cannot set trust.%s (user config only)", v.Line, project, key))
+		}
 	}
 	if err := errors.Join(restricted...); err != nil {
 		return nil, nil, err
@@ -320,9 +322,11 @@ func unknownKeys(n *yaml.Node) []unknownKey {
 func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[string]string, notes *[]string) error {
 	// Each config file ends with an implicit wait-all: project hooks never
 	// overlap user background hooks.
+	// Snapshot before appending: siblings in this file must not wait for each other.
+	earlier := map[string][]string{PhasePre: c.Hooks.backgroundIDs(PhasePre), PhasePost: c.Hooks.backgroundIDs(PhasePost)}
 	for i := range p.Hooks {
 		h := &p.Hooks[i]
-		h.Wait = append(c.Hooks.backgroundIDs(h.Phase), h.Wait...)
+		h.Wait = append(slices.Clone(earlier[h.Phase]), h.Wait...)
 		h.Source = project
 		h.Command[0] = p.HookCommandPath(*h)
 		warnWritable(hookPermissionPath(h.Command[0], cwd, env), notes)

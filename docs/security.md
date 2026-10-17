@@ -133,16 +133,39 @@ valid `.ghok.yaml` contributes declarative policy: explicitly set values can
 only tighten observe to enforce or allow to audit to deny, while rules and
 protected repositories append. Attempted weakening is ignored with a note.
 Projects cannot set runtime or logging, even empty sections. `trust.include` is
-project-only. The user config's `trust.skip` (absolute or `~/` paths; trailing `/` = prefix, otherwise exact; linked worktrees also match through their main worktree) runs a repository's project hooks without trust; a project config cannot set it. Project read, parse,
-validation, manifest, or merge failures discard the entire project overlay,
-including changes made before a hook/rule collision is detected; they cannot
-discard user configuration.
+project-only; it is forbidden in user config. User-only `trust.repositories`
+matches exact repository roots and all their linked worktrees;
+`trust.directories` matches a directory itself and descendants on path boundaries,
+not similarly named siblings. Both accept absolute or `~/...` paths, resolve
+symlinks, ignore trailing-slash differences, and check checkout and main worktree
+roots. A matching repository's project hooks and transforms run without per-hook
+trust, including changed gates. **Arbitrary code checked out or pulled into these
+locations can therefore run as your user without another review.** A project
+overlay setting either field is rejected: a repository cannot trust itself.
+Local config forbids `trust` entirely; unknown trust keys are errors.
+Project read, parse, validation, manifest, or merge failures discard the entire
+project overlay, including changes made before a hook/rule collision is detected;
+they cannot discard user configuration.
 
-Repository hooks are inactive until inspected and explicitly trusted with
+Unless covered by user path trust, repository hooks are inactive until inspected and explicitly trusted with
 `ghok config trust [PATH]`. PATH defaults to the repository-root `.ghok.yaml`;
 an explicit path must designate that file. `--hook ID` is repeatable and trusts
 only those hooks, retaining all other hooks' previous digests and review baselines.
 Without `--hook`, trust covers all project hooks.
+
+Manage path entries with `ghok config trust repo [PATH]` (`PATH` defaults to `.`,
+an existing directory inside the repository) or `ghok config trust dir DIR`
+(`DIR` must exist). The corresponding `ghok config untrust repo [PATH]` and
+`ghok config untrust dir DIR` remove entries. Initialize a valid user config
+first with `ghok config init --scope user`; path edits preserve comments, file
+mode and the config symlink, writing its resolved target. `--dry-run` previews
+the diff without writes. `ghok config trust --list` includes
+`trust.repositories` / `trust.directories`, marking the selected entry with
+`(matches here)`. `ghok config untrust --all` clears only per-hook state and
+stored review copies, retaining user path entries.
+Successful per-hook trust suggests `ghok config trust repo .` if not already
+path-covered; ignored-project warnings point there too. These are hints, not a
+change to the gate-denial contract below.
 
 Each hook's v2 digest covers its canonical, defaulted definition (`id`, `phase`,
 `match`, `command`, `env`, `timeout`, `onError`, `continueOnError`, `dependsOn`,

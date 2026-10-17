@@ -223,7 +223,7 @@ func ignoredHooksWarning(c *config.Config, dir string, now time.Time) string {
 			break
 		}
 	}
-	return fmt.Sprintf("%d project %s in %s are not active: %s; review and run 'ghok config trust'", len(inactive), kind, project.Path, strings.Join(inactive, "; "))
+	return fmt.Sprintf("%d project %s in %s are not active: %s; review and run 'ghok config trust'; for permanent repository trust: ghok config trust repo .", len(inactive), kind, project.Path, strings.Join(inactive, "; "))
 }
 
 func ignoredHookDescription(h config.IgnoredHook) string {

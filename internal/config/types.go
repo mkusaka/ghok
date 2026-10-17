@@ -18,7 +18,7 @@ type Config struct {
 	Transforms TransformList `yaml:"transforms" json:"transforms"`
 	Runtime    Runtime       `yaml:"runtime" json:"runtime"`
 	Logging    Logging       `yaml:"logging" json:"logging"`
-	Trust      Trust         `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project-only files added to the hook trust manifest."`
+	Trust      Trust         `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project hook trust manifests and user-trusted repository paths."`
 	// Dir is the directory the config was loaded from (relative hook commands
 	// resolve against it). Not part of the YAML.
 	Dir string `yaml:"-" json:"dir,omitempty"`
@@ -162,10 +162,11 @@ type Logging struct {
 	Level string `yaml:"level" json:"level,omitempty" enum:"info,decision"`
 }
 
-// Trust adds explicitly selected repository files to project hook trust.
+// Trust selects project manifest files or user-trusted filesystem paths.
 type Trust struct {
-	Include []string `yaml:"include" json:"include,omitempty" doc:"Project only: repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing."`
-	Skip    []string `yaml:"skip,omitempty" json:"skip,omitempty" doc:"User config only: repository paths whose project hooks and transforms run without trust. A pattern ending in / matches that directory and everything below it; otherwise the path must match exactly. ~ expands to HOME. A repository matches when its checkout or its main worktree (for linked git worktrees) matches."`
+	Include      []string `yaml:"include" json:"include,omitempty" doc:"Project only: repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing."`
+	Repositories []string `yaml:"repositories,omitempty" json:"repositories,omitempty" doc:"User only: exact trusted repository roots, as absolute paths or ~/...; linked worktrees also match their main worktree."`
+	Directories  []string `yaml:"directories,omitempty" json:"directories,omitempty" doc:"User only: trusted directories and all descendant repositories, as absolute paths or ~/...; linked worktrees also match their main worktree."`
 }
 
 // StringList accepts either a YAML scalar or a sequence.

@@ -1612,7 +1612,7 @@
     },
     "trust": {
       "additionalProperties": false,
-      "description": "Project-only files added to the hook trust manifest.",
+      "description": "Project hook trust manifests and user-trusted repository paths.",
       "properties": {
         "include": {
           "description": "Project only: repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing.",

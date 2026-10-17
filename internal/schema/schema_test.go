@@ -79,6 +79,26 @@ func TestProjectTrustIncludeSchema(t *testing.T) {
 	}
 }
 
+func TestUserTrustPathsSchema(t *testing.T) {
+	for _, key := range []string{"repositories", "directories"} {
+		doc := map[string]any{"version": 1, "trust": map[string]any{key: []any{"/repo", "~/src/repo"}}}
+		if err := checkSchema(mustSchema(t, "config"), doc, "$"); err != nil {
+			t.Fatalf("user trust.%s rejected: %v", key, err)
+		}
+		for _, scope := range []string{"project-config", "local-config"} {
+			if err := checkSchema(mustSchema(t, scope), doc, "$"); err == nil {
+				t.Fatalf("%s must reject trust.%s", scope, key)
+			}
+		}
+	}
+	for _, scope := range []string{"config", "project-config", "local-config"} {
+		doc := map[string]any{"version": 1, "trust": map[string]any{"skip": []any{"/repo"}}}
+		if err := checkSchema(mustSchema(t, scope), doc, "$"); err == nil {
+			t.Fatalf("%s accepted retired trust key", scope)
+		}
+	}
+}
+
 func TestConfigTemplatesMatchSchema(t *testing.T) {
 	home := t.TempDir()
 	repo := filepath.Join(home, "repo")

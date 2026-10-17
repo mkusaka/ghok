@@ -100,7 +100,7 @@ entry; edits affect later entries, never re-trigger the same entry.
 Final `tokenKind`, `match.token` and `match.env` reflect the edited environment.
 gh and POST processes receive the edited environment; PRE processes retain the original environment.
 
-Project transforms require explicit `ghok config trust`, just like project hooks;
+Project transforms require per-hook or user-configured path trust, just like project hooks;
 inactive transforms are ignored, never gates. A failed `onError: deny` transform
 stops execution with **78 even in observe mode**. With `onError: allow`, ghok rolls
 back **all** request and environment edits, skips the remainder, and evaluates/executes
@@ -176,7 +176,7 @@ or the SHA of one), verifies it against the immutable release attestation and
 checksums, and puts a `gh -> ghok` shim first on PATH (`shim: false` installs
 only). Inputs: `version` (`vX.Y.Z` or `latest`, overrides the ref), `shim`,
 `token`; outputs: `version`, `path`. Configure it like anywhere else, e.g. with a
-`config.yaml` under `GHOK_CONFIG_DIR` or a project `.ghok.yaml` (trust its hooks explicitly).
+`config.yaml` under `GHOK_CONFIG_DIR` or a project `.ghok.yaml` (authorize its hooks with per-hook or path trust).
 Linux and macOS runners only.
 
 ### Go install
@@ -257,8 +257,7 @@ No logger, normalizer, stdin spool, resolver, or hook-warning state is opened.
 Creating a user config intentionally enables ghok in every repository.
 Scoped activation through your own PATH management is possible but unsupported.
 direnv/mise are optional human helpers only: agents' non-interactive shells do
-not load direnv, and their allow lists are path-based like the old trust model,
-not content-addressed hook trust.
+not load direnv, and their allow lists do not grant ghok hook trust.
 
 ```sh
 ghok shim install                    # owned symlink ~/.local/bin/gh -> ghok
@@ -349,7 +348,7 @@ ghok config init --scope user    # the global config.yaml
 
 None overwrites an existing file. The project file lives at the repository
 root, so it can be committed and shared. Its declarative policy applies
-automatically, but cloning a repository never activates its hooks.
+automatically, but cloning a repository alone never activates its hooks.
 
 `.ghok.local.yaml` is a personal config for one checkout, like `CLAUDE.local.md`.
 Layers load in the order user config → `.ghok.yaml` → `.ghok.local.yaml`; local
@@ -384,23 +383,26 @@ Project policy can only tighten explicitly set mode/unknown handling and append
 rules/protected repositories; it never weakens global policy.
 Projects cannot set runtime or logging. `trust.include` is project-only.
 
-To skip trust for your own repositories (like an IDE's trusted parent folder),
-list them in the **user** config:
+To authorize your own repositories or a parent directory, use the **user** config:
 
 ```yaml
 trust:
-  skip: ["~/src/github.com/mkusaka/", "~/src/github.com/medley-inc/"]
+  repositories: ["~/src/github.com/mkusaka/ghok"]
+  directories: ["~/src/github.com/medley-inc"]
 ```
 
-A pattern ending in `/` covers that directory and everything below it; any other
-pattern must match the repository root exactly. `~` expands to `HOME` and
-symlinks are resolved. A linked git worktree also matches through its main
-worktree, so worktrees created anywhere share the repository's setting. In a
-matching repository, project hooks and transforms run without `ghok config trust`
-and the changed-gate denial does not apply. Validate, doctor and explain note which
-pattern matched. Only the user config may set `trust.skip`; a `.ghok.yaml` that sets
-it is rejected, so a repository cannot waive its own trust. Everything checked out
-under a skipped path is trusted, including code you pull from others.
+`repositories` matches an exact repository root, including all its linked Git
+worktrees. `directories` covers the directory itself and descendants, on path
+boundaries (not similarly named siblings). Both accept absolute or `~/...` paths;
+symlinks are resolved and trailing slashes make no difference. Matching considers
+the checkout and main worktree roots. Project hooks and transforms in a matching
+repository run without per-hook trust, and changed-gate denial does not apply.
+Validate, doctor and explain identify the matching entry. Only user config may
+set `trust.repositories` or `trust.directories`; a project overlay containing
+either is rejected, so a repository cannot trust itself. Local config forbids
+`trust` entirely, and user config forbids `trust.include`. Unknown `trust` keys
+are errors. **Any code checked out or pulled under a trusted location can run as
+you without another per-hook trust review.**
 
 Project discovery stops before `$HOME`, so a dotfiles repository at `$HOME`
 does not supply project config. Project read/parse/validation failures discard
@@ -422,10 +424,25 @@ ghok config trust --hook check --hook audit # trust selected hooks; retain sibli
 ghok config trust /path/to/repo/.ghok.yaml
 ghok config trust --dry-run          # review changes and proposed trust; writes nothing
 ghok config trust --no-diff          # keep file/mode summaries, omit raw content diffs
-ghok config trust --list             # project records, per-hook digests and metadata
+ghok config trust --list             # per-hook records and user path entries; '(matches here)' marks the match
 ghok config untrust                 # remove this project's hook trust; policy remains
-ghok config untrust --all            # remove every project trust record
+ghok config untrust --all            # remove all per-hook state, not user path entries
+ghok config trust repo               # authorize this repository and all linked worktrees
+ghok config trust repo /path/to/repo  # PATH defaults to .; an existing directory in the repo
+ghok config trust dir ~/src/my-org   # authorize an existing directory and descendants
+ghok config untrust repo             # remove this repository's user path entry
+ghok config untrust dir ~/src/my-org # remove this directory's user path entry
+ghok config trust repo --dry-run     # preview the user-config diff; write nothing
 ```
+
+Path trust/untrust requires an existing valid user config: first run
+`ghok config init --scope user` if needed. These commands preserve comments,
+file mode and symlinks (editing the resolved config target); `--dry-run` on
+either command previews the diff without writing. Existing per-hook `PATH`
+(`.ghok.yaml`), `--hook`, `--no-diff` and `--show-secrets` behavior is unchanged.
+Successful per-hook trust suggests `ghok config trust repo .` when no path entry
+covers the repository. Ignored-project hook warnings also point to that command;
+this hint does not change the gate-denial rules below.
 
 Trust is **per hook** and follows content: a hook is active when its exact digest
 was trusted anywhere on this machine, so identical worktrees and clones share

@@ -8,6 +8,31 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Breaking
+
+- `trust.skip` is replaced by user-only `trust.repositories` (exact repository
+  roots, including linked worktrees) and `trust.directories` (directory itself
+  and descendants on path boundaries). Migrate entries explicitly; trailing
+  slashes no longer select matching behavior. Absolute and `~/...` paths resolve
+  symlinks. Projects cannot grant themselves path trust.
+
+### Added
+
+- `ghok config trust/untrust repo [PATH]` (default `.`) and `dir DIR` safely edit
+  an existing valid user config, preserving comments, mode and symlink targets;
+  `--dry-run` previews the diff without writes. Trust lists include user path
+  entries and mark the selected match with `(matches here)`. `untrust --all`
+  retains path entries while clearing per-hook state.
+- Per-hook trust success suggests repository trust when not path-covered;
+  ignored-project warnings point to `ghok config trust repo .`, without changing
+  gate-denial behavior.
+
+### Fixed
+
+- Hooks in a project (or local) config's `parallel` block, or marked `background`, no longer wait for their earlier siblings: they waited for every earlier background hook of the same file, so they ran one at a time and a deny skipped the rest instead of reporting all reasons.
+- Documentation ID suggestions prioritize matching ID prefixes, so expanded
+  trust documentation does not displace the intended section.
+
 ## [v0.0.17] - 2026-10-17
 
 ### Breaking

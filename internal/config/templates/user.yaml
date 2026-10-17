@@ -11,6 +11,18 @@
 # Config format version (must be 1).
 version: 1
 
+# Optional user-only path trust. ALL project hooks/transforms in these locations
+# run as you without per-hook review, including code pulled from others.
+# repositories: exact repo roots, including all linked worktrees.
+# directories: directory itself and descendants, on path boundaries.
+# Absolute or ~/... paths; symlinks resolve; trailing slashes have no special meaning.
+# Projects cannot set these fields; trust.include is project-only.
+# trust:
+#   repositories: ["~/src/github.com/me/my-repo"]
+#   directories: ["~/src/my-org"]
+# Manage with `ghok config trust repo [PATH]` (default .) or `trust dir DIR`;
+# matching `untrust` commands remove entries; --dry-run previews without writes.
+
 policy:
   # observe: classify and log every gh invocation, never block (default).
   # enforce: deny according to rules, unknown handling and pre-hooks.

@@ -189,9 +189,14 @@ func load(path string, notes *[]string) (*Config, error) {
 	if field(field(n, "trust"), "include") != nil {
 		return nil, invalidUserConfig(absolute, data, errors.New("trust.include is only allowed in project configs"))
 	}
-	for _, pattern := range c.Trust.Skip {
-		if !filepath.IsAbs(pattern) && pattern != "~" && !strings.HasPrefix(pattern, "~/") {
-			return nil, invalidUserConfig(absolute, data, fmt.Errorf("trust.skip %q must be an absolute path or start with ~/", pattern))
+	for _, paths := range []struct {
+		key     string
+		entries []string
+	}{{"repositories", c.Trust.Repositories}, {"directories", c.Trust.Directories}} {
+		for _, entry := range paths.entries {
+			if !filepath.IsAbs(entry) && !strings.HasPrefix(entry, "~/") {
+				return nil, invalidUserConfig(absolute, data, fmt.Errorf("trust.%s entries must be filesystem paths (absolute or ~/...), not owner/repo: %q", paths.key, entry))
+			}
 		}
 	}
 	for i := range c.Hooks {
