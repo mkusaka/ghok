@@ -40,6 +40,7 @@ class Ghok < Formula
       Without a config gh passes through untouched; create one with:
         ghok config init --scope user
       Then check everything with `ghok doctor`.
+      Docs ship with the binary (offline): `ghok docs`, `ghok docs search "<query>"`, `ghok actions`.
     EOS
   end
 

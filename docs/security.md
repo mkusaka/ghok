@@ -123,6 +123,7 @@ signals are not watched (subject to Go's documented disposition limits).
 killed with SIGKILL.** Deliberately escaped descendants remain unsupported.
 
 ## Project configuration trust
+<!-- desc: Trust project hooks by content across worktrees and clones; review changes before re-trusting. -->
 
 Global path precedence: nonempty GHOK_CONFIG_DIR, XDG_CONFIG_HOME/ghok, then
 HOME/.config/ghok. Repository discovery stops **before checking HOME**: a

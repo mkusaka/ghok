@@ -22,7 +22,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const managementLong = `Manage ghok, a transparent wrapper for the GitHub CLI (gh) that runs
+const managementLong = `Agents: start with ghok docs / ghok docs search "<query>" (English queries), and ghok actions for action names.
+
+Manage ghok, a transparent wrapper for the GitHub CLI (gh) that runs
 pre/post hooks and enforces policies on gh commands, gh api REST calls and
 GraphQL mutations. The shim ("gh") and "ghok exec -- <gh args>" use the same
 wrapper pipeline; trusted transforms may rewrite the request before policy/hooks.
@@ -293,6 +295,7 @@ Configuration/analysis failures exit 1; usage errors exit 2.`
 	}
 	configCommands.AddCommand(initCmd, validate, path)
 	root.AddCommand(shim, shellInit, doctor, versionCmd, hookCommands, configCommands, schemaCommands)
+	root.AddCommand(managementDocsCommand(code, version), managementActionsCommand(code))
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Show help for a command",

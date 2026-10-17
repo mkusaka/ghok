@@ -30,6 +30,19 @@ ghok is **not a security boundary**: the real gh by absolute path, `curl`, or an
 API client bypasses it. Server-side branch protection/rulesets are the real control.
 Say so whenever a user wants ghok to "prevent" something.
 
+## Find offline docs and action names
+
+Start with `ghok docs` (or `--json`) for the embedded section tree, then
+`ghok docs <id>` to read a section and its subsections. Search with a quoted
+English query: `ghok docs search "parallel hooks"` returns up to five JSON
+results with version-matched links. `ghok docs --all` prints all shipped docs.
+These commands work offline without gh or configuration.
+
+Use `ghok actions [prefix]` (or `--json`), e.g. `ghok actions pr.merge`, to
+discover curated action names, effects and static native/REST/GraphQL routes.
+Request-dependent actions may have no static route. Include `comment.*` as
+well as `issue.comment.*` / `pr.comment.*` when matching unresolved comments.
+
 ## Install and activate
 
 ```sh

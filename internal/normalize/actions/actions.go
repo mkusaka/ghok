@@ -3,7 +3,9 @@
 package actions
 
 import (
+	"cmp"
 	"path"
+	"slices"
 
 	"github.com/mkusaka/ghok/internal/model"
 )
@@ -414,6 +416,17 @@ func Must(action string) Spec {
 func Lookup(action string) (Spec, bool) {
 	spec, ok := curated[action]
 	return spec, ok
+}
+
+// All returns every curated identity, including request-dependent actions,
+// ordered by action name. The returned slice may be modified by the caller.
+func All() []Spec {
+	specs := make([]Spec, 0, len(curated))
+	for _, spec := range curated {
+		specs = append(specs, spec)
+	}
+	slices.SortFunc(specs, func(a, b Spec) int { return cmp.Compare(a.Action, b.Action) })
+	return specs
 }
 
 // Apply changes only operation identity, preserving targets and input evidence.

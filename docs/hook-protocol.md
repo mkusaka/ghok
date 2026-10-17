@@ -471,6 +471,9 @@ hook execution error (nonzero exit/spawn failure, timeout, invalid response,
 cancellation) exits 1, otherwise 0. Configuration/analysis failures exit 1;
 usage errors exit 2.
 
+### Parallel hooks
+<!-- desc: Run hooks in parallel, join background work, and order dependencies. -->
+
 - Hooks are written as `hooks.pre` and `hooks.post` lists; the list sets the
   phase. Each runs in order, user config hooks before project hooks. A hook
   starts after every earlier selected non-background hook finished and after the
@@ -590,6 +593,10 @@ return one schema-version-1 JSON object:
 {"schemaVersion":1,"set":{"/operations/0/texts/body/value":"new body"},"unset":[]}
 ```
 
+### Transform environment edits
+
+Use a trusted transform such as `gain-token` to set `GH_TOKEN` before policy and hooks.
+
 The optional response `env` is a flat object of environment names to strings
 (set, including an empty string) or `null` (unset), for example
 `{"schemaVersion":1,"env":{"GH_TOKEN":"<minted token>","GITHUB_TOKEN":null}}`.
@@ -621,6 +628,8 @@ transformed metadata also reports unset names (`envUnset`) and final `tokenKind`
 environment values are never displayed, even with `--show-secrets`.
 Every set value is registered with the shared redactor before diagnostics or
 hook input, including values from non-credential variables.
+
+### Request edits
 
 `set` maps strict JSON pointers to replacement JSON values; `unset` lists paths
 to remove. Only these paths are allowed (N is a canonical zero-based operation

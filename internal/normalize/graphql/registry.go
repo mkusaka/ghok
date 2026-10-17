@@ -66,6 +66,16 @@ var mutationRegistry = map[string]mutationMapping{
 	"removeStar":                    {actions.Must("star.remove"), ""},
 }
 
+// ActionRoutes returns mutation fields grouped by their curated base identity.
+// Input-dependent refinements and subject specialization are not included.
+func ActionRoutes() map[string][]string {
+	routes := make(map[string][]string)
+	for field, mapping := range mutationRegistry {
+		routes[mapping.Action] = append(routes[mapping.Action], field)
+	}
+	return routes
+}
+
 func mutationOperation(field string, input map[string]any) model.Operation {
 	// Preserve all values, including nested input and secrets; redaction belongs
 	// to the output layer. Only merge operations need a copy for canonical keys.

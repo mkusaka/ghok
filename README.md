@@ -787,6 +787,11 @@ still read non-TTY stdin. Registry tables, input rules, and limitations:
 ## Management commands
 
 ```sh
+ghok docs
+ghok docs security/project-configuration-trust
+ghok docs --all
+ghok docs search "parallel hooks"
+ghok actions pr.merge --json
 ghok version
 ghok doctor --json
 ghok config path
@@ -869,6 +874,23 @@ when the same repository trusted another version of that hook ID; otherwise the
 hook is simply `untrusted`. Every worktree of a repository gets the same answer.
 Hook listings include each hook's source config path in text and JSON;
 source is not a YAML setting.
+
+### Offline docs and action discovery
+
+Documentation ships with the binary and matches its version; no network, gh,
+or configuration is needed. Start with `ghok docs` (or `--json`) for a section
+tree, then `ghok docs <id>` for that section and its subsections.
+`ghok docs --all` prints every embedded file with file markers.
+`ghok docs search "<query>"` accepts one quoted English query and returns up to
+five ranked JSON results with version-matched source links.
+
+`ghok actions [prefix]` (or `--json`) lists curated actions grouped by family,
+their effects, and statically mapped native commands, REST routes and GraphQL
+mutation fields. Prefixes match action names, for example `pr.merge`.
+Request-dependent variants are listed even without static routes. Generic
+`comment.create` covers unresolved subjects; `issue.comment.create` and
+`pr.comment.create` identify known subjects. Do not match only specialized
+comments when unresolved subjects must also be covered.
 
 ## Performance
 

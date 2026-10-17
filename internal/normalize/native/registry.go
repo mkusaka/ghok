@@ -67,6 +67,20 @@ func buildRegistry() map[string]commandSpec {
 	return commands
 }
 
+// ActionRoutes returns canonical gh paths grouped by their registry identity.
+// Flag-dependent refinements are deliberately not included.
+func ActionRoutes() map[string][]string {
+	routes := make(map[string][]string)
+	for path, command := range registry {
+		commandPath := "gh"
+		if path != "" {
+			commandPath += " " + path
+		}
+		routes[command.Action] = append(routes[command.Action], commandPath)
+	}
+	return routes
+}
+
 // IsBuiltinCommand reports whether a root command or built-in alias exists.
 // Wrappers use it to avoid loading gh's alias configuration for built-ins.
 func IsBuiltinCommand(name string) bool {

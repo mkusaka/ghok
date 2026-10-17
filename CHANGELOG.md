@@ -8,6 +8,12 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- Offline, version-matched `ghok docs` section browsing, full Markdown output
+  and BM25 search; `ghok actions [prefix]` lists curated actions with their
+  effects and statically mapped native commands, REST routes and GraphQL fields.
+
 ## [v0.0.14] - 2026-10-17
 
 ### Added

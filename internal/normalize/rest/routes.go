@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/model"
+	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
 //go:generate go run ./gen -ref ad351b19702b757bfd03a8ee85bcafe717878331 -date 2026-10-13
@@ -43,6 +44,18 @@ type routeIndex struct {
 }
 
 var routes = compileRoutes(generatedRoutes)
+
+// ActionRoutes returns documented routes grouped by their curated base identity.
+// Request-dependent refinements are deliberately not included.
+func ActionRoutes() map[string][]string {
+	routes := make(map[string][]string)
+	for _, route := range generatedRoutes {
+		if _, curated := actions.Lookup(route.action); curated {
+			routes[route.action] = append(routes[route.action], route.method+" "+route.path)
+		}
+	}
+	return routes
+}
 
 // Compile once; neither schema metadata nor parameter spelling is parsed in
 // the hot path. Candidates are ordered so a literal route wins over captures.
