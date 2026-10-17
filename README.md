@@ -378,8 +378,25 @@ With either config present, defaults are **observe**, unknown-mutation **audit**
 and logging **enabled**. With neither present, the wrapper execs gh directly.
 Project policy can only tighten explicitly set mode/unknown handling and append
 rules/protected repositories; it never weakens global policy.
-Projects cannot set runtime or logging. `trust.include` is project-only; user
-configuration has no `trust.projects` setting.
+Projects cannot set runtime or logging. `trust.include` is project-only.
+
+To skip trust for your own repositories (like an IDE's trusted parent folder),
+list them in the **user** config:
+
+```yaml
+trust:
+  skip: ["~/src/github.com/mkusaka/", "~/src/github.com/medley-inc/"]
+```
+
+A pattern ending in `/` covers that directory and everything below it; any other
+pattern must match the repository root exactly. `~` expands to `HOME` and
+symlinks are resolved. A linked git worktree also matches through its main
+worktree, so worktrees created anywhere share the repository's setting. In a
+matching repository, project hooks and transforms run without `ghok config trust`
+and the changed-gate denial does not apply. Validate, doctor and explain note which
+pattern matched. Only the user config may set `trust.skip`; a `.ghok.yaml` that sets
+it is rejected, so a repository cannot waive its own trust. Everything checked out
+under a skipped path is trusted, including code you pull from others.
 
 Project discovery stops before `$HOME`, so a dotfiles repository at `$HOME`
 does not supply project config. Project read/parse/validation failures discard

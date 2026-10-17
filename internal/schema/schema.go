@@ -30,17 +30,23 @@ func Generate(name string) (map[string]any, error) {
 			delete(props, "runtime")
 			delete(props, "logging")
 		}
+		trustProps := props["trust"].(map[string]any)["properties"].(map[string]any)
 		if name == "project-config" {
 			filename = "project.schema.json"
 			s["title"] = "ghok project .ghok.yaml"
+			delete(trustProps, "skip")
 		} else {
 			s["title"] = "ghok config.yaml"
 			if name == "local-config" {
 				filename = "local.schema.json"
 				s["title"] = "ghok personal .ghok.local.yaml"
 			}
-			// Only .ghok.yaml is trust-gated: no trust section or hook files.
-			delete(props, "trust")
+			// Only .ghok.yaml is trust-gated: no include or hook files; only
+			// the user config may waive trust for repositories.
+			delete(trustProps, "include")
+			if name == "local-config" {
+				delete(props, "trust")
+			}
 			// The hook schema map is shared by hook and parallel items.
 			pre := props["hooks"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)
 			hook := pre["items"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)

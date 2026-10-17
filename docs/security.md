@@ -133,7 +133,7 @@ valid `.ghok.yaml` contributes declarative policy: explicitly set values can
 only tighten observe to enforce or allow to audit to deny, while rules and
 protected repositories append. Attempted weakening is ignored with a note.
 Projects cannot set runtime or logging, even empty sections. `trust.include` is
-project-only; user `trust.projects` is not supported. Project read, parse,
+project-only. The user config's `trust.skip` (absolute or `~/` paths; trailing `/` = prefix, otherwise exact; linked worktrees also match through their main worktree) runs a repository's project hooks without trust; a project config cannot set it. Project read, parse,
 validation, manifest, or merge failures discard the entire project overlay,
 including changes made before a hook/rule collision is detected; they cannot
 discard user configuration.

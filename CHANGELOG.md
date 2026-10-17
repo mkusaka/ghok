@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- User config `trust.skip: [paths]` runs project hooks and transforms without trust for repositories at those paths (trailing `/` = that directory and below, otherwise exact; `~` expands; linked git worktrees also match through their main worktree). Project configs cannot set it.
+
 ### Changed
 
 - `ghok docs skill` (and its subsections) start with a comment giving the skill's source URL at the release tag matching the binary, for installing it with an agent's skill tool.

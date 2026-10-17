@@ -80,7 +80,13 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	withheld := make(map[string]IgnoredHook)
 	var ignored *IgnoredProject
+	skipped := ""
 	if len(p.Hooks)+len(p.Transforms) != 0 {
+		skipped = trustSkipMatch(c.Trust.Skip, filepath.Dir(project), env)
+	}
+	if skipped != "" {
+		notes = append(notes, fmt.Sprintf("Project hooks and transforms run without trust (user trust.skip %q)", skipped))
+	} else if len(p.Hooks)+len(p.Transforms) != 0 {
 		files, err := projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
 			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
@@ -190,6 +196,10 @@ func parseProject(data []byte, project string) (*Config, *yaml.Node, error) {
 		if v := field(n, key); v != nil {
 			restricted = append(restricted, fmt.Errorf("line %d: project %s: cannot set %s", v.Line, project, key))
 		}
+	}
+	// A repository must never be able to waive its own trust.
+	if v := field(field(n, "trust"), "skip"); v != nil {
+		restricted = append(restricted, fmt.Errorf("line %d: project %s: cannot set trust.skip (user config only)", v.Line, project))
 	}
 	if err := errors.Join(restricted...); err != nil {
 		return nil, nil, err

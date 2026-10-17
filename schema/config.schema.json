@@ -1621,6 +1621,20 @@
       },
       "type": "object"
     },
+    "trust": {
+      "additionalProperties": false,
+      "description": "Project-only files added to the hook trust manifest.",
+      "properties": {
+        "skip": {
+          "description": "User config only: repository paths whose project hooks and transforms run without trust. A pattern ending in / matches that directory and everything below it; otherwise the path must match exactly. ~ expands to HOME. A repository matches when its checkout or its main worktree (for linked git worktrees) matches.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "version": {
       "description": "Config format version; must be 1.",
       "enum": [

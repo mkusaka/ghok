@@ -84,7 +84,9 @@ Never overwrite an existing config; edit it instead.
 
 - **Project `.ghok.yaml`** (repository root, commit it to share) automatically
   tightens policy and adds rules/protected repos; it cannot set `runtime` or
-  `logging`. `trust.include` is project-only; user `trust.projects` is unsupported.
+  `logging`. `trust.include` is project-only. User-only `trust.skip: ["~/src/github.com/me/"]`
+  runs project hooks without trust for repos under those paths (trailing `/` = prefix,
+  else exact; linked worktrees match via their main worktree).
 - `.ghok.local.yaml` (repo root, personal, per checkout; `ghok config init --scope local`
   creates it and adds it to `.git/info/exclude`) loads after `.ghok.yaml`. Its hooks and
   transforms run without trust; it is ignored while git tracks it; policy only tightens.

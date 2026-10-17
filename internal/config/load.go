@@ -186,8 +186,13 @@ func load(path string, notes *[]string) (*Config, error) {
 	if err != nil {
 		return nil, invalidUserConfig(absolute, data, err)
 	}
-	if field(n, "trust") != nil {
-		return nil, invalidUserConfig(absolute, data, errors.New("trust is only allowed in project configs"))
+	if field(field(n, "trust"), "include") != nil {
+		return nil, invalidUserConfig(absolute, data, errors.New("trust.include is only allowed in project configs"))
+	}
+	for _, pattern := range c.Trust.Skip {
+		if !filepath.IsAbs(pattern) && pattern != "~" && !strings.HasPrefix(pattern, "~/") {
+			return nil, invalidUserConfig(absolute, data, fmt.Errorf("trust.skip %q must be an absolute path or start with ~/", pattern))
+		}
 	}
 	for i := range c.Hooks {
 		c.Hooks[i].Source = absolute

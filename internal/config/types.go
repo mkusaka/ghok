@@ -163,7 +163,8 @@ type Logging struct {
 
 // Trust adds explicitly selected repository files to project hook trust.
 type Trust struct {
-	Include []string `yaml:"include" json:"include,omitempty" doc:"Repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing."`
+	Include []string `yaml:"include" json:"include,omitempty" doc:"Project only: repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing."`
+	Skip    []string `yaml:"skip,omitempty" json:"skip,omitempty" doc:"User config only: repository paths whose project hooks and transforms run without trust. A pattern ending in / matches that directory and everything below it; otherwise the path must match exactly. ~ expands to HOME. A repository matches when its checkout or its main worktree (for linked git worktrees) matches."`
 }
 
 // StringList accepts either a YAML scalar or a sequence.

@@ -1598,7 +1598,7 @@
       "description": "Project-only files added to the hook trust manifest.",
       "properties": {
         "include": {
-          "description": "Repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing.",
+          "description": "Project only: repository-relative regular files to hash alongside project hooks; symlinks must stay inside the repository. Missing files are recorded as missing.",
           "items": {
             "type": "string"
           },
