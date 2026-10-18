@@ -266,6 +266,9 @@ func stableTarget(self string) string {
 	parts := strings.Split(filepath.Clean(dir), string(filepath.Separator))
 	// .../<prefix>/Cellar/<formula>/<version>/bin/
 	n := len(parts)
+	if latest := miseLatest(parts, name, self); latest != "" {
+		return latest
+	}
 	if n < 4 || parts[n-1] != "bin" || parts[n-4] != "Cellar" {
 		return self
 	}
@@ -277,6 +280,29 @@ func stableTarget(self string) string {
 		return self
 	}
 	return opt
+}
+
+// miseLatest maps a mise install (.../installs/<tool>/<version>/...) to the
+// .../installs/<tool>/latest/... link mise maintains, so upgrades keep the gh
+// shim working. A mise shim cannot be the target: it dispatches on argv[0],
+// which is "gh" here. latest is the newest installed version, not necessarily
+// the one a mise.toml pins.
+func miseLatest(parts []string, name, self string) string {
+	for i := len(parts) - 3; i >= 1; i-- {
+		if parts[i] != "installs" || parts[i+2] == "latest" {
+			continue
+		}
+		rest := append([]string{string(filepath.Separator)}, parts[:i+2]...)
+		rest = append(rest, "latest")
+		rest = append(rest, parts[i+3:]...)
+		candidate := filepath.Join(append(rest, name)...)
+		a, err1 := os.Stat(candidate)
+		b, err2 := os.Stat(self)
+		if err1 == nil && err2 == nil && os.SameFile(a, b) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func replaceShim(path, self string, s shimState) error {

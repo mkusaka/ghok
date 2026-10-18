@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Fixed
+
+- `ghok shim install` from a mise install (`github:mkusaka/ghok`) points the gh shim at mise's `installs/<tool>/latest` link instead of the version directory, so `mise upgrade`/`mise prune` no longer leave gh on an old or deleted ghok.
+
 ## [v0.0.18] - 2026-10-17
 
 ### Breaking

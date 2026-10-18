@@ -296,3 +296,53 @@ func TestEnableHomebrewShimSurvivesUpgrade(t *testing.T) {
 		t.Fatalf("removed=%v err=%v", removed, err)
 	}
 }
+
+// A mise install points the gh shim at installs/<tool>/latest so upgrades and
+// `mise prune` keep working; a Homebrew Cellar install points at opt.
+func TestStableTargetMiseAndHomebrew(t *testing.T) {
+	root := t.TempDir()
+	mise := filepath.Join(root, "mise", "installs", "github-mkusaka-ghok")
+	exe := filepath.Join(mise, "0.0.18", "bin", "ghok")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := stableTarget(exe); got != exe {
+		t.Fatalf("without latest link: %s", got)
+	}
+	if err := os.Symlink("./0.0.18", filepath.Join(mise, "latest")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stableTarget(exe), filepath.Join(mise, "latest", "bin", "ghok"); got != want {
+		t.Fatalf("mise: got %s want %s", got, want)
+	}
+	// latest pointing at another version must not be used.
+	other := filepath.Join(mise, "0.0.17", "bin", "ghok")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("y"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := stableTarget(other); got != other {
+		t.Fatalf("stale latest used: %s", got)
+	}
+	cellar := filepath.Join(root, "brew", "Cellar", "ghok", "0.0.18", "bin", "ghok")
+	if err := os.MkdirAll(filepath.Dir(cellar), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cellar, []byte("z"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "brew", "opt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../Cellar/ghok/0.0.18", filepath.Join(root, "brew", "opt", "ghok")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stableTarget(cellar), filepath.Join(root, "brew", "opt", "ghok", "bin", "ghok"); got != want {
+		t.Fatalf("homebrew: got %s want %s", got, want)
+	}
+}

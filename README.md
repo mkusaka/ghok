@@ -147,6 +147,19 @@ The formula installs a prebuilt binary and depends on Homebrew's `gh`. Keep
 the shim working because it points at the stable `opt/ghok` path, not a Cellar
 version directory.
 
+### mise
+
+```sh
+mise use github:mkusaka/ghok        # or pin it in a project's mise.toml
+ghok shim install
+```
+
+For a mise install the shim points at mise's `installs/github-mkusaka-ghok/latest`
+link, so `mise upgrade` and `mise prune` keep it working. `latest` is the newest
+installed version, not necessarily the one a `mise.toml` pins; use
+`ghok shell-init` if each project must use its pinned version. The shim cannot
+point at a mise shim, because mise picks the tool by the invoked name (`gh`).
+
 ### Linux / WSL
 
 Homebrew on Linux uses the same formula: `brew install mkusaka/tap/ghok`.
