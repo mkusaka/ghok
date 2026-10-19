@@ -432,7 +432,7 @@ Only `invocation.via` changes to `exec`, also recorded in JSONL logs.
 Hook phase is configured `pre`/`post`, not a match property. Match criteria are
 AND; entries within each list are OR; operation/effect/repository/host criteria
 must hold on the same operation. Match fields: operation action globs, command
-path prefixes, repositories, hosts, effect, level. Dots are ordinary glob
+path prefixes, repositories, hosts, effect, level, parameters. Dots are ordinary glob
 characters: `pr.merge.*` includes multi-segment descendants; `pr.merge` is exact.
 Repository/host globs are case-insensitive; repository `org/*` does not span `/`.
 Command prefixes are token-delimited, using alias-expanded argv and canonical
@@ -468,6 +468,31 @@ policy:
       match: {token: app, operation: ["pr.*", "issue.*"], effect: write}
       decision: deny
       reason: PR/issue writes must be authored by you, not the GitHub App
+```
+
+`parameters: {name: "value-glob"}` matches normalized operation parameters (keys
+as in [normalization.md](normalization.md), e.g. `watch` for `pr checks
+--watch`) on the same operation as the other per-operation criteria. Scalars
+compare by their text (`true`, `42`); globs, `"*"` and `""` work as for `env`.
+Arrays and objects only satisfy `"*"`.
+
+`unless` is a list of matches next to `match` on rules, hooks and transforms.
+An operation that any entry matches definitively is excluded from `match`;
+a maybe-match (unresolved repository/host, or post-hook `result`/`exitCode`
+before gh has finished) never excludes, so selection stays conservative. An entry without per-operation criteria (only `command`, `env`,
+`token`, `level`, `result`, `exitCode`) excludes the whole invocation. Empty
+entries are rejected.
+
+```yaml
+transforms:
+  pre:
+    - id: gain-token-read
+      match: {effect: read, env: {GH_TOKEN: ""}}
+      unless:
+        - operation: run.watch            # long-running: App tokens expire
+        - operation: pr.checks
+          parameters: {watch: "true"}
+      command: ["./transforms/gain-token"]
 ```
 
 Post hooks may also filter on how the real gh finished (rules and pre hooks
@@ -621,7 +646,7 @@ implementation evidence: [hooks/policy notes](notes/hooks-policy.md),
 Transforms are trusted executables, not hook decisions. Configure `transforms.pre`
 as a list; user entries run first, then trusted project entries, serially. Each is
 matched against the current request after the preceding successful edit. IDs share
-one namespace with pre/post hooks. Supported keys are `id`, `match`, `command`,
+one namespace with pre/post hooks. Supported keys are `id`, `match`, `unless`, `command`,
 `env`, `timeout` (default `5s`, maximum `10m`; token minting may need `15s`), `onError` (`deny`, default, or `allow`),
 `redactInput`, and project-only `files`. Scheduling/dependency keys (`parallel`,
 `background`, `wait`, `wait-all`, `dependsOn`), `optional`, and `captureOutput`

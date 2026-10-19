@@ -58,9 +58,9 @@ func (r *Runner) Select(phase string, s policy.Subject) []config.Hook {
 		if h.Phase != phase || h.Enabled != nil && !*h.Enabled {
 			continue
 		}
-		yes, _ := policy.Matches(h.Match, s)
+		yes, _ := policy.Matches(h.Match, h.Unless, s)
 		if !yes {
-			yes, _ = policy.MatchMaybe(h.Match, s)
+			yes, _ = policy.MatchMaybe(h.Match, h.Unless, s)
 		}
 		if yes {
 			selected = append(selected, h)

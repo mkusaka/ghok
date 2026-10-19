@@ -141,7 +141,7 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		matched := false
 		decision := handling(rule.Decision, config.UnknownAllow)
 		if len(s.Result.Operations) == 0 {
-			if yes, _ := Matches(rule.Match, s); yes {
+			if yes, _ := Matches(rule.Match, rule.Unless, s); yes {
 				matched = true
 				e.Decision = merge(e.Decision, decision)
 				e.Reasons = append(e.Reasons, "rule "+rule.ID+": "+rule.Reason)
@@ -153,7 +153,7 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		}
 		for i, op := range s.Result.Operations {
 			yes, maybe := opMatch(rule.Match, s, op)
-			if !yes || maybe && rule.OnUnresolved == config.OnErrorIgnore {
+			if !yes || maybe && rule.OnUnresolved == config.OnErrorIgnore || excluded(rule.Unless, s, &op) {
 				continue
 			}
 			matched = true

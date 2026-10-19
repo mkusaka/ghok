@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -51,6 +52,15 @@ func (c *Config) Validate() error {
 				add(key, "invalid glob: "+err.Error())
 			}
 		}
+		for name, pattern := range m.Parameters {
+			key := fmt.Sprintf("%s.parameters[%q]", p, name)
+			if name == "" {
+				add(key, "parameter name must not be empty")
+			}
+			if _, err := path.Match(pattern, ""); err != nil {
+				add(key, "invalid glob: "+err.Error())
+			}
+		}
 		for i, v := range m.Effects {
 			enum(fmt.Sprintf("%s.effect[%d]", p, i), v, "read", "write", "unknown")
 		}
@@ -78,6 +88,25 @@ func (c *Config) Validate() error {
 			add(p+".exitCode", "allowed only for post hooks")
 		}
 	}
+	// unless entries are full matches; an empty entry would exclude everything.
+	unless := func(p string, entries []Match, post bool) {
+		for i, m := range entries {
+			key := fmt.Sprintf("%s.unless[%d]", p, i)
+			// Len, not IsZero/DeepEqual: `env: {}` decodes to an empty, non-nil map.
+			// Every Match field is a slice or map; a scalar field would panic here.
+			v, empty := reflect.ValueOf(m), true
+			for f := range v.NumField() {
+				empty = empty && v.Field(f).Len() == 0
+			}
+			if empty {
+				add(key, "must have at least one criterion")
+			}
+			match(key, m)
+			if !post {
+				outcomeOnlyPost(key, m)
+			}
+		}
+	}
 	if c.Version != DefaultVersion {
 		add("version", "must be 1")
 	}
@@ -102,6 +131,7 @@ func (c *Config) Validate() error {
 		}
 		match(p+".match", r.Match)
 		outcomeOnlyPost(p+".match", r.Match)
+		unless(p, r.Unless, false)
 	}
 	hooks := map[string]int{}
 	for i, h := range c.Hooks {
@@ -138,6 +168,7 @@ func (c *Config) Validate() error {
 		if h.Phase != PhasePost {
 			outcomeOnlyPost(p+".match", h.Match)
 		}
+		unless(p, h.Unless, h.Phase == PhasePost)
 	}
 	// Dependencies must point backwards, so config order is already a valid
 	// execution order and no cycle can form.
@@ -175,6 +206,7 @@ func (c *Config) Validate() error {
 		}
 		match(p+".match", t.Match)
 		outcomeOnlyPost(p+".match", t.Match)
+		unless(p, t.Unless, false)
 	}
 	for _, limit := range []struct {
 		p string

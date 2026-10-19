@@ -84,9 +84,9 @@ func evaluateConfig(c *config.Config, subject policy.Subject) policy.Evaluation 
 		if !h.GateBlocked {
 			continue
 		}
-		yes, _ := policy.Matches(h.Match, subject)
+		yes, _ := policy.Matches(h.Match, h.Unless, subject)
 		if !yes {
-			yes, _ = policy.MatchMaybe(h.Match, subject)
+			yes, _ = policy.MatchMaybe(h.Match, h.Unless, subject)
 		}
 		if !yes {
 			continue

@@ -540,21 +540,27 @@ func operationPatternWarnings(c *config.Config) []string {
 		return nil
 	}
 	var warnings []string
-	check := func(location string, m config.Match) {
-		for i, pattern := range m.Operations {
-			if !normalize.KnownActionPattern(pattern) {
-				warnings = append(warnings, fmt.Sprintf("warning: %s.match.operation[%d]: pattern %q matches no known action", location, i, pattern))
+	check := func(location string, m config.Match, unless []config.Match) {
+		ops := func(field string, m config.Match) {
+			for i, pattern := range m.Operations {
+				if !normalize.KnownActionPattern(pattern) {
+					warnings = append(warnings, fmt.Sprintf("warning: %s.%s.operation[%d]: pattern %q matches no known action", location, field, i, pattern))
+				}
 			}
+		}
+		ops("match", m)
+		for i, u := range unless {
+			ops(fmt.Sprintf("unless[%d]", i), u)
 		}
 	}
 	for i, rule := range c.Policy.Rules {
-		check(fmt.Sprintf("policy.rules[%d] (%s)", i, rule.ID), rule.Match)
+		check(fmt.Sprintf("policy.rules[%d] (%s)", i, rule.ID), rule.Match, rule.Unless)
 	}
 	for i, hook := range c.Hooks {
-		check(fmt.Sprintf("hooks[%d] (%s)", i, hook.ID), hook.Match)
+		check(fmt.Sprintf("hooks[%d] (%s)", i, hook.ID), hook.Match, hook.Unless)
 	}
 	for i, hook := range c.IgnoredHooks {
-		check(fmt.Sprintf("ignoredHooks[%d] (%s)", i, hook.ID), hook.Match)
+		check(fmt.Sprintf("ignoredHooks[%d] (%s)", i, hook.ID), hook.Match, hook.Unless)
 	}
 	return warnings
 }

@@ -47,9 +47,9 @@ func runTransforms(ctx context.Context, c *config.Config, runner *hooks.Runner, 
 	}
 	for _, t := range c.Transforms {
 		subject := policy.Subject{Result: out.result, Argv: out.result.Source.Argv, Phase: config.PhasePre, Token: policy.TokenKind(out.invocation.Env), Env: out.invocation.Env}
-		yes, _ := policy.Matches(t.Match, subject)
+		yes, _ := policy.Matches(t.Match, t.Unless, subject)
 		if !yes {
-			yes, _ = policy.MatchMaybe(t.Match, subject)
+			yes, _ = policy.MatchMaybe(t.Match, t.Unless, subject)
 		}
 		if !yes {
 			continue

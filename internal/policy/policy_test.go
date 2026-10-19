@@ -70,19 +70,19 @@ func TestMatchingCriteria(t *testing.T) {
 		{"AND", config.Match{Operations: config.StringList{"pr.merge.*"}, Effects: config.StringList{"read"}}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, indices := Matches(c.match, s)
+			got, indices := Matches(c.match, nil, s)
 			if got != c.want || got && !reflect.DeepEqual(indices, []int{0}) {
 				t.Fatalf("got %v %v", got, indices)
 			}
 		})
 	}
 	s.Result.Operations = append(s.Result.Operations, operation("pr.review.approve", "other/repo", model.EffectWrite))
-	if yes, _ := Matches(config.Match{Operations: config.StringList{"pr.merge.*"}, Repositories: config.StringList{"other/*"}}, s); yes {
+	if yes, _ := Matches(config.Match{Operations: config.StringList{"pr.merge.*"}, Repositories: config.StringList{"other/*"}}, nil, s); yes {
 		t.Fatal("criteria matched across different operations")
 	}
 	s.Argv = []string{"-R", "org/repo", "pr", "merge"}
 	s.Result.Operations[0].Origin.Command = []string{"pr", "merge"}
-	if yes, _ := Matches(config.Match{Commands: config.StringList{"pr merge"}}, s); !yes {
+	if yes, _ := Matches(config.Match{Commands: config.StringList{"pr merge"}}, nil, s); !yes {
 		t.Fatal("normalized command origin not used")
 	}
 }
@@ -93,10 +93,10 @@ func TestUnresolvedMatchingAndExecution(t *testing.T) {
 		op := operation("pr.merge.direct", "", model.EffectWrite)
 		op.Execution = execution
 		s := subject(op)
-		if yes, _ := Matches(m, s); yes {
+		if yes, _ := Matches(m, nil, s); yes {
 			t.Fatal("unresolved target asserted definite")
 		}
-		maybe, indices := MatchMaybe(m, s)
+		maybe, indices := MatchMaybe(m, nil, s)
 		want := execution != model.ExecutionSkipped && execution != model.ExecutionNotSelected
 		if maybe != want || maybe && !reflect.DeepEqual(indices, []int{0}) {
 			t.Fatalf("%s: %v %v", execution, maybe, indices)
@@ -105,26 +105,26 @@ func TestUnresolvedMatchingAndExecution(t *testing.T) {
 	op := operation("pr.merge.direct", "", model.EffectWrite)
 	s := subject(op)
 	s.Context = &model.ResolvedContext{Repository: "org/repo"}
-	if yes, _ := Matches(m, s); !yes {
+	if yes, _ := Matches(m, nil, s); !yes {
 		t.Fatal("implicit target did not use resolved context")
 	}
 	s.Result.Operations[0].Target.NodeID = "PR_node"
-	if yes, _ := MatchMaybe(m, s); !yes {
+	if yes, _ := MatchMaybe(m, nil, s); !yes {
 		t.Fatal("node target borrowed current repository")
 	}
 	s.Result.Operations[0].Target.NodeID = ""
 	s.Result.Operations[0].Unresolved = []model.Unresolved{{Field: "target.repository", Reason: "variable unknown"}}
-	if yes, _ := MatchMaybe(m, s); !yes {
+	if yes, _ := MatchMaybe(m, nil, s); !yes {
 		t.Fatal("explicit unresolved target borrowed current repository")
 	}
 	s.Result.Operations[0].Target.Host = "ghe.example"
-	if yes, _ := MatchMaybe(m, s); yes {
+	if yes, _ := MatchMaybe(m, nil, s); yes {
 		t.Fatal("known host mismatch cannot maybe match")
 	}
-	if yes, _ := Matches(config.Match{}, Subject{}); !yes {
+	if yes, _ := Matches(config.Match{}, nil, Subject{}); !yes {
 		t.Fatal("invocation-only selection with no operations")
 	}
-	if yes, _ := Matches(config.Match{Effects: config.StringList{"write"}}, Subject{}); yes {
+	if yes, _ := Matches(config.Match{Effects: config.StringList{"write"}}, nil, Subject{}); yes {
 		t.Fatal("no operations matched write")
 	}
 }
@@ -364,5 +364,66 @@ func TestDenialProvenance(t *testing.T) {
 		if len(fields) != 7 || fields["denials"] != nil || fields["Denials"] != nil {
 			t.Fatalf("provenance changed serialized policy contract: %s", body)
 		}
+	}
+}
+
+func TestUnlessAndParameters(t *testing.T) {
+	watch := model.Operation{Action: "pr.checks", Effect: model.EffectRead, Execution: model.ExecutionWillRun, Target: model.Target{Repository: "org/repo"}, Parameters: map[string]any{"watch": true}}
+	checks := watch
+	checks.Parameters = nil
+	runWatch := model.Operation{Action: "run.watch", Effect: model.EffectRead, Execution: model.ExecutionWillRun}
+	read := config.Match{Effects: config.StringList{"read"}}
+	unless := []config.Match{{Operations: config.StringList{"run.watch"}}, {Operations: config.StringList{"pr.checks"}, Parameters: map[string]string{"watch": "true"}}}
+	for _, c := range []struct {
+		name   string
+		match  config.Match
+		unless []config.Match
+		ops    []model.Operation
+		want   []int
+	}{
+		{"parameter match", config.Match{Parameters: map[string]string{"watch": "true"}}, nil, []model.Operation{watch, checks}, []int{0}},
+		{"parameter absent", config.Match{Parameters: map[string]string{"watch": ""}}, nil, []model.Operation{watch, checks}, []int{1}},
+		{"parameter present", config.Match{Parameters: map[string]string{"watch": "*"}}, nil, []model.Operation{watch, checks}, []int{0}},
+		{"unless excludes", read, unless, []model.Operation{watch, checks, runWatch}, []int{1}},
+		{"unless repo excludes", read, []config.Match{{Repositories: config.StringList{"org/*"}}}, []model.Operation{watch, runWatch}, []int{1}},
+		{"unless invocation-only", read, []config.Match{{Commands: config.StringList{"api"}}}, []model.Operation{watch}, nil},
+	} {
+		s := subject(c.ops...)
+		if _, got := Matches(c.match, c.unless, s); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	// An unresolved unless target never excludes: runWatch stays selected.
+	s := subject(runWatch)
+	if _, got := Matches(read, []config.Match{{Repositories: config.StringList{"org/*"}}}, s); !reflect.DeepEqual(got, []int{0}) {
+		t.Errorf("maybe unless excluded: %v", got)
+	}
+	if repo, _ := UnlessMaybe([]config.Match{{Repositories: config.StringList{"org/*"}}}, s, 0); !repo {
+		t.Error("UnlessMaybe should request repository resolution")
+	}
+	// Without operations, only invocation-only unless entries exclude.
+	if yes, _ := Matches(config.Match{}, []config.Match{{Operations: config.StringList{"*"}}}, Subject{}); !yes {
+		t.Error("operation unless excluded an invocation without operations")
+	}
+	if yes, _ := Matches(config.Match{}, []config.Match{{Tokens: config.StringList{TokenNone}}}, Subject{}); yes {
+		t.Error("invocation unless did not exclude")
+	}
+	// Outcome criteria exclude only once gh has finished.
+	failure := []config.Match{{Results: config.StringList{config.ResultFailure}}}
+	if yes, _ := Matches(read, failure, subject(runWatch)); !yes {
+		t.Error("outcome unless excluded before gh ran")
+	}
+	post := subject(runWatch)
+	post.Outcome = &protocol.ExecResult{ExitCode: 1}
+	if yes, _ := Matches(read, failure, post); yes {
+		t.Error("outcome unless did not exclude a failure")
+	}
+	// Rules skip excluded operations.
+	p := config.Policy{Mode: config.ModeEnforce, Rules: []config.Rule{{ID: "r", Match: read, Unless: unless, Decision: "deny"}}}
+	if e := Evaluate(p, subject(watch, checks)); len(e.Denials) != 1 || !strings.Contains(e.Denials[0].Reason, "pr.checks") {
+		t.Errorf("rule denials: %+v", e.Denials)
+	}
+	if e := Evaluate(p, subject(watch)); e.Decision != protocol.DecisionAllow {
+		t.Errorf("excluded rule decision: %v", e.Decision)
 	}
 }

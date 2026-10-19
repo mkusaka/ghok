@@ -61,11 +61,12 @@ type Policy struct {
 }
 
 type Rule struct {
-	ID           string `yaml:"id" json:"id" required:"true"`
-	Match        Match  `yaml:"match" json:"match"`
-	Decision     string `yaml:"decision" json:"decision" enum:"deny,audit,warn" required:"true"` // warn annotates allow; cannot override deny or audit
-	Reason       string `yaml:"reason" json:"reason"`
-	OnUnresolved string `yaml:"onUnresolved,omitempty" json:"onUnresolved,omitempty" enum:"deny,ignore" doc:"deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match."`
+	ID           string  `yaml:"id" json:"id" required:"true"`
+	Match        Match   `yaml:"match" json:"match"`
+	Unless       []Match `yaml:"unless" json:"unless,omitempty" doc:"Operations matching any entry definitely (not only maybe) are excluded from match."`
+	Decision     string  `yaml:"decision" json:"decision" enum:"deny,audit,warn" required:"true"` // warn annotates allow; cannot override deny or audit
+	Reason       string  `yaml:"reason" json:"reason"`
+	OnUnresolved string  `yaml:"onUnresolved,omitempty" json:"onUnresolved,omitempty" enum:"deny,ignore" doc:"deny (default): conservatively apply this rule when repository/host criteria are unresolved; ignore: skip that maybe-match."`
 }
 
 // Match selects operations/invocations. All non-empty criteria must match
@@ -86,6 +87,8 @@ type Match struct {
 	// GH_TOKEN/GITHUB_TOKEN prefix (the token itself is never recorded).
 	Tokens StringList        `yaml:"token" json:"token,omitempty" enum:"app,user,unknown,none" doc:"Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login)."`
 	Env    map[string]string `yaml:"env" json:"env,omitempty" doc:"Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary."`
+	// Parameters match normalized operation parameters on the same operation.
+	Parameters map[string]string `yaml:"parameters" json:"parameters,omitempty" doc:"Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty."`
 }
 
 // Match.Results values.
@@ -112,6 +115,7 @@ type Hook struct {
 	// Phase comes from the hooks.pre/hooks.post list holding the hook.
 	Phase           string            `yaml:"-" json:"phase" enum:"pre,post"`
 	Match           Match             `yaml:"match" json:"match"`
+	Unless          []Match           `yaml:"unless" json:"unless,omitempty" doc:"Operations matching any entry definitely (not only maybe) are excluded from match."`
 	Command         []string          `yaml:"command" json:"command" required:"true" doc:"Executable and arguments; relative paths resolve against the config file directory."` // argv; relative paths resolve against Config.Dir
 	Env             map[string]string `yaml:"env" json:"env,omitempty"`
 	Timeout         Duration          `yaml:"timeout" json:"timeout" doc:"Go duration, e.g. 10s."` // default 10s

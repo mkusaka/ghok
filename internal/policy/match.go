@@ -2,6 +2,8 @@
 package policy
 
 import (
+	"encoding/json"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -159,8 +161,36 @@ func targetValues(op model.Operation, ctx *model.ResolvedContext) (repo, host st
 	return
 }
 
+// parametersMatch applies match.parameters to scalar operation parameters
+// using env-style globs; non-scalar values only satisfy "*".
+func parametersMatch(m config.Match, op model.Operation) bool {
+	for name, pattern := range m.Parameters {
+		var text string
+		switch v := op.Parameters[name].(type) {
+		case nil:
+		case string:
+			text = v
+		case bool, int, int64, float64, json.Number:
+			text = fmt.Sprint(v)
+		default:
+			if pattern != "*" {
+				return false
+			}
+			continue
+		}
+		if pattern == "*" {
+			if text == "" {
+				return false
+			}
+		} else if ok, err := path.Match(pattern, text); err != nil || !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func opMatch(m config.Match, s Subject, op model.Operation) (yes, maybe bool) {
-	if !considered(op) || !anyMatch(m.Operations, op.Action, MatchAction) || !anyMatch(m.Effects, string(op.Effect), exact) {
+	if !considered(op) || !anyMatch(m.Operations, op.Action, MatchAction) || !anyMatch(m.Effects, string(op.Effect), exact) || !parametersMatch(m, op) {
 		return false, false
 	}
 	repo, host := targetValues(op, s.Context)
@@ -181,14 +211,38 @@ func opMatch(m config.Match, s Subject, op model.Operation) (yes, maybe bool) {
 	return true, maybe
 }
 
-func matches(m config.Match, s Subject, wantMaybe bool) (bool, []int) {
+// invocationOnly reports whether m has no per-operation criteria.
+func invocationOnly(m config.Match) bool {
+	return len(m.Operations)+len(m.Effects)+len(m.Repositories)+len(m.Hosts)+len(m.Parameters) == 0
+}
+
+// excluded reports whether an unless entry definitely matches op (nil: an
+// invocation without operations). Maybe-matches never exclude, so unresolved
+// targets and outcome criteria before gh has run keep the selection.
+func excluded(unless []config.Match, s Subject, op *model.Operation) bool {
+	for _, u := range unless {
+		if s.Outcome == nil && len(u.Results)+len(u.ExitCodes) > 0 || !invocationMatches(u, s) {
+			continue
+		}
+		if op == nil {
+			if invocationOnly(u) {
+				return true
+			}
+		} else if yes, maybe := opMatch(u, s, *op); yes && !maybe {
+			return true
+		}
+	}
+	return false
+}
+
+func matches(m config.Match, unless []config.Match, s Subject, wantMaybe bool) (bool, []int) {
 	if !invocationMatches(m, s) {
 		return false, nil
 	}
 	var indices []int
 	for i, op := range s.Result.Operations {
 		yes, maybe := opMatch(m, s, op)
-		if yes && maybe == wantMaybe {
+		if yes && maybe == wantMaybe && !excluded(unless, s, &op) {
 			indices = append(indices, i)
 		}
 	}
@@ -196,15 +250,31 @@ func matches(m config.Match, s Subject, wantMaybe bool) (bool, []int) {
 		return true, indices
 	}
 	// Invocation-only hooks can run when a mutation-free result has no ops.
-	if !wantMaybe && len(s.Result.Operations) == 0 && len(m.Operations)+len(m.Effects)+len(m.Repositories)+len(m.Hosts) == 0 {
+	if !wantMaybe && len(s.Result.Operations) == 0 && invocationOnly(m) && !excluded(unless, s, nil) {
 		return true, nil
 	}
 	return false, nil
 }
 
-// Matches returns definite matches only. Criteria must hold on the same op.
-func Matches(m config.Match, s Subject) (bool, []int) { return matches(m, s, false) }
+// Matches returns definite matches only, minus operations excluded by unless.
+// Criteria must hold on the same op.
+func Matches(m config.Match, unless []config.Match, s Subject) (bool, []int) {
+	return matches(m, unless, s, false)
+}
 
 // MatchMaybe returns only candidates whose repo/host criteria are unresolved.
 // Use together with Matches for conservative, fail-closed selection.
-func MatchMaybe(m config.Match, s Subject) (bool, []int) { return matches(m, s, true) }
+func MatchMaybe(m config.Match, unless []config.Match, s Subject) (bool, []int) {
+	return matches(m, unless, s, true)
+}
+
+// UnlessMaybe reports whether an unless entry maybe-matches operation index:
+// resolving its repository/host could exclude the operation.
+func UnlessMaybe(unless []config.Match, s Subject, index int) (repo, host bool) {
+	for _, u := range unless {
+		if _, indexes := MatchMaybe(u, nil, s); slices.Contains(indexes, index) {
+			repo, host = repo || len(u.Repositories) > 0, host || len(u.Hosts) > 0
+		}
+	}
+	return
+}

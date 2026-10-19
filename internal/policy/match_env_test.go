@@ -36,13 +36,13 @@ func TestMatchInvocationEnvironment(t *testing.T) {
 			s := subject(operation("pr.merge.direct", "org/repo", model.EffectWrite))
 			s.Env = tc.env
 			m := config.Match{Env: tc.pattern, Operations: config.StringList{"pr.merge.*"}}
-			if got, _ := Matches(m, s); got != tc.want {
+			if got, _ := Matches(m, nil, s); got != tc.want {
 				t.Fatalf("Matches=%t, want %t", got, tc.want)
 			}
 			// Unknown targets must not bypass invocation-level criteria.
 			m.Repositories = config.StringList{"org/*"}
 			s.Result.Operations[0].Target.Repository = ""
-			if got, _ := MatchMaybe(m, s); got != tc.want {
+			if got, _ := MatchMaybe(m, nil, s); got != tc.want {
 				t.Fatalf("MatchMaybe=%t, want %t", got, tc.want)
 			}
 		})

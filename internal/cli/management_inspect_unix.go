@@ -206,6 +206,9 @@ func managementHooksList(asJSON bool) int {
 		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  source: "+h.Source)))
 		_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  command: "+managementCompact(h.Command))))
 		managementPrintMatch(os.Stdout, "  ", h.Match, r)
+		if len(h.Unless) != 0 {
+			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  unless: "+managementCompact(h.Unless))))
+		}
 		if len(h.DependsOn) != 0 {
 			_, _ = fmt.Fprintln(os.Stdout, terminalText(r.String("  dependsOn: "+strings.Join(h.DependsOn, ", "))))
 		}

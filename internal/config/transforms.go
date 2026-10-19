@@ -15,6 +15,7 @@ const DefaultTransformTimeout = 5 * time.Second
 type Transform struct {
 	ID          string            `yaml:"id" json:"id" required:"true"`
 	Match       Match             `yaml:"match" json:"match"`
+	Unless      []Match           `yaml:"unless" json:"unless,omitempty" doc:"Operations matching any entry definitely (not only maybe) are excluded from match."`
 	Command     []string          `yaml:"command" json:"command" required:"true"`
 	Env         map[string]string `yaml:"env" json:"env,omitempty"`
 	Timeout     Duration          `yaml:"timeout" json:"timeout"`
@@ -94,7 +95,7 @@ func (l *TransformList) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func (t Transform) hook() Hook {
-	return Hook{ID: t.ID, Phase: "transform", Match: t.Match, Command: t.Command, Env: t.Env, Timeout: t.Timeout, OnError: t.OnError, RedactInput: t.RedactInput, Files: t.Files, Source: t.Source}
+	return Hook{ID: t.ID, Phase: "transform", Match: t.Match, Unless: t.Unless, Command: t.Command, Env: t.Env, Timeout: t.Timeout, OnError: t.OnError, RedactInput: t.RedactInput, Files: t.Files, Source: t.Source}
 }
 
 // trustHooks shares the per-command content trust machinery without making

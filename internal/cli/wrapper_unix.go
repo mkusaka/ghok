@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -405,13 +406,15 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 		}
 		s.Result = model.NewUnknown(level, model.UnknownInputUnavailable, "stdin not captured")
 	}
+	// unless is ignored here: excluding by an unknown api request's operations
+	// could skip the full pipeline, so the fast path stays conservative.
 	couldMatch := func(m config.Match) bool {
 		if api {
-			m.Operations, m.Effects = nil, nil
+			m.Operations, m.Effects, m.Parameters = nil, nil, nil
 		}
-		yes, _ := policy.Matches(m, s)
+		yes, _ := policy.Matches(m, nil, s)
 		if !yes {
-			yes, _ = policy.MatchMaybe(m, s)
+			yes, _ = policy.MatchMaybe(m, nil, s)
 		}
 		return yes
 	}
@@ -488,22 +491,32 @@ func needsLocal(c *config.Config, s policy.Subject) bool {
 			}
 		}
 	}
-	relevant := func(m config.Match) bool {
-		maybe, _ := policy.MatchMaybe(m, s)
-		return maybe
+	// Resolving also matters when only an unless entry is unresolved for a
+	// selected operation: the resolved target could exclude it.
+	relevant := func(m config.Match, unless []config.Match) bool {
+		if maybe, _ := policy.MatchMaybe(m, unless, s); maybe {
+			return true
+		}
+		_, indexes := policy.Matches(m, unless, s)
+		for _, i := range indexes {
+			if repo, host := policy.UnlessMaybe(unless, s, i); repo || host {
+				return true
+			}
+		}
+		return false
 	}
 	for _, rule := range c.Policy.Rules {
-		if relevant(rule.Match) {
+		if relevant(rule.Match, rule.Unless) {
 			return true
 		}
 	}
 	for _, h := range c.Hooks {
-		if (h.Enabled == nil || *h.Enabled) && relevant(h.Match) {
+		if (h.Enabled == nil || *h.Enabled) && relevant(h.Match, h.Unless) {
 			return true
 		}
 	}
 	for _, h := range c.IgnoredHooks {
-		if h.GateBlocked && relevant(h.Match) {
+		if h.GateBlocked && relevant(h.Match, h.Unless) {
 			return true
 		}
 	}
@@ -523,29 +536,28 @@ func resolutionNeeds(c *config.Config, s policy.Subject, index int) []string {
 	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
 		repo = true
 	}
-	match := func(m config.Match) {
-		maybe, indexes := policy.MatchMaybe(m, s)
-		if !maybe {
+	match := func(m config.Match, unless []config.Match) {
+		if _, indexes := policy.MatchMaybe(m, unless, s); slices.Contains(indexes, index) {
+			repo = repo || len(m.Repositories) > 0 && unresolvedTarget(op, "target.repository")
+			host = host || len(m.Hosts) > 0 && unresolvedTarget(op, "target.host")
+		} else if _, indexes = policy.Matches(m, unless, s); !slices.Contains(indexes, index) {
 			return
 		}
-		for _, i := range indexes {
-			if i == index {
-				repo = repo || len(m.Repositories) > 0 && unresolvedTarget(op, "target.repository")
-				host = host || len(m.Hosts) > 0 && unresolvedTarget(op, "target.host")
-			}
-		}
+		unlessRepo, unlessHost := policy.UnlessMaybe(unless, s, index)
+		repo = repo || unlessRepo && unresolvedTarget(op, "target.repository")
+		host = host || unlessHost && unresolvedTarget(op, "target.host")
 	}
 	for _, rule := range c.Policy.Rules {
-		match(rule.Match)
+		match(rule.Match, rule.Unless)
 	}
 	for _, h := range c.Hooks {
 		if h.Enabled == nil || *h.Enabled {
-			match(h.Match)
+			match(h.Match, h.Unless)
 		}
 	}
 	for _, h := range c.IgnoredHooks {
 		if h.GateBlocked {
-			match(h.Match)
+			match(h.Match, h.Unless)
 		}
 	}
 	var need []string

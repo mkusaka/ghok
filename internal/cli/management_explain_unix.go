@@ -59,7 +59,7 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 			present[h.ID] = true
 		}
 		for i, h := range selected {
-			yes, _ := policy.Matches(h.Match, a.subject(phase))
+			yes, _ := policy.Matches(h.Match, h.Unless, a.subject(phase))
 			fmt.Fprintf(&output, "    %s: order=%d", display(h.ID), i+1)
 			if !yes {
 				fmt.Fprint(&output, " (maybe-match: repository or host unresolved)")
@@ -113,8 +113,8 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 	} else {
 		fmt.Fprintln(&output, "  Matched rules:")
 		for _, rule := range a.config.Policy.Rules {
-			yes, indexes := policy.Matches(rule.Match, a.subject(""))
-			maybe, candidates := policy.MatchMaybe(rule.Match, a.subject(""))
+			yes, indexes := policy.Matches(rule.Match, rule.Unless, a.subject(""))
+			maybe, candidates := policy.MatchMaybe(rule.Match, rule.Unless, a.subject(""))
 			if yes || maybe {
 				fmt.Fprintln(&output, display(fmt.Sprintf("    %s: decision=%s match=%t operations=%v maybe-match=%t maybe-operations=%v", rule.ID, rule.Decision, yes, indexes, maybe, candidates)))
 			}

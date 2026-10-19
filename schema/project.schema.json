@@ -165,6 +165,13 @@
                           }
                         ]
                       },
+                      "parameters": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                        "type": "object"
+                      },
                       "repositories": {
                         "description": "owner/repo globs (case-insensitive).",
                         "oneOf": [
@@ -253,6 +260,189 @@
                     "description": "Go duration, e.g. 10s.",
                     "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                     "type": "string"
+                  },
+                  "unless": {
+                    "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "command": {
+                          "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "effect": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "read",
+                                "write",
+                                "unknown"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "read",
+                                  "write",
+                                  "unknown"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                          "type": "object"
+                        },
+                        "exitCode": {
+                          "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        },
+                        "hosts": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "level": {
+                          "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "L1",
+                                "L2",
+                                "L3",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "L1",
+                                  "L2",
+                                  "L3",
+                                  "none"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "operation": {
+                          "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "parameters": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                          "type": "object"
+                        },
+                        "repositories": {
+                          "description": "owner/repo globs (case-insensitive).",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "result": {
+                          "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "success",
+                                "failure"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "success",
+                                  "failure"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "token": {
+                          "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "app",
+                                "user",
+                                "unknown",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "app",
+                                  "user",
+                                  "unknown",
+                                  "none"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
                   }
                 },
                 "required": [
@@ -421,6 +611,13 @@
                                 }
                               ]
                             },
+                            "parameters": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                              "type": "object"
+                            },
                             "repositories": {
                               "description": "owner/repo globs (case-insensitive).",
                               "oneOf": [
@@ -509,6 +706,189 @@
                           "description": "Go duration, e.g. 10s.",
                           "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                           "type": "string"
+                        },
+                        "unless": {
+                          "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "command": {
+                                "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "effect": {
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "read",
+                                      "write",
+                                      "unknown"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "read",
+                                        "write",
+                                        "unknown"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "env": {
+                                "additionalProperties": {
+                                  "type": "string"
+                                },
+                                "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                                "type": "object"
+                              },
+                              "exitCode": {
+                                "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                                "items": {
+                                  "type": "integer"
+                                },
+                                "type": "array"
+                              },
+                              "hosts": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "level": {
+                                "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "L1",
+                                      "L2",
+                                      "L3",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "L1",
+                                        "L2",
+                                        "L3",
+                                        "none"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "operation": {
+                                "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "parameters": {
+                                "additionalProperties": {
+                                  "type": "string"
+                                },
+                                "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                                "type": "object"
+                              },
+                              "repositories": {
+                                "description": "owner/repo globs (case-insensitive).",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "result": {
+                                "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "success",
+                                      "failure"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "success",
+                                        "failure"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "token": {
+                                "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "app",
+                                      "user",
+                                      "unknown",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "app",
+                                        "user",
+                                        "unknown",
+                                        "none"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
                         }
                       },
                       "required": [
@@ -725,6 +1105,13 @@
                           }
                         ]
                       },
+                      "parameters": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                        "type": "object"
+                      },
                       "repositories": {
                         "description": "owner/repo globs (case-insensitive).",
                         "oneOf": [
@@ -813,6 +1200,189 @@
                     "description": "Go duration, e.g. 10s.",
                     "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                     "type": "string"
+                  },
+                  "unless": {
+                    "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "command": {
+                          "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "effect": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "read",
+                                "write",
+                                "unknown"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "read",
+                                  "write",
+                                  "unknown"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                          "type": "object"
+                        },
+                        "exitCode": {
+                          "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        },
+                        "hosts": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "level": {
+                          "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "L1",
+                                "L2",
+                                "L3",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "L1",
+                                  "L2",
+                                  "L3",
+                                  "none"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "operation": {
+                          "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "parameters": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                          "type": "object"
+                        },
+                        "repositories": {
+                          "description": "owner/repo globs (case-insensitive).",
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "result": {
+                          "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "success",
+                                "failure"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "success",
+                                  "failure"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "token": {
+                          "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "app",
+                                "user",
+                                "unknown",
+                                "none"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "items": {
+                                "enum": [
+                                  "app",
+                                  "user",
+                                  "unknown",
+                                  "none"
+                                ],
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
                   }
                 },
                 "required": [
@@ -981,6 +1551,13 @@
                                 }
                               ]
                             },
+                            "parameters": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                              "type": "object"
+                            },
                             "repositories": {
                               "description": "owner/repo globs (case-insensitive).",
                               "oneOf": [
@@ -1069,6 +1646,189 @@
                           "description": "Go duration, e.g. 10s.",
                           "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                           "type": "string"
+                        },
+                        "unless": {
+                          "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "command": {
+                                "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "effect": {
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "read",
+                                      "write",
+                                      "unknown"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "read",
+                                        "write",
+                                        "unknown"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "env": {
+                                "additionalProperties": {
+                                  "type": "string"
+                                },
+                                "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                                "type": "object"
+                              },
+                              "exitCode": {
+                                "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                                "items": {
+                                  "type": "integer"
+                                },
+                                "type": "array"
+                              },
+                              "hosts": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "level": {
+                                "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "L1",
+                                      "L2",
+                                      "L3",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "L1",
+                                        "L2",
+                                        "L3",
+                                        "none"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "operation": {
+                                "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "parameters": {
+                                "additionalProperties": {
+                                  "type": "string"
+                                },
+                                "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                                "type": "object"
+                              },
+                              "repositories": {
+                                "description": "owner/repo globs (case-insensitive).",
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "result": {
+                                "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "success",
+                                      "failure"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "success",
+                                        "failure"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              },
+                              "token": {
+                                "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                                "oneOf": [
+                                  {
+                                    "enum": [
+                                      "app",
+                                      "user",
+                                      "unknown",
+                                      "none"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "app",
+                                        "user",
+                                        "unknown",
+                                        "none"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                ]
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
                         }
                       },
                       "required": [
@@ -1278,6 +2038,13 @@
                       }
                     ]
                   },
+                  "parameters": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                    "type": "object"
+                  },
                   "repositories": {
                     "description": "owner/repo globs (case-insensitive).",
                     "oneOf": [
@@ -1353,6 +2120,189 @@
               },
               "reason": {
                 "type": "string"
+              },
+              "unless": {
+                "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "command": {
+                      "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "effect": {
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "read",
+                            "write",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "read",
+                              "write",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "env": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                      "type": "object"
+                    },
+                    "exitCode": {
+                      "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    "hosts": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "level": {
+                      "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "L1",
+                            "L2",
+                            "L3",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "L1",
+                              "L2",
+                              "L3",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "operation": {
+                      "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "parameters": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                      "type": "object"
+                    },
+                    "repositories": {
+                      "description": "owner/repo globs (case-insensitive).",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "result": {
+                      "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "success",
+                            "failure"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "success",
+                              "failure"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "token": {
+                      "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "app",
+                            "user",
+                            "unknown",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "app",
+                              "user",
+                              "unknown",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
               }
             },
             "required": [
@@ -1519,6 +2469,13 @@
                       }
                     ]
                   },
+                  "parameters": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                    "type": "object"
+                  },
                   "repositories": {
                     "description": "owner/repo globs (case-insensitive).",
                     "oneOf": [
@@ -1597,6 +2554,189 @@
               "timeout": {
                 "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
                 "type": "string"
+              },
+              "unless": {
+                "description": "Operations matching any entry definitely (not only maybe) are excluded from match.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "command": {
+                      "description": "gh command path prefixes such as \"pr merge\" or \"api\".",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "effect": {
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "read",
+                            "write",
+                            "unknown"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "read",
+                              "write",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "env": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Invocation environment: names must match [A-Za-z_][A-Za-z0-9_]*; all entries must match. Values use path.Match globs; * means set and non-empty (including /); an empty value means unset or empty. Caller-controlled guardrail, not a security boundary.",
+                      "type": "object"
+                    },
+                    "exitCode": {
+                      "description": "Post hooks only: gh exit codes (0-255) to run for.",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    "hosts": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "level": {
+                      "description": "L1 native gh command, L2 gh api REST call, L3 gh api graphql call.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "L1",
+                            "L2",
+                            "L3",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "L1",
+                              "L2",
+                              "L3",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "operation": {
+                      "description": "Action globs such as pr.merge.* (see docs/normalization.md).",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "parameters": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Normalized operation parameters (see docs/normalization.md), e.g. {watch: \"true\"}; all entries must match on the same operation. Values use path.Match globs over the scalar's text; * means present and non-empty; an empty value means absent or empty.",
+                      "type": "object"
+                    },
+                    "repositories": {
+                      "description": "owner/repo globs (case-insensitive).",
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "result": {
+                      "description": "Post hooks only: success = gh exited 0; failure = non-zero exit, killed by a signal, or gh could not be started.",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "success",
+                            "failure"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "success",
+                              "failure"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    },
+                    "token": {
+                      "description": "Kind of token in GH_TOKEN/GITHUB_TOKEN: app (ghs_, GitHub App installation, e.g. gain or Actions), user (ghp_/gho_/ghu_/github_pat_), unknown (other value), none (not set: gh's stored login).",
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "app",
+                            "user",
+                            "unknown",
+                            "none"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "enum": [
+                              "app",
+                              "user",
+                              "unknown",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
               }
             },
             "required": [

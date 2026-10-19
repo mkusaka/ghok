@@ -8,6 +8,11 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- `unless:` next to `match:` on rules, hooks and transforms: operations that any entry matches definitively are excluded (maybe-matches never exclude). For example, keep `gh run watch` and `gh pr checks --watch` off a token-minting transform.
+- `match.parameters` matches normalized operation parameters, e.g. `{watch: "true"}`.
+
 ## [v0.0.19] - 2026-10-18
 
 ### Fixed
