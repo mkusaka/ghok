@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.20] - 2026-10-19
+
 ### Added
 
 - `unless:` next to `match:` on rules, hooks and transforms: operations that any entry matches definitively are excluded (maybe-matches never exclude). For example, keep `gh run watch` and `gh pr checks --watch` off a token-minting transform.
@@ -260,7 +262,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.19...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.20...HEAD
+[v0.0.20]: https://github.com/mkusaka/ghok/compare/v0.0.19...v0.0.20
 [v0.0.19]: https://github.com/mkusaka/ghok/compare/v0.0.18...v0.0.19
 [v0.0.18]: https://github.com/mkusaka/ghok/compare/v0.0.17...v0.0.18
 [v0.0.17]: https://github.com/mkusaka/ghok/compare/v0.0.16...v0.0.17
