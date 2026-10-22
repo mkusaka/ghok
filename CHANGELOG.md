@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.21] - 2026-10-22
+
 ### Security
 
 - Build with Go 1.27.3, which fixes a crypto/x509 issue (CVE-2026-111943, leaked eMudhra intermediate CA key).
@@ -266,7 +268,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.20...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.21...HEAD
+[v0.0.21]: https://github.com/mkusaka/ghok/compare/v0.0.20...v0.0.21
 [v0.0.20]: https://github.com/mkusaka/ghok/compare/v0.0.19...v0.0.20
 [v0.0.19]: https://github.com/mkusaka/ghok/compare/v0.0.18...v0.0.19
 [v0.0.18]: https://github.com/mkusaka/ghok/compare/v0.0.17...v0.0.18
