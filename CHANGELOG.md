@@ -8,6 +8,10 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Security
+
+- Build with Go 1.27.3, which fixes a crypto/x509 issue (CVE-2026-111943, leaked eMudhra intermediate CA key).
+
 ## [v0.0.20] - 2026-10-19
 
 ### Added

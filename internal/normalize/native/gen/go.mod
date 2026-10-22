@@ -4,6 +4,8 @@ module github.com/cli/cli/v2/ghok-native-gen
 
 go 1.27.0
 
+toolchain go1.27.3
+
 require (
 	github.com/cli/cli/v2 v2.102.0
 	github.com/spf13/cobra v1.10.2
