@@ -1150,6 +1150,7 @@ By default E2E builds ghok/fakegh with the local Go toolchain, dependencies
 already cached, and module downloads/toolchain switching disabled. Offline
 test-binary runs can instead set both `GHOK_E2E_GHOK_BINARY` and
 `GHOK_E2E_FAKEGH_BINARY` to prebuilt executable paths; build ghok with
+`CGO_ENABLED=0` (like releases) and
 `-ldflags='-X main.version=e2e-version -X main.commit=e2e-commit'` using the same
 Go version as the suite. Tests use temporary HOME/XDG/PATH/configs, fake gh, pipes
 and PTYs; no real GitHub writes or auth are needed. POSIX shell fixtures require

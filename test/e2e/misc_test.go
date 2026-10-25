@@ -196,7 +196,7 @@ func TestMiscDevelopmentVersionAndDoctor(t *testing.T) {
 	defer cancel()
 	build := exec.CommandContext(ctx, "go", "build", "-p=1", "-buildvcs=false", "-o", binary, "./cmd/ghok")
 	build.Dir = root
-	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build dev binary: %v\n%s", err, output)
 	}

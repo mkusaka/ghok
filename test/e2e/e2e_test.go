@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -78,7 +79,7 @@ func TestMain(m *testing.M) {
 		args = append(args, target.pkg)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off")
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off")
 		output, buildErr := cmd.CombinedOutput()
 		cancel()
 		if buildErr != nil {
@@ -534,4 +535,18 @@ func TestMissingRealGhConciseWrapperAndDetailedDoctor(t *testing.T) {
 		}
 	}
 	t.Fatalf("doctor omitted real-gh check: %+v", checks)
+}
+
+// The suite exercises the binary releases ship: built without cgo.
+func TestBinaryIsCGOFree(t *testing.T) {
+	info, err := buildinfo.ReadFile(ghokBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "CGO_ENABLED" && setting.Value == "0" {
+			return
+		}
+	}
+	t.Fatalf("%s was built with cgo: %+v", ghokBinary, info.Settings)
 }
