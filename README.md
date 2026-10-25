@@ -1085,7 +1085,7 @@ measured; startup allocations describe the parent, not the child. Methodology:
 ```sh
 gofmt -l .                     # must print nothing
 go build ./...
-make lint                      # golangci-lint v2.14.0 (includes govet)
+make lint                      # golangci-lint at the version ci.yml pins (includes govet)
 make test
 make race
 make fuzz                      # existing target: FuzzParse, 30s
