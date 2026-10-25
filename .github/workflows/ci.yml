@@ -107,7 +107,7 @@ jobs:
       - name: golangci-lint (linux)
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.14.0
+          version: v2.15.0
           install-mode: binary
           args: ./...
       - name: golangci-lint (darwin build constraints)
@@ -115,6 +115,6 @@ jobs:
         env:
           GOOS: darwin
         with:
-          version: v2.14.0
+          version: v2.15.0
           install-mode: binary
           args: ./...
