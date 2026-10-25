@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Drive a disposable ghok instance: isolated HOME/config, owned shim, fakegh as real gh.
+# Usage: see .claude/skills/verify-ghok/SKILL.md
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/../../.." && pwd)
+
+need_run() {
+  : "${VERIFY_GHOK_RUN:?set VERIFY_GHOK_RUN to the path printed by 'control-ghok up'}"
+  [ -f "$VERIFY_GHOK_RUN/.verify-ghok" ] || { echo "control-ghok: $VERIFY_GHOK_RUN is not a verify-ghok run root" >&2; exit 2; }
+  run=$VERIFY_GHOK_RUN
+  evidence=${VERIFY_GHOK_EVIDENCE:-$run-evidence}
+}
+
+# Everything ghok can see lives under $run; real gh, Homebrew and ~/.local/bin are off PATH.
+run_env() {
+  env -i TERM="${TERM:-dumb}" LANG="${LANG:-C}" \
+    HOME="$run/home" XDG_CONFIG_HOME="$run/home/.config" GHOK_CONFIG_DIR="$run/home/.config/ghok" \
+    PATH="$run/shimbin:$run/realbin:/usr/bin:/bin" FAKEGH_RECORD="$run/gh-record.jsonl" \
+    "$@"
+}
+
+records() { [ -f "$run/gh-record.jsonl" ] && wc -l <"$run/gh-record.jsonl" | tr -d ' ' || echo 0; }
+
+# capture LABEL CMD...: run from the seeded work repo, save the proof bundle, print a summary.
+capture() {
+  label=${1//[^A-Za-z0-9._-]/-}; shift
+  mkdir -p "$evidence"
+  n=$(find "$evidence" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+  dir=$evidence/$(printf '%02d' $((n + 1)))-$label
+  mkdir -p "$dir"
+  log=$run/home/.config/ghok/logs/ghok.jsonl
+  before=$(records)
+  logs_before=$([ -f "$log" ] && wc -l <"$log" | tr -d ' ' || echo 0)
+  [ -t 0 ] && exec </dev/null # fakegh reads stdin to EOF; a terminal would block it
+  set +e
+  (cd "$run/work" && run_env "$@") >"$dir/stdout" 2>"$dir/stderr"
+  code=$?
+  set -e
+  after=$(records)
+  printf '%s\n' "$*" >"$dir/command"
+  echo "$code" >"$dir/exit-code"
+  if [ "$after" -gt "$before" ]; then tail -n $((after - before)) "$run/gh-record.jsonl" >"$dir/gh-record.jsonl"; fi
+  if [ -f "$log" ] && [ "$(wc -l <"$log")" -gt "$logs_before" ]; then tail -n +$((logs_before + 1)) "$log" >"$dir/ghok-log.jsonl"; fi
+  printf 'command: %s\nexit: %s\ngh-started: %s (records %s -> %s)\nevidence: %s\n' \
+    "$*" "$code" "$([ "$after" -gt "$before" ] && echo yes || echo no)" "$before" "$after" "$dir"
+  echo "--- stdout"; cat "$dir/stdout"
+  echo "--- stderr"; cat "$dir/stderr"
+}
+
+cmd=${1:-}; shift || true
+case $cmd in
+up)
+  command -v go >/dev/null || { echo "control-ghok: go not on PATH" >&2; exit 1; }
+  run=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/verify-ghok.XXXXXX")" && pwd -P) # doctor prints resolved paths
+  touch "$run/.verify-ghok"
+  mkdir -p "$run/bin" "$run/realbin" "$run/shimbin" "$run/work" "$run/home/.config/ghok/hooks"
+  chmod 700 "$run/home/.config/ghok" "$run/home/.config/ghok/hooks"
+  # Build with the caller's PATH: the isolated PATH has no go.
+  (cd "$repo" && go build -o "$run/bin/ghok" ./cmd/ghok &&
+    go build -o "$run/realbin/gh" ./test/fakegh &&
+    go build -o "$run/home/.config/ghok/hooks/deny-admin-merge" ./examples/hooks/deny-admin-merge)
+  run_env "$run/bin/ghok" shim install --bin-dir "$run/shimbin" >"$run/shim-install.log"
+  if [ "${1:-}" != --no-config ]; then
+    cat >"$run/home/.config/ghok/config.yaml" <<'EOF'
+version: 1
+policy:
+  mode: enforce
+  rules:
+    - id: no-repo-delete
+      match: {operation: repo.delete}
+      decision: deny
+      reason: verification rule
+hooks:
+  pre:
+    - id: deny-admin-merge
+      match: {operation: "pr.merge.*"}
+      command: ["./hooks/deny-admin-merge"]
+      timeout: 5s
+      onError: deny
+EOF
+    chmod 600 "$run/home/.config/ghok/config.yaml"
+  fi
+  (cd "$run/work" && git init -q && git remote add origin https://github.com/acme/widgets.git)
+  echo "$run"
+  ;;
+env)
+  need_run
+  printf 'export HOME=%q XDG_CONFIG_HOME=%q GHOK_CONFIG_DIR=%q PATH=%q FAKEGH_RECORD=%q\nunset GHOK_REAL_GH GH_PATH\ncd %q\n' \
+    "$run/home" "$run/home/.config" "$run/home/.config/ghok" "$run/shimbin:$run/realbin:/usr/bin:/bin" "$run/gh-record.jsonl" "$run/work"
+  ;;
+doctor)
+  need_run
+  out=$(run_env "$run/bin/ghok" doctor 2>&1) && rc=0 || rc=$?
+  echo "$out"
+  grep -qF "ok real-gh: $run/realbin/gh" <<<"$out" || { echo "control-ghok: real gh is not this run's fakegh" >&2; exit 1; }
+  grep -qF "ok shim-ownership: $run/shimbin/gh" <<<"$out" || { echo "control-ghok: shim is not this run's" >&2; exit 1; }
+  exit "$rc"
+  ;;
+gh | ghok)
+  need_run
+  label=$cmd
+  [ "${1:-}" = --label ] && { label=$2; shift 2; }
+  [ "${1:-}" = -- ] && shift
+  if [ "$cmd" = gh ]; then capture "$label" gh "$@"; else capture "$label" "$run/bin/ghok" "$@"; fi
+  ;;
+down)
+  need_run
+  run_env "$run/bin/ghok" shim uninstall --bin-dir "$run/shimbin" || true
+  rm -rf "$run"
+  echo "removed $run; evidence kept at $evidence"
+  ;;
+*)
+  echo "usage: control-ghok up [--no-config] | env | doctor | gh [--label L] -- ARGS | ghok [--label L] -- ARGS | down" >&2
+  exit 2
+  ;;
+esac
