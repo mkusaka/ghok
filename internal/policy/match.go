@@ -131,7 +131,24 @@ func invocationMatches(m config.Match, s Subject) bool {
 	return false
 }
 
-func targetValues(op model.Operation, ctx *model.ResolvedContext) (repo, host string) {
+// RepositoryLess reports a classified command or REST operation gh runs without
+// a repository (e.g. /rate_limit, /gists). Repository criteria never select it
+// and it does not borrow the current repository. GraphQL documents and
+// unclassified operations carry no such evidence and stay conservative.
+func RepositoryLess(level model.Level, op model.Operation) bool {
+	if level == model.LevelL3 || unclassified(op) || op.Family == model.FamilyUnknown || op.Target.Kind == "repository" || op.Target.Repository != "" || op.Target.NodeID != "" {
+		return false
+	}
+	for _, u := range op.Unresolved {
+		if u.Field == "target.repository" || u.Field == "target.owner" {
+			return false
+		}
+	}
+	return true
+}
+
+func targetValues(op model.Operation, s Subject) (repo, host string) {
+	ctx := s.Context
 	repo, host = op.Target.Repository, op.Target.Host
 	unresolvedRepo, unresolvedHost := false, false
 	for _, u := range op.Unresolved {
@@ -145,7 +162,7 @@ func targetValues(op model.Operation, ctx *model.ResolvedContext) (repo, host st
 	// An unresolved explicit target (particularly a GraphQL node ID) cannot be
 	// replaced with the wrapper's current repository. Resolver updates targets.
 	if ctx != nil {
-		if repo == "" && !unresolvedRepo && op.Target.NodeID == "" {
+		if repo == "" && !unresolvedRepo && op.Target.NodeID == "" && !RepositoryLess(s.Result.Classification.Level, op) {
 			repo = ctx.Repository
 		}
 		if host == "" && !unresolvedHost {
@@ -193,9 +210,11 @@ func opMatch(m config.Match, s Subject, op model.Operation) (yes, maybe bool) {
 	if !considered(op) || !anyMatch(m.Operations, op.Action, MatchAction) || !anyMatch(m.Effects, string(op.Effect), exact) || !parametersMatch(m, op) {
 		return false, false
 	}
-	repo, host := targetValues(op, s.Context)
+	repo, host := targetValues(op, s)
 	if len(m.Repositories) != 0 {
-		if repo == "" {
+		if RepositoryLess(s.Result.Classification.Level, op) {
+			return false, false
+		} else if repo == "" {
 			maybe = true
 		} else if !anyMatch(m.Repositories, repo, MatchRepo) {
 			return false, false

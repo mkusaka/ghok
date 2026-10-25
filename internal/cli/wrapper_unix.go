@@ -486,7 +486,7 @@ func fillTextSizes(result *model.Result, cwd string) {
 func needsLocal(c *config.Config, s policy.Subject) bool {
 	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 {
 		for _, op := range s.Result.Operations {
-			if consideredOperation(op) && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
+			if consideredOperation(op) && op.Effect != model.EffectRead && unresolvedTarget(s.Result.Classification.Level, op, "target.repository") {
 				return true
 			}
 		}
@@ -533,19 +533,19 @@ func resolutionNeeds(c *config.Config, s policy.Subject, index int) []string {
 		return nil
 	}
 	repo, host := false, false
-	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 && op.Effect != model.EffectRead && unresolvedTarget(op, "target.repository") {
+	if c.Policy.Mode == config.ModeEnforce && len(c.Policy.ProtectedRepositories) > 0 && op.Effect != model.EffectRead && unresolvedTarget(s.Result.Classification.Level, op, "target.repository") {
 		repo = true
 	}
 	match := func(m config.Match, unless []config.Match) {
 		if _, indexes := policy.MatchMaybe(m, unless, s); slices.Contains(indexes, index) {
-			repo = repo || len(m.Repositories) > 0 && unresolvedTarget(op, "target.repository")
-			host = host || len(m.Hosts) > 0 && unresolvedTarget(op, "target.host")
+			repo = repo || len(m.Repositories) > 0 && unresolvedTarget(s.Result.Classification.Level, op, "target.repository")
+			host = host || len(m.Hosts) > 0 && unresolvedTarget(s.Result.Classification.Level, op, "target.host")
 		} else if _, indexes = policy.Matches(m, unless, s); !slices.Contains(indexes, index) {
 			return
 		}
 		unlessRepo, unlessHost := policy.UnlessMaybe(unless, s, index)
-		repo = repo || unlessRepo && unresolvedTarget(op, "target.repository")
-		host = host || unlessHost && unresolvedTarget(op, "target.host")
+		repo = repo || unlessRepo && unresolvedTarget(s.Result.Classification.Level, op, "target.repository")
+		host = host || unlessHost && unresolvedTarget(s.Result.Classification.Level, op, "target.host")
 	}
 	for _, rule := range c.Policy.Rules {
 		match(rule.Match, rule.Unless)
@@ -570,8 +570,11 @@ func resolutionNeeds(c *config.Config, s policy.Subject, index int) []string {
 	return need
 }
 
-func unresolvedTarget(op model.Operation, field string) bool {
-	if field == "target.repository" && op.Target.Repository == "" || field == "target.host" && op.Target.Host == "" {
+func unresolvedTarget(level model.Level, op model.Operation, field string) bool {
+	if field == "target.repository" && op.Target.Repository == "" {
+		return !policy.RepositoryLess(level, op)
+	}
+	if field == "target.host" && op.Target.Host == "" {
 		return true
 	}
 	for _, u := range op.Unresolved {

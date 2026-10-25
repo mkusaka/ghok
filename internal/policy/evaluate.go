@@ -122,7 +122,7 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		if op.UnknownReason != model.UnknownNone {
 			add(i, protocol.DecisionAllow, "unknown classification: "+string(op.UnknownReason)+"; "+op.Detail, "", "")
 		}
-		if repo, _ := targetValues(op, s.Context); repo == "" && op.Effect != model.EffectRead {
+		if repo, _ := targetValues(op, s); repo == "" && op.Effect != model.EffectRead {
 			add(i, protocol.DecisionAllow, "target repository unresolved", "", "")
 		}
 		if len(op.Unresolved) != 0 {
@@ -192,8 +192,8 @@ func Evaluate(p config.Policy, s Subject) Evaluation {
 		if len(p.ProtectedRepositories) == 0 || op.Effect == model.EffectRead {
 			continue
 		}
-		repo, _ := targetValues(op, s.Context)
-		if repo == "" {
+		repo, _ := targetValues(op, s)
+		if repo == "" && !RepositoryLess(s.Result.Classification.Level, op) {
 			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "target repository unresolved; cannot prove it is not protected", DenialPolicy, "protectedUnknown")
 		} else if unknown && anyMatch(p.ProtectedRepositories, repo, MatchRepo) {
 			add(i, handling(p.ProtectedUnknown, DefaultProtectedUnknown), "unclassified-write targets protected repository "+repo, DenialPolicy, "protectedRepositories")

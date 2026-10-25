@@ -301,6 +301,8 @@ func TestSelectStableDependencies(t *testing.T) {
 		{ID: "maybe", Phase: "pre", Match: config.Match{Repositories: config.StringList{"org/*"}}},
 	}}
 	s := policy.Subject{Result: model.Result{Operations: input().Operations}}
+	// As normalized for `pr merge 1` outside a repository.
+	s.Result.Operations[0].Unresolved = []model.Unresolved{{Field: "target.repository", Reason: "repository from local git context", Source: "git"}}
 	selected := r.Select("pre", s)
 	var ids []string
 	for _, h := range selected {

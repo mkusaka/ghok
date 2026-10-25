@@ -437,7 +437,10 @@ characters: `pr.merge.*` includes multi-segment descendants; `pr.merge` is exact
 Repository/host globs are case-insensitive; repository `org/*` does not span `/`.
 Command prefixes are token-delimited, using alias-expanded argv and canonical
 native origin after global flags. Skipped/unselected operations are ignored.
-Unresolved repository/host constraints are selected conservatively.
+Unresolved repository/host constraints are selected conservatively. Command
+and REST operations gh runs without a repository (`/rate_limit`, gists) never
+match `repositories` and do not borrow the current repository; GraphQL documents
+and unclassified operations still do.
 
 `env: {NAME: "value-glob"}` applies to rules and both hook phases. It reads the
 caller's invocation environment, not hook-specific `env` overrides. Names must
@@ -645,7 +648,10 @@ implementation evidence: [hooks/policy notes](notes/hooks-policy.md),
 
 Transforms are trusted executables, not hook decisions. Configure `transforms.pre`
 as a list; user entries run first, then trusted project entries, serially. Each is
-matched against the current request after the preceding successful edit. IDs share
+matched against the current request after the preceding successful edit. A
+repository/host criterion selects a transform only on a definite match: implicit
+targets are filled from env and local git (no API), and anything still unresolved
+leaves the request unchanged. IDs share
 one namespace with pre/post hooks. Supported keys are `id`, `match`, `unless`, `command`,
 `env`, `timeout` (default `5s`, maximum `10m`; token minting may need `15s`), `onError` (`deny`, default, or `allow`),
 `redactInput`, and project-only `files`. Scheduling/dependency keys (`parallel`,
