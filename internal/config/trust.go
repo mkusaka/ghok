@@ -20,6 +20,7 @@ import (
 type IgnoredHook struct {
 	Hook
 	Transform    bool     `json:"transform,omitempty"`
+	Delegate     bool     `json:"delegate,omitempty"`
 	Reason       string   `json:"reason"`
 	ChangedFiles []string `json:"changedFiles,omitempty"`
 	Digest       string   `json:"digest,omitempty"`
@@ -451,14 +452,14 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	}
 	notes = append(notes, projectUnknownKeys(n, project)...)
 	var files []trustedFile
-	if len(p.Hooks)+len(p.Transforms) != 0 {
+	if len(p.trustHooks()) != 0 {
 		files, err = projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, dryRun)
 		if err != nil {
 			return "", nil, notes, nil, err
 		}
 	}
 	current := currentTrustEntry(project, canonical, p, files, env)
-	selected := make(map[string]bool, len(p.Hooks)+len(p.Transforms))
+	selected := make(map[string]bool, len(p.trustHooks()))
 	for _, id := range hookIDs {
 		if _, exists := current.HookDigests[id]; !exists {
 			return "", nil, notes, nil, fmt.Errorf("unknown project hook %q", id)
@@ -473,7 +474,7 @@ func TrustProject(path, cwd string, env map[string]string, dryRun, noDiff bool, 
 	if err := mergeProject(c, p, n, project, filepath.Dir(project), env, &notes); err != nil {
 		return "", nil, notes, nil, err
 	}
-	if len(p.Hooks)+len(p.Transforms) == 0 {
+	if len(p.trustHooks()) == 0 {
 		if !dryRun {
 			store, _ := readTrustStore(env)
 			if _, err := prepareTrustBlobs(env, store); err != nil {

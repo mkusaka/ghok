@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/mkusaka/ghok/internal/config"
+	"github.com/mkusaka/ghok/internal/delegates"
 	"github.com/mkusaka/ghok/internal/hooks"
 	"github.com/mkusaka/ghok/internal/install"
 	"github.com/mkusaka/ghok/internal/logging"
@@ -129,6 +130,14 @@ func (a *managementAnalysis) subject(phase string) policy.Subject {
 	return policy.Subject{Result: a.result, Argv: a.result.Source.Argv, Context: a.context, Phase: phase, Token: policy.TokenKind(a.env), Env: a.env}
 }
 
+func (a *managementAnalysis) delegate() *delegates.Selection {
+	selected := delegates.Select(a.config, a.subject(""))
+	if selected != nil {
+		selected.Command = a.redactor.Argv(selected.Command)
+	}
+	return selected
+}
+
 func (a *managementAnalysis) warnings() []protocol.Warning {
 	warnings := append([]protocol.Warning(nil), a.evaluation.Warnings...)
 	return append(warnings, resultWarnings("transform", a.transformResults)...)
@@ -157,7 +166,10 @@ func managementInspect(command string, args []string, options managementInspectO
 		for _, diagnostic := range a.diagnostics {
 			fmt.Fprintln(os.Stderr, "ghok:", r.String(diagnostic))
 		}
-		return managementJSON(r.Result(a.result), nil)
+		return managementJSON(struct {
+			model.Result
+			Delegate *delegates.Selection `json:"delegate,omitempty"`
+		}{Result: r.Result(a.result), Delegate: a.delegate()}, r)
 	}
 	if options.asJSON {
 		return managementExplainJSON(a, options.showSecrets)

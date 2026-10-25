@@ -101,10 +101,13 @@ func (t Transform) hook() Hook {
 // trustHooks shares the per-command content trust machinery without making
 // transforms executable hooks or counting them as active policy gates.
 func (c *Config) trustHooks() []Hook {
-	all := make([]Hook, 0, len(c.Hooks)+len(c.Transforms))
+	all := make([]Hook, 0, len(c.Hooks)+len(c.Transforms)+len(c.Delegates))
 	all = append(all, c.Hooks...)
 	for _, t := range c.Transforms {
 		all = append(all, t.hook())
+	}
+	for _, d := range c.Delegates {
+		all = append(all, d.hook())
 	}
 	return all
 }

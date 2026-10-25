@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mkusaka/ghok/main/schema/config.schema.json
+# User config example; opt in explicitly. No Bun/ghro installation is bundled.
+# Invocation cwd must be the mall-cloud root for scripts/ghro.ts to resolve.
+# For other cwd values, use an absolute script path or a cwd-aware executable.
+# Project config: command[0] must be ./relative or absolute (not bare bun).
+# Trust the script/imports with delegate files or shared trust.include there.
+version: 1
+delegates:
+  - id: ghro-native
+    match:
+      level: L1
+      effect: read
+      operation: [pr.view, pr.checks, pr.list, pr.diff, run.view, run.list]
+      repositories: [medley-inc/mall-cloud]
+    unless:
+      - operation: pr.checks
+        parameters: {watch: "true"}
+    command: ["bun", "scripts/ghro.ts", "gh"]
+    env: {}
+    timeout: 10s
+    onError: fallback
+  - id: ghro-api
+    match:
+      command: api
+      level: L2
+      effect: read
+      method: GET
+      repositories: [medley-inc/mall-cloud]
+    command: ["bun", "scripts/ghro.ts", "gh"]
+    timeout: 10s
+    onError: fallback

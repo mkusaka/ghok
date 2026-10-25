@@ -138,7 +138,7 @@ matches exact repository roots and all their linked worktrees;
 `trust.directories` matches a directory itself and descendants on path boundaries,
 not similarly named siblings. Both accept absolute or `~/...` paths, resolve
 symlinks, ignore trailing-slash differences, and check checkout and main worktree
-roots. A matching repository's project hooks and transforms run without per-hook
+roots. A matching repository's project hooks, transforms and delegates run without per-hook
 trust, including changed gates. **Arbitrary code checked out or pulled into these
 locations can therefore run as your user without another review.** A project
 overlay setting either field is rejected: a repository cannot trust itself.
@@ -202,6 +202,31 @@ Project commands require `./relative` or absolute executable paths; user hooks
 retain bare PATH names. Absolute external executables, interpreters, PATH tools
 and unlisted imports/dependencies/data are not hashed. Policy-only configs skip
 manifest computation.
+
+### Delegate trust and failures
+
+[Delegates](delegates.md) are trusted executables with credentials, raw argv,
+stdin and the caller's cwd, not a sandbox or an authorization bypass. They run
+only after transforms, policy and pre-hooks. Project delegates use the same
+per-command digest, dependency files, path trust and review as hooks/transforms;
+all three share the ID namespace. Changed/untrusted delegates are ignored,
+never gates. User entries and personal local config follow existing trust rules.
+
+Explicit read effect and native/REST GET level constraints are required in config;
+runtime selection also rejects unknown native syntax and any considered write.
+GraphQL/non-GET API requests are not delegated. These restrictions avoid retrying
+mutations whose server-side execution cannot be disproven. They do not prevent a
+malicious trusted program from making writes independently.
+
+Delegate exit 125 is a no-stdout not-handled contract; start failure and timeout
+before output default to real-gh fallback, with `onError: deny` available. Partial
+output prevents fallback. Non-TTY stdin replay uses an immediately unlinked 0600
+file that grows with consumed bytes; replay-storage failure refuses unsafe retry.
+TTY input cannot be rewound, so declining delegates must not consume it. Streaming
+output/replay is not content-redacted; only diagnostics/log copies are redacted.
+`GHOK_NO_DELEGATE=1` is set automatically for recursion control and disables only
+delegates, not policy/hooks. A caller can also set it as an intentional per-call
+routing escape hatch. No new policy-bypass token is issued to delegates.
 
 ### Transform trust and failures
 

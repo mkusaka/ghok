@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/config"
+	"github.com/mkusaka/ghok/internal/delegates"
 	"github.com/mkusaka/ghok/internal/hooks"
 	"github.com/mkusaka/ghok/internal/model"
 	"github.com/mkusaka/ghok/internal/policy"
@@ -71,6 +72,15 @@ func managementExplain(a *managementAnalysis, showSecrets bool) int {
 			}
 			fmt.Fprintln(&output)
 		}
+	}
+	if selected := a.delegate(); selected != nil {
+		fmt.Fprintln(&output, display(fmt.Sprintf("  Delegate that WOULD run: %s command=%s timeout=%s onError=%s (fallback: real gh; not-handled exit=125)", selected.ID, managementCompact(selected.Command), selected.Timeout.D(), selected.OnError)))
+	} else {
+		reason := "no matching trusted read-only delegate"
+		if a.env["GHOK_NO_DELEGATE"] == "1" {
+			reason = "disabled by GHOK_NO_DELEGATE=1"
+		}
+		fmt.Fprintf(&output, "  Delegate that WOULD run: none (%s)\n", reason)
 	}
 	for _, h := range a.config.IgnoredHooks {
 		fmt.Fprintln(&output, display(fmt.Sprintf("  %s: ignored (%s)", h.ID, h.Reason)))
@@ -177,6 +187,7 @@ func managementExplainJSON(a *managementAnalysis, showSecrets bool) int {
 		Context          *model.ResolvedContext `json:"context,omitempty"`
 		Policy           policy.Evaluation      `json:"policy"`
 		Hooks            map[string][]string    `json:"hooks"`
+		Delegate         *delegates.Selection   `json:"delegate,omitempty"`
 		Warnings         []protocol.Warning     `json:"warnings,omitempty"`
 		Transformed      *managementTransformed `json:"transformed,omitempty"`
 		TransformResults []protocol.HookResult  `json:"transformResults,omitempty"`
@@ -186,7 +197,7 @@ func managementExplainJSON(a *managementAnalysis, showSecrets bool) int {
 		Normalization: a.result, Context: a.context, Policy: a.evaluation,
 		Hooks: make(map[string][]string), Warnings: a.warnings(),
 		Transformed: a.transformed(), TransformResults: a.transformResults,
-		Notes: a.notes, Diagnostics: a.diagnostics,
+		Notes: a.notes, Diagnostics: a.diagnostics, Delegate: a.delegate(),
 	}
 	runner := hooks.Runner{Hooks: a.config.Hooks}
 	for _, phase := range []string{config.PhasePre, config.PhasePost} {

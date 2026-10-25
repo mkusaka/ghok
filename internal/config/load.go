@@ -101,6 +101,14 @@ func (c *Config) ApplyDefaults() {
 	for i := range c.Hooks {
 		defaultHook(&c.Hooks[i], nil)
 	}
+	for i := range c.Delegates {
+		if c.Delegates[i].Timeout == 0 {
+			c.Delegates[i].Timeout = Duration(DefaultDelegateTimeout)
+		}
+		if c.Delegates[i].OnError == "" {
+			c.Delegates[i].OnError = OnErrorFallback
+		}
+	}
 	for i := range c.Transforms {
 		if c.Transforms[i].Timeout == 0 {
 			c.Transforms[i].Timeout = Duration(DefaultTransformTimeout)
@@ -205,6 +213,9 @@ func load(path string, notes *[]string) (*Config, error) {
 	for i := range c.Transforms {
 		c.Transforms[i].Source = absolute
 	}
+	for i := range c.Delegates {
+		c.Delegates[i].Source = absolute
+	}
 	return c, nil
 }
 
@@ -254,6 +265,13 @@ func parse(data []byte, dir string, strict bool) (*Config, error) {
 		for _, t := range c.Transforms {
 			if t.Files != nil {
 				problems = append(problems, fmt.Errorf("transform %s: files: only project transforms are trust-gated", t.ID))
+			}
+		}
+	}
+	if strict {
+		for _, d := range c.Delegates {
+			if d.Files != nil {
+				problems = append(problems, fmt.Errorf("delegate %s: files: only project delegates are trust-gated", d.ID))
 			}
 		}
 	}

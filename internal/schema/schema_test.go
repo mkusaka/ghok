@@ -60,6 +60,36 @@ func TestExampleConfigMatchesSchema(t *testing.T) {
 	}
 }
 
+func TestDelegateExampleMatchesSchemas(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "examples", "delegates.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Parse(data, ""); err != nil {
+		t.Fatal(err)
+	}
+	var doc any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"config", "project-config", "local-config"} {
+		if err := checkSchema(mustSchema(t, scope), doc, "$"); err != nil {
+			t.Fatalf("%s: %v", scope, err)
+		}
+	}
+	project := map[string]any{"version": 1, "delegates": []any{map[string]any{
+		"id": "relay", "command": []any{"./relay"}, "match": map[string]any{"effect": "read", "level": "L1"}, "files": []any{"script"},
+	}}}
+	if err := checkSchema(mustSchema(t, "project-config"), project, "$"); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"config", "local-config"} {
+		if err := checkSchema(mustSchema(t, scope), project, "$"); err == nil {
+			t.Fatalf("%s accepted project-only files", scope)
+		}
+	}
+}
+
 func TestProjectTrustIncludeSchema(t *testing.T) {
 	valid := map[string]any{
 		"version": 1,

@@ -81,12 +81,16 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 	withheld := make(map[string]IgnoredHook)
 	var ignored *IgnoredProject
 	key, entry := "", ""
-	if len(p.Hooks)+len(p.Transforms) != 0 {
+	if len(p.trustHooks()) != 0 {
 		key, entry = TrustMatch(c.Trust, filepath.Dir(project), env)
 	}
 	if entry != "" {
-		notes = append(notes, fmt.Sprintf("Project hooks and transforms run without per-hook trust (user trust.%s %q)", key, entry))
-	} else if len(p.Hooks)+len(p.Transforms) != 0 {
+		kind := "Project hooks and transforms"
+		if len(p.Delegates) > 0 {
+			kind = "Project hooks, transforms and delegates"
+		}
+		notes = append(notes, fmt.Sprintf("%s run without per-hook trust (user trust.%s %q)", kind, key, entry))
+	} else if len(p.trustHooks()) != 0 {
 		files, err := projectManifest(p, filepath.Dir(project), c.Runtime.FileMaxBytes, env, false)
 		if err != nil {
 			return ignoreProject(fmt.Errorf("project config %s: %w", project, err))
@@ -107,12 +111,12 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 		for _, h := range p.trustHooks() {
 			digest := current.HookDigests[h.ID]
 			if trusted[digest] {
-				if h.Phase != "transform" && (h.Enabled == nil || *h.Enabled) {
+				if (h.Phase == PhasePre || h.Phase == PhasePost) && (h.Enabled == nil || *h.Enabled) {
 					active++
 				}
 				continue
 			}
-			meta := IgnoredHook{Hook: h, Transform: h.Phase == "transform", Reason: "untrusted", Digest: digest}
+			meta := IgnoredHook{Hook: h, Transform: h.Phase == "transform", Delegate: h.Phase == "delegate", Reason: "untrusted", Digest: digest}
 			if previous.HookDigests[h.ID] != "" {
 				meta.Reason = "changed since trust"
 				meta.ChangedFiles = changedTrustFiles(filesForHook(files, h.ID), filesForHook(previous.Files, h.ID))
@@ -150,7 +154,7 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 		}
 	}
 	status := "policy loaded; hooks trusted"
-	if len(p.Hooks)+len(p.Transforms) == 0 {
+	if len(p.trustHooks()) == 0 {
 		status = "policy loaded; no project hooks"
 	} else if len(withheld) != 0 {
 		status = "policy loaded; some hooks ignored; run ghok config trust"
@@ -181,6 +185,16 @@ func loadUserAndProject(global, cwd string, env map[string]string) (*Config, []s
 			}
 		}
 		merged.Transforms = transforms
+		delegates := make([]Delegate, 0, len(merged.Delegates))
+		for _, d := range merged.Delegates {
+			if meta, exists := withheld[d.ID]; exists && d.Source == project {
+				meta.Hook = d.hook()
+				merged.IgnoredHooks = append(merged.IgnoredHooks, meta)
+			} else {
+				delegates = append(delegates, d)
+			}
+		}
+		merged.Delegates = delegates
 	}
 	merged.IgnoredProject = ignored
 	return &merged, notes, nil
@@ -337,6 +351,12 @@ func mergeProject(c, p *Config, n *yaml.Node, project, cwd string, env map[strin
 		t.Command[0] = p.TransformCommandPath(t)
 		warnWritable(hookPermissionPath(t.Command[0], cwd, env), notes)
 		c.Transforms = append(c.Transforms, t)
+	}
+	for _, d := range p.Delegates {
+		d.Source = project
+		d.Command[0] = p.DelegateCommandPath(d)
+		warnWritable(hookPermissionPath(d.Command[0], cwd, env), notes)
+		c.Delegates = append(c.Delegates, d)
 	}
 	c.Policy.Rules = append(c.Policy.Rules, p.Policy.Rules...)
 	c.Policy.ProtectedRepositories = append(c.Policy.ProtectedRepositories, p.Policy.ProtectedRepositories...)

@@ -27,6 +27,10 @@ type Spool struct {
 	probeFIFO  bool
 	finish     func()
 	closed     bool
+	// record is borrowed by a delegate attempt; retained until fallback is
+	// decided. recordErr is read only after the pump has joined.
+	record    *os.File
+	recordErr error
 }
 
 func (s *Spool) Data() model.StdinData     { return s.data }
@@ -228,6 +232,9 @@ func (s *Spool) startPump() (func(), error) {
 		for {
 			n, err := spoolReadStream(sourceFD, cancelFD, buf, time.Time{}, s.probeFIFO)
 			if n > 0 {
+				if s.record != nil && s.recordErr == nil {
+					_, s.recordErr = s.record.Write(buf[:n])
+				}
 				if _, writeErr := s.writer.Write(buf[:n]); writeErr != nil {
 					return
 				}

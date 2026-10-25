@@ -61,6 +61,9 @@ func (c *Config) Validate() error {
 				add(key, "invalid glob: "+err.Error())
 			}
 		}
+		for i, v := range m.Methods {
+			enum(fmt.Sprintf("%s.method[%d]", p, i), v, "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT")
+		}
 		for i, v := range m.Effects {
 			enum(fmt.Sprintf("%s.effect[%d]", p, i), v, "read", "write", "unknown")
 		}
@@ -207,6 +210,32 @@ func (c *Config) Validate() error {
 		match(p+".match", t.Match)
 		outcomeOnlyPost(p+".match", t.Match)
 		unless(p, t.Unless, false)
+	}
+	for i, d := range c.Delegates {
+		p := fmt.Sprintf("delegates[%d]", i)
+		if !hookID.MatchString(d.ID) {
+			add(p+".id", "must be non-empty and match ^[A-Za-z0-9._-]+$")
+		}
+		if _, exists := hooks[d.ID]; exists {
+			add(p+".id", "duplicate hook/transform/delegate ID "+d.ID)
+		}
+		hooks[d.ID] = -1
+		if len(d.Command) == 0 || strings.TrimSpace(d.Command[0]) == "" {
+			add(p+".command", "executable must not be empty")
+		}
+		if err := validateDelegateCommand(d); err != nil {
+			add(p, err.Error())
+		}
+		enum(p+".onError", d.OnError, OnErrorFallback, OnErrorDeny)
+		if d.Timeout <= 0 || d.Timeout.D() > MaxHookTimeout {
+			add(p+".timeout", "must be > 0 and <= "+MaxHookTimeout.String())
+		}
+		match(p+".match", d.Match)
+		outcomeOnlyPost(p+".match", d.Match)
+		unless(p, d.Unless, false)
+		if err := validateDelegateReadOnly(d.Match); err != nil {
+			add(p+".match", err.Error())
+		}
 	}
 	for _, limit := range []struct {
 		p string

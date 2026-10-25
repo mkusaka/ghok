@@ -35,12 +35,18 @@ signed/notarized. Windows and other operating systems are unsupported.
 
 ## Execution paths
 
-- No selected post-hooks and no live stdin replay: `syscall.Exec` replaces ghok.
+- No selected delegate/post-hooks and no live stdin replay: `syscall.Exec` replaces ghok.
   After pre-checks the real gh owns pid/job/streams directly. Logging precedes
   exec and has no final child outcome.
 - Post-hooks or live replay: ghok supervises one child in the **same process
   group**. No Setpgid/Setsid/Foreground is set for real gh. Default descriptors
   are inherited; the wrapper does not emulate a terminal.
+- A selected delegate uses the same supervisor, cwd and signal behavior as real
+  gh, but always streams stdout/stderr through output-tracking pipes. Non-TTY
+  stdin is retained live for fallback; TTY stdin is inherited and cannot be
+  rewound. Exit 125 without stdout or default-handled start failure/empty-output
+  timeout runs real gh once; other exits/signals pass through. See the full
+  [delegate contract](delegates.md) for timeout, replay and non-TTY output limits.
 - Hook commands have separate process groups, JSON stdin and captured output;
   they are trusted, non-interactive programs, not terminal-transparent gh jobs.
 
@@ -88,7 +94,8 @@ cancellation and reap direct children before the wrapper exits.
 ## Opt-in output capture
 
 A selected post-hook with captureOutput enables separate child stdout/stderr
-pipes. Output is streamed to the original destinations and bounded prefixes
+pipes. Delegates also require these pipes to track safe fallback, but retain
+output bodies only when a post-hook requests capture. Output is streamed to the original destinations and bounded prefixes
 are included as redacted base64 with total size/truncation metadata. A selected
 noncapturing post-hook does not receive bodies even if another hook requested
 capture. Logs always omit those bodies.
@@ -105,7 +112,8 @@ No GH_FORCE_TTY variable is injected to mask this difference.
 
 Only analyzable alias-expanded API `--input -` or typed `-F key=@-` consumers
 trigger capture, and only if a potentially relevant enforce-mode deny rule,
-unknown-mutation/protected-repository denial, or enabled pre-hook can need it.
+unknown-mutation/protected-repository denial, enabled pre-hook/transform, or
+configured active delegate can need it.
 Command prefix and normalization level can exclude a candidate; body-dependent
 action/effect/target matches are treated conservatively before capture.
 Observe logging, audit-only policies, and post-hooks alone never trigger capture:

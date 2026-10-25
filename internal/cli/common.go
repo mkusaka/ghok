@@ -218,9 +218,12 @@ func ignoredHooksWarning(c *config.Config, dir string, now time.Time) string {
 	}
 	kind := "hooks"
 	for _, h := range c.IgnoredHooks {
+		if h.Delegate {
+			kind = "hooks/transforms/delegates"
+			break
+		}
 		if h.Transform {
 			kind = "hooks/transforms"
-			break
 		}
 	}
 	return fmt.Sprintf("%d project %s in %s are not active: %s; review and run 'ghok config trust'; for permanent repository trust: ghok config trust repo .", len(inactive), kind, project.Path, strings.Join(inactive, "; "))
@@ -236,6 +239,9 @@ func ignoredHookDescription(h config.IgnoredHook) string {
 		}
 	} else if h.Reason == "changed since trust" {
 		reason += ": definition changed"
+	}
+	if h.Delegate {
+		return fmt.Sprintf("delegate %s inactive: %s", h.ID, reason)
 	}
 	if h.Transform {
 		return fmt.Sprintf("transform %s inactive: %s", h.ID, reason)

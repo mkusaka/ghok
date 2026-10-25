@@ -27,6 +27,7 @@ operation, and ordinary commands do not require network context lookups.
 | `internal/policy` | Pure matching/evaluation across every considered operation | No config loading, hooks, or API calls. |
 | `internal/hooks` | Trusted commands, dependency/concurrency scheduling, cancellation | Caller supplies raw Input; runner redacts only redactInput hooks. Diagnostics have a redaction callback. |
 | `internal/transforms` | Atomic restricted edits and semantic round-trip verification | Reconstruct supported transports, never overwrite original inputs. |
+| `internal/delegates` | Read-only selection, argv/env execution, not-handled/error fallback | Final execution only; no bypass of transforms, policy or hooks. |
 | `internal/process` | Exec/supervision, Unix signals/TTY/job control, bounded stdin replay | Single child/wait/signal owner; no real-gh process-group separation. |
 | `internal/redact` | Display copies at output boundaries | Never change execution argv, payload, or replay bytes. |
 | `internal/logging` | Redacted cooperating-process JSONL append/rotation | No stdout/stderr; errors cannot block execution. |
@@ -78,8 +79,12 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    Pre-only warn rules allow with advisory text; successful transforms and
    allow/abstain hooks may also warn. If gh runs, emit rules, transforms, then
    pre-hook warnings in deterministic configuration/result/selection order.
-10. Select post-hooks. Exec if none and stdin replay needs no live pump;
+10. Select post-hooks and the first definite trusted read-only delegate. With no
+    delegate, exec if no post-hooks and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.
+    Delegates always supervise with output tracking and replayable stdin. Exit
+    125 without stdout, or default-handled start failure/timeout before output,
+    runs real gh once with the same effective request. No policy/pre-hook rerun.
     Post-hook warnings follow gh output; warnings never change its status.
     Decision-level logs retain warned records, including allowed invocations.
 
@@ -103,7 +108,7 @@ Policy Subject <----------+
        +-> enforce deny: no real-gh start
        |
        v
-Process Exec OR Run -> raw post Input -> post diagnostics
+Process Exec OR Run (delegate -> optional real gh fallback) -> raw post Input -> post diagnostics
        |                                      |
        +--------------> redacted JSONL <-------+
        v
@@ -127,9 +132,10 @@ shared. Explicit execution does not install or require a PATH shim.
 | --- | --- | --- |
 | No-config exec | Neither user config nor applicable project config | Presence/discovery/depth checks only; no logger/parser/resolver/spool/warning state. |
 | No-analysis exec | Observe, no hooks/rules, logging disabled | Discovery/config/depth checks remain; no parser/resolver/spool. |
-| Checked exec | No selected post-hooks, no live stdin pump | Pre-checks finish, log written before exec, wrapper is replaced. No final child status in that log. |
+| Checked exec | No selected delegate/post-hooks, no live stdin pump | Pre-checks finish, log written before exec, wrapper is replaced. No final child status in that log. |
 | Supervised inherited stdio | Selected post-hooks or live replay | Same process group and inherited stdio unless capture/spool requires pipes. Post-hooks receive exit/signal metadata. |
 | Supervised capture | A selected post-hook requests captureOutput | Binary tee with bounded retained prefixes; child stdout/stderr are non-TTY pipes. Other post-hooks do not receive captured bodies. |
+| Delegated execution | A trusted read-only delegate definitely matches | Same supervisor/signals, always streaming output pipes for safe fallback detection; only capture-requesting hooks retain bodies. Non-TTY input is recorded live for fallback replay. |
 
 Exec-path duration measures analysis/pre-hooks, not gh runtime. Post result is
 command outcome, not proof of server-side merge completion. Capture bodies are
@@ -211,3 +217,23 @@ receive it; PRE processes retain the original environment while their input
 describes the edited token kind. Set values enter the shared redactor before
 diagnostics; only sorted changed names and attribution are logged.
 Inactive project transforms never become policy gates.
+
+## Delegate boundary
+
+`internal/config` validates explicit `effect: read` plus L1 or L2/GET constraints;
+project delegates share per-command content/path trust, never inactive gates.
+`internal/delegates` additionally checks the entire invocation for mutation-free,
+known operations (exact native syntax), then uses the ordinary matcher for the
+first definite selection. GraphQL and unknown native syntax stay on real gh.
+Delegate target matching can request local metadata, not additional API lookups.
+
+Only final execution is replaced. Configured command argv precedes unchanged
+effective gh argv; delegate env overrides never affect fallback or post-hooks.
+The recursion guard `GHOK_NO_DELEGATE=1` is automatic in the delegate environment
+and disables only delegation, not checks. `internal/process.InputReplay` retains
+consumed non-TTY stdin in unlinked private storage and restores it on fallback.
+Output tracking never buffers the whole response: it streams and counts, retaining
+only prefixes when post-hook capture requests them. Timeout/125 after stdout is
+not retryable; signals are never retried. Post-hooks receive just one final result.
+See [delegate protocol and limitations](delegates.md), including TTY input,
+output-pipe transparency, timeout and descendant handling.

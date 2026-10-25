@@ -23,6 +23,10 @@ type Options struct {
 	Stdin        *Spool
 	Capture      bool
 	CaptureLimit int64
+	// DrainTimeout bounds inherited output pipes after a delegate exits. When
+	// set, cancellation drains pending bytes before deciding whether retry is
+	// safe, instead of immediately aborting capture.
+	DrainTimeout time.Duration
 }
 
 // Result records the child's wait status. ExitCode is -1 for signal termination.
@@ -32,6 +36,9 @@ type Result struct {
 	CoreDump bool
 	Duration time.Duration
 	StartErr error
+	// Interrupted prevents a retry if a signal was observed during execution,
+	// even if the program catches it and exits normally.
+	Interrupted syscall.Signal
 	// WaitErr reports an unexpected failure to reap the child.
 	WaitErr        error
 	Stdout, Stderr *Captured
@@ -250,9 +257,15 @@ func Run(ctx context.Context, opts Options) (result Result) {
 				finishPump = nil
 			}
 			if cap != nil {
-				stopAbort := context.AfterFunc(ctx, cap.close)
+				drainCtx := ctx
+				cancelDrain := func() {}
+				if opts.DrainTimeout > 0 {
+					drainCtx, cancelDrain = context.WithTimeout(context.Background(), opts.DrainTimeout)
+				}
+				stopAbort := context.AfterFunc(drainCtx, cap.close)
 				result.Stdout, result.Stderr = cap.finish()
 				stopAbort()
+				cancelDrain()
 			}
 			return
 		}
@@ -264,6 +277,7 @@ func Run(ctx context.Context, opts Options) (result Result) {
 			if sig == syscall.SIGCHLD {
 				continue
 			}
+			result.Interrupted = sig
 			if (sig == syscall.SIGINT || sig == syscall.SIGQUIT) && foregroundTTY() {
 				continue
 			}
@@ -274,7 +288,7 @@ func Run(ctx context.Context, opts Options) (result Result) {
 			_ = syscall.Kill(pid, syscall.SIGTERM)
 			grace = time.NewTimer(time.Second)
 			kill = grace.C
-			if cap != nil {
+			if cap != nil && opts.DrainTimeout == 0 {
 				cap.close()
 			}
 		case <-kill:

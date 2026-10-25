@@ -16,6 +16,7 @@ type Config struct {
 	Policy     Policy        `yaml:"policy" json:"policy"`
 	Hooks      HookList      `yaml:"hooks" json:"hooks"`
 	Transforms TransformList `yaml:"transforms" json:"transforms"`
+	Delegates  []Delegate    `yaml:"delegates,omitempty" json:"delegates,omitempty" doc:"Ordered read-only execution delegates; first definite match wins. Off unless configured."`
 	Runtime    Runtime       `yaml:"runtime" json:"runtime"`
 	Logging    Logging       `yaml:"logging" json:"logging"`
 	Trust      Trust         `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project hook trust manifests and user-trusted repository paths."`
@@ -77,6 +78,7 @@ type Match struct {
 	Commands     StringList `yaml:"command" json:"command,omitempty" doc:"gh command path prefixes such as \"pr merge\" or \"api\"."`        // command path prefixes, e.g. "pr merge", "api"
 	Repositories StringList `yaml:"repositories" json:"repositories,omitempty" doc:"owner/repo globs (case-insensitive)."`                   // "owner/repo" globs
 	Hosts        StringList `yaml:"hosts" json:"hosts,omitempty"`
+	Methods      StringList `yaml:"method" json:"method,omitempty" enum:"GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,TRACE,CONNECT" doc:"HTTP method on the same normalized REST operation, e.g. GET. Does not match native commands or GraphQL."`
 	Effects      StringList `yaml:"effect" json:"effect,omitempty" enum:"read,write,unknown"`                                                                   // read|write|unknown
 	Levels       StringList `yaml:"level" json:"level,omitempty" enum:"L1,L2,L3,none" doc:"L1 native gh command, L2 gh api REST call, L3 gh api graphql call."` // L1|L2|L3|none
 	// Results and ExitCodes filter on how the real gh finished, so they are

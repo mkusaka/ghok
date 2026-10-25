@@ -44,6 +44,13 @@ func main() {
 		writeRecord(terminal())
 		return
 	}
+	if value := os.Getenv("FAKEGH_CATCH_TERM_EXIT"); value != "" {
+		code, err := strconv.Atoi(value)
+		must(err)
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+		go func() { <-signals; os.Exit(code) }()
+	}
 	ready(os.Getenv("FAKEGH_STARTED"))
 	input, err := io.ReadAll(os.Stdin)
 	must(err)
@@ -73,14 +80,20 @@ func main() {
 	}
 	writeRecord(input)
 	ready(os.Getenv("FAKEGH_READY"))
+	if os.Getenv("FAKEGH_OUTPUT_BEFORE_SLEEP") == "1" {
+		emit(os.Stdout, "FAKEGH_STDOUT_B64")
+		emit(os.Stderr, "FAKEGH_STDERR_B64")
+	}
 	pause(os.Getenv("FAKEGH_SLEEP"))
 	if os.Getenv("GHOK_NESTED") == "1" && os.Getenv("FAKEGH_API_RESPONSE") != "" {
 		_, err = io.WriteString(os.Stdout, os.Getenv("FAKEGH_API_RESPONSE"))
 		must(err)
 		os.Exit(integer("FAKEGH_API_EXIT"))
 	}
-	emit(os.Stdout, "FAKEGH_STDOUT_B64")
-	emit(os.Stderr, "FAKEGH_STDERR_B64")
+	if os.Getenv("FAKEGH_OUTPUT_BEFORE_SLEEP") != "1" {
+		emit(os.Stdout, "FAKEGH_STDOUT_B64")
+		emit(os.Stderr, "FAKEGH_STDERR_B64")
+	}
 	if sig := integer("FAKEGH_SIGNAL"); sig != 0 {
 		signal.Reset(syscall.Signal(sig))
 		must(syscall.Kill(os.Getpid(), syscall.Signal(sig)))

@@ -8,6 +8,20 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in ordered `delegates` route configured native reads and REST GET requests
+  to trusted argv executables after transforms, policy and pre-hooks. Exit 125
+  means not handled; start failure and timeout before output default to real-gh
+  fallback (`onError: deny` returns 78). Other statuses, including checks exit 8,
+  and signals pass through; post-hooks receive the final outcome once.
+- Delegate config validation/schema, project content/path trust, explain/normalize
+  selection, doctor executable checks, automatic `GHOK_NO_DELEGATE=1` recursion
+  guard, private streaming stdin replay, and a Bun/ghro example.
+- `match.method` filters normalized REST HTTP methods in rules, hooks, transforms
+  and delegates. Delegates require explicit read-only constraints; GraphQL,
+  non-GET API and unknown native syntax remain on real gh.
+
 ## [v0.0.22] - 2026-10-25
 
 ### Fixed

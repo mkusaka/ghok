@@ -54,6 +54,8 @@ func Generate(name string) (map[string]any, error) {
 			delete(hook["properties"].(map[string]any), "files")
 			transforms := props["transforms"].(map[string]any)["properties"].(map[string]any)["pre"].(map[string]any)
 			delete(transforms["items"].(map[string]any)["properties"].(map[string]any), "files")
+			delegates := props["delegates"].(map[string]any)
+			delete(delegates["items"].(map[string]any)["properties"].(map[string]any), "files")
 		}
 	case "hook-input":
 		s = schemaFor(reflect.TypeFor[protocol.Input](), "", "json")

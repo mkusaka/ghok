@@ -559,6 +559,9 @@ func operationPatternWarnings(c *config.Config) []string {
 	for i, hook := range c.Hooks {
 		check(fmt.Sprintf("hooks[%d] (%s)", i, hook.ID), hook.Match, hook.Unless)
 	}
+	for i, d := range c.Delegates {
+		check(fmt.Sprintf("delegates[%d] (%s)", i, d.ID), d.Match, d.Unless)
+	}
 	for i, hook := range c.IgnoredHooks {
 		check(fmt.Sprintf("ignoredHooks[%d] (%s)", i, hook.ID), hook.Match, hook.Unless)
 	}
@@ -623,6 +626,19 @@ func managementDoctor(asJSON bool, version string) int {
 	if c != nil && !noConfig {
 		for _, h := range c.Hooks {
 			checks = append(checks, managementHookCheck(c, h, env))
+		}
+		for _, d := range c.Delegates {
+			h := config.Hook{ID: d.ID, Command: d.Command, Env: d.Env}
+			check := managementHookCheck(c, h, env)
+			check.Name = "delegate:" + d.ID
+			checks = append(checks, check)
+		}
+		for _, h := range c.IgnoredHooks {
+			if h.Delegate {
+				check := managementHookCheck(c, h.Hook, env)
+				check.Name = "delegate:" + h.ID
+				checks = append(checks, check)
+			}
 		}
 		if c.Logging.Enabled != nil && *c.Logging.Enabled {
 			checks = append(checks, managementLogCheck(c.Logging.Path))

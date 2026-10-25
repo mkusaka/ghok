@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mkusaka/ghok/internal/config"
+	"github.com/mkusaka/ghok/internal/delegates"
 	"github.com/mkusaka/ghok/internal/hooks"
 	"github.com/mkusaka/ghok/internal/install"
 	"github.com/mkusaka/ghok/internal/logging"
@@ -129,7 +130,7 @@ func wrapper(args []string, argv0, via string) int {
 			}
 		}
 	}
-	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Transforms) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
+	if configErr == nil && cfg.Logging.Enabled != nil && !*cfg.Logging.Enabled && len(cfg.Hooks) == 0 && len(cfg.Transforms) == 0 && len(cfg.Delegates) == 0 && len(cfg.IgnoredHooks) == 0 && len(cfg.Policy.Rules) == 0 && cfg.Policy.Mode == config.ModeObserve {
 		warnIgnoredHooks()
 		err = execGh(opts, args)
 		return fatal(err, process.StartErrorExitCode(err))
@@ -345,7 +346,11 @@ func wrapper(args []string, argv0, via string) int {
 		logPolicy.Decision = protocol.DecisionAllow
 		record.Policy = &logPolicy
 	}
-	if len(post) == 0 && len(inv.TemporaryFiles) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
+	selectedDelegate := delegates.Select(cfg, subject)
+	if selectedDelegate != nil {
+		record.Diagnostics = append(record.Diagnostics, "selected delegate "+selectedDelegate.ID)
+	}
+	if selectedDelegate == nil && len(post) == 0 && len(inv.TemporaryFiles) == 0 && (opts.Stdin == nil || !opts.Stdin.RequiresSupervision()) {
 		releaseNested()
 		transformed.cleanup()
 		return execLogged()
@@ -355,7 +360,24 @@ func wrapper(args []string, argv0, via string) int {
 	}
 	opts.CaptureLimit = cfg.Runtime.CaptureLimit
 	warnIgnoredHooks()
-	execution := process.Run(context.Background(), opts)
+	var execution process.Result
+	if selectedDelegate == nil {
+		execution = process.Run(context.Background(), opts)
+	} else {
+		var overrides map[string]string
+		for _, d := range cfg.Delegates {
+			if d.ID == selectedDelegate.ID {
+				overrides = d.Env
+				break
+			}
+		}
+		execution = delegates.Run(selectedDelegate, overrides, opts, func(message string) {
+			text := "delegate " + selectedDelegate.ID + ": " + message
+			record.Warnings = append(record.Warnings, protocol.Warning{Source: "delegate", ID: selectedDelegate.ID, Text: message})
+			record.Diagnostics = append(record.Diagnostics, text)
+			fmt.Fprintln(os.Stderr, terminalText("ghok: warning: "+strings.Join(strings.Fields(redactor.String(text)), " ")))
+		})
+	}
 	ctx, stopHelpers = watchHelpers(helperSignals, len(post) > 0)
 	if execution.StartErr != nil {
 		fatal(execution.StartErr, process.StartErrorExitCode(execution.StartErr))
@@ -410,7 +432,7 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 	// could skip the full pipeline, so the fast path stays conservative.
 	couldMatch := func(m config.Match) bool {
 		if api {
-			m.Operations, m.Effects, m.Parameters = nil, nil, nil
+			m.Operations, m.Effects, m.Parameters, m.Methods = nil, nil, nil, nil
 		}
 		yes, _ := policy.Matches(m, nil, s)
 		if !yes {
@@ -437,6 +459,13 @@ func shouldSpool(c *config.Config, result model.Result, env map[string]string) (
 	for _, t := range c.Transforms {
 		if couldMatch(t.Match) {
 			return true, false
+		}
+	}
+	if env["GHOK_NO_DELEGATE"] != "1" {
+		for _, d := range c.Delegates {
+			if couldMatch(d.Match) {
+				return true, false
+			}
 		}
 	}
 	for _, h := range c.IgnoredHooks {
@@ -512,6 +541,11 @@ func needsLocal(c *config.Config, s policy.Subject) bool {
 	}
 	for _, h := range c.Hooks {
 		if (h.Enabled == nil || *h.Enabled) && relevant(h.Match, h.Unless) {
+			return true
+		}
+	}
+	for _, d := range c.Delegates {
+		if relevant(d.Match, d.Unless) {
 			return true
 		}
 	}

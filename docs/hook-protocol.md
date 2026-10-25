@@ -46,7 +46,7 @@ runtime input-validation step.
 | errors | string array | yes | Nonfatal normalization problems; raw unless redactInput is enabled. |
 | context | ResolvedContext object | yes | Resolver context when requested. |
 | policy | PolicyInfo object | yes | CLI policy evaluation, not aggregate pre-hook decision. |
-| result | ExecResult object | yes | Real gh outcome in post phase; absent before execution. |
+| result | ExecResult object | yes | Final real-gh or delegate outcome in post phase; absent before execution. |
 | previous | HookResult array | yes | Direct dependsOn results in configured dependency order. |
 
 ### InvocationInfo
@@ -368,7 +368,7 @@ that fails closed, or a matching inactive gate, exits 78 when no content denial
 exists. ghok internal errors remain 1; missing real gh is 127.
 Observe logs would-deny but executes gh unchanged; effective denial still skips
 pending hooks, while already-running hooks finish within their own timeout.
-Normal real-gh exits/signals are reproduced after post-hooks. Management usage errors are 2; `hooks test` failures,
+Normal real-gh/delegate exits/signals are reproduced after post-hooks. Management usage errors are 2; `hooks test` failures,
 denials and expectation mismatches remain **1**, not 77/78. Explain displays
 policy without hook execution and exits zero even on displayed deny.
 
@@ -479,7 +479,10 @@ as in [normalization.md](normalization.md), e.g. `watch` for `pr checks
 compare by their text (`true`, `42`); globs, `"*"` and `""` work as for `env`.
 Arrays and objects only satisfy `"*"`.
 
-`unless` is a list of matches next to `match` on rules, hooks and transforms.
+`method: GET` selects a normalized REST operation's HTTP method, on the same
+operation as the other criteria. It never matches native commands or GraphQL.
+
+`unless` is a list of matches next to `match` on rules, hooks, transforms and delegates.
 An operation that any entry matches definitively is excluded from `match`;
 a maybe-match (unresolved repository/host, or post-hook `result`/`exitCode`
 before gh has finished) never excludes, so selection stays conservative. An entry without per-operation criteria (only `command`, `env`,
@@ -643,6 +646,22 @@ For hooks test and installation commands see [README](../README.md). Detailed
 implementation evidence: [hooks/policy notes](notes/hooks-policy.md),
 [configuration notes](notes/config-logging-redaction.md), and
 [process notes](notes/process.md).
+
+## Delegated execution and hooks
+
+A configured [read-only delegate](delegates.md) replaces only the final gh
+execution step, after transforms, policy and pre-hooks. Post-hooks run once with
+the actual final result: delegate status/signal when handled, real-gh status
+when fallback runs, or exit 78 on a delegate failure that cannot safely fall back.
+`match.result`, `match.exitCode` and opt-in output capture use that same result;
+post-hook failures still cannot change it. Policy/pre-hooks are not repeated on
+fallback. Delegate-specific env/metadata are not added to post-hook processes.
+
+Delegates do **not** speak the hook JSON protocol: they receive gh argv, stdin
+and streamed stdout/stderr instead. Exit 125 without stdout means not handled.
+They use the real-gh supervisor and signal model rather than hook helper groups.
+The complete configuration, trust, fallback and environment contracts are in
+[Read-only command delegates](delegates.md).
 
 ## Request transforms
 

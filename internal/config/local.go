@@ -74,7 +74,7 @@ func mergeLocal(c *Config, notes []string, cwd string, env map[string]string) (*
 	if field(n, "trust") != nil {
 		return ignore(local, fmt.Errorf("%s: trust is only meaningful in .ghok.yaml", local))
 	}
-	for _, h := range p.Hooks {
+	for _, h := range p.trustHooks() {
 		if h.Files != nil {
 			return ignore(local, fmt.Errorf("%s: hook %s: files is only meaningful in .ghok.yaml (local hooks run without trust)", local, h.ID))
 		}

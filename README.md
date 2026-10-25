@@ -26,7 +26,9 @@ basename(argv[0])
   gh -> discover real gh -> classify the operation -> resolve only needed context
      -> run trusted transforms serially -> re-normalize changed requests
      -> evaluate policy + pre-hooks -> deny: exit 77/78, no gh
-     -> execute original request (or the successfully transformed request)
+     -> first matching trusted read-only delegate, or real gh
+        delegate not handled/start failure/empty-output timeout: fall back to real gh
+        execute original request (or the successfully transformed request)
         no matching post-hook/live stdin pump: exec replaces wrapper
         otherwise: supervise gh -> post-hooks -> original exit/signal
 ```
@@ -109,6 +111,56 @@ original file, and are cleaned up after use. See the
 [transform protocol](docs/hook-protocol.md#request-transforms) for editable paths,
 unsupported sources and diagnostic behavior.
 
+### Read-only command delegates
+
+Configure `delegates` to serve selected reads through another program while
+callers keep typing plain `gh`. Delegates are off unless configured; policy,
+transforms and pre-hooks keep their existing order. Only final execution changes,
+and post-hooks see the actual final status (including checks exit 8).
+
+```yaml
+delegates:
+  - id: cached-pr-reads
+    match:
+      level: L1
+      effect: read
+      operation: [pr.view, pr.checks, pr.list, pr.diff, run.view, run.list]
+      repositories: [medley-inc/mall-cloud]
+    command: ["bun", "scripts/ghro.ts", "gh"]
+    timeout: 10s
+    onError: fallback
+```
+
+The first definite match runs with gh argv appended unchanged, the same cwd,
+stdin and execution environment, plus configured `env` and documented metadata.
+This example assumes cwd is the checkout root; other command arguments are not
+resolved relative to the config. For REST GET, use a separate entry with
+`match: {command: api, level: L2, effect: read, method: GET}`. `match`/`unless`
+use the existing matcher. Explicit read effect/level constraints are required:
+non-GET API, GraphQL and native write/unknown operations cannot be delegated,
+because retrying a mutation could duplicate effects.
+
+Exit **125** means **not handled**: the delegate must not have written stdout.
+ghok then runs real gh, never the next delegate. Start failure or timeout before
+any output also falls back by default; `onError: deny` returns 78 instead.
+A one-line stderr warning identifies fallback/error handling. Timeout after
+output or exit 125 after stdout never retries and returns 78. Other statuses and
+signals pass through unchanged. Stdout/stderr stream through pipes to detect
+output, so delegates see non-TTY outputs; non-TTY stdin is recorded privately
+for byte-exact fallback. A declining delegate must not consume TTY input.
+
+Project delegates require the same content/path trust as hooks/transforms and
+are ignored, never gates, when untrusted. User and personal local entries follow
+the existing trust rules. Commands are argv, no shell; project executables must
+be `./relative` or absolute. Set `GHOK_NO_DELEGATE=1` for one call to disable
+routing without bypassing policy/hooks; ghok sets it automatically in delegates
+to prevent recursion.
+
+`ghok explain` shows `Delegate that WOULD run: <id> command=...`;
+`explain --json` and `normalize` include an optional `delegate` object.
+`ghok doctor` checks executable existence/permissions. See the complete
+[delegate contract](docs/delegates.md) and [Bun/ghro example](examples/delegates.yaml).
+
 ### Exit status
 
 | Origin | Code | Meaning |
@@ -119,7 +171,7 @@ unsupported sources and diagnostic behavior.
 | gh | 4 | Authentication required. |
 | gh | 8 | A command-specific check failed (for example, pending `gh pr checks`). |
 | ghok | 77 (`EX_NOPERM`) | Policy/rule denial or a hook **returned** deny. Content denial takes precedence over hook errors. |
-| ghok | 78 (`EX_CONFIG`) | Transform failure under `onError: deny` (either mode), hook malfunction under `onError: deny`, an inactive gate, or invalid configuration failed closed. |
+| ghok | 78 (`EX_CONFIG`) | Delegate failure under `onError: deny` or unsafe fallback, transform failure under `onError: deny` (either mode), hook malfunction under `onError: deny`, an inactive gate, or invalid configuration failed closed. |
 | ghok | 1 | ghok internal failure. |
 | ghok | 127 | Real gh was not found. |
 
@@ -366,7 +418,7 @@ automatically, but cloning a repository alone never activates its hooks.
 `.ghok.local.yaml` is a personal config for one checkout, like `CLAUDE.local.md`.
 Layers load in the order user config → `.ghok.yaml` → `.ghok.local.yaml`; local
 hooks and transforms run after the project's. Because you write it yourself, its
-hooks and transforms run **without** `ghok config trust`. Otherwise it follows the
+hooks, transforms and delegates run **without** `ghok config trust`. Otherwise it follows the
 project rules: policy can only tighten, and `runtime`, `logging`, `trust` and
 hook `files` are rejected. `config init --scope local` adds `/.ghok.local.yaml`
 to the repository's `.git/info/exclude` (never `.gitignore`). ghok ignores the
@@ -408,7 +460,7 @@ trust:
 worktrees. `directories` covers the directory itself and descendants, on path
 boundaries (not similarly named siblings). Both accept absolute or `~/...` paths;
 symlinks are resolved and trailing slashes make no difference. Matching considers
-the checkout and main worktree roots. Project hooks and transforms in a matching
+the checkout and main worktree roots. Project hooks, transforms and delegates in a matching
 repository run without per-hook trust, and changed-gate denial does not apply.
 Validate, doctor and explain identify the matching entry. Only user config may
 set `trust.repositories` or `trust.directories`; a project overlay containing
@@ -1126,6 +1178,7 @@ updates the Homebrew tap. It refuses to release a tag without a CHANGELOG sectio
 
 - [Architecture](docs/architecture.md)
 - [Hook protocol and execution](docs/hook-protocol.md)
+- [Read-only delegate contract](docs/delegates.md)
 - [Normalization model and registries](docs/normalization.md)
 - [Security and trust](docs/security.md)
 - [Compatibility and transparency](docs/compatibility.md)

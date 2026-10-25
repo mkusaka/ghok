@@ -208,6 +208,9 @@ func parametersMatch(m config.Match, op model.Operation) bool {
 }
 
 func opMatch(m config.Match, s Subject, op model.Operation) (yes, maybe bool) {
+	if len(m.Methods) > 0 && (s.Result.Classification.Level != model.LevelL2 || !anyMatch(m.Methods, op.Origin.Method, exact)) {
+		return false, false
+	}
 	if !considered(op) || !anyMatch(m.Operations, op.Action, MatchAction) || !anyMatch(m.Effects, string(op.Effect), exact) || !parametersMatch(m, op) {
 		return false, false
 	}
@@ -233,7 +236,7 @@ func opMatch(m config.Match, s Subject, op model.Operation) (yes, maybe bool) {
 
 // invocationOnly reports whether m has no per-operation criteria.
 func invocationOnly(m config.Match) bool {
-	return len(m.Operations)+len(m.Effects)+len(m.Repositories)+len(m.Hosts)+len(m.Parameters) == 0
+	return len(m.Operations)+len(m.Methods)+len(m.Effects)+len(m.Repositories)+len(m.Hosts)+len(m.Parameters) == 0
 }
 
 // excluded reports whether an unless entry definitely matches op (nil: an
