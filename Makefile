@@ -18,8 +18,8 @@ ci:
 	GOFLAGS=-p=1 $(MAKE) test race
 	$(MAKE) fuzz FUZZTIME=200000x
 	$(MAKE) build cross
-	GOOS=linux $(MAKE) lint
-	GOOS=darwin $(MAKE) lint
+	GOOS=linux CGO_ENABLED=0 $(MAKE) lint
+	GOOS=darwin CGO_ENABLED=0 $(MAKE) lint
 test:
 	go test ./...
 race:
@@ -28,7 +28,9 @@ race:
 GOLANGCI_LINT_VERSION = $(shell sed -n 's/^ *version: \(v2\.[0-9.]*\)$$/\1/p' .github/workflows/ci.yml | head -1)
 lint:
 	@test -n "$(GOLANGCI_LINT_VERSION)" || { echo "lint: no golangci-lint version in .github/workflows/ci.yml" >&2; exit 1; }
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+	@# Build for the host; GOOS/GOARCH then only select what gets analysed.
+	env -u GOOS -u GOARCH GOBIN="$(CURDIR)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	"$(CURDIR)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)/golangci-lint" run ./...
 # Go fuzzes one target per run. CI uses FUZZTIME=200000x.
 # Name:pkg@N fixes N for filesystem-bound targets (~100-300 execs/s).
 FUZZTIME ?= 30s
