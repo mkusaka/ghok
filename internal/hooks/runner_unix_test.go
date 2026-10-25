@@ -575,11 +575,16 @@ func TestParallelSteps(t *testing.T) {
 	log := filepath.Join(dir, "log")
 	var hooks []config.Hook
 	for _, spec := range []struct {
-		id       string
+		id, peer string
 		parallel bool
-	}{{"a", false}, {"b", true}, {"c", true}, {"d", false}} {
-		h := hook(spec.id, script(t, `printf '%s+\n' "$ID" >> "$LOG"; sleep 0.2; printf '%s-\n' "$ID" >> "$LOG"; printf '{"decision":"allow"}'`))
-		h.Env = map[string]string{"ID": spec.id, "LOG": log}
+	}{{"a", "", false}, {"b", "c", true}, {"c", "b", true}, {"d", "", false}} {
+		// b and c wait (bounded) for each other's start, so their overlap does
+		// not depend on how fast the second process spawns. The sleeps only
+		// give a misordering runner time to show; a correct one always passes.
+		h := hook(spec.id, script(t, `printf '%s+\n' "$ID" >> "$LOG"; : > "$LOG.$ID"
+i=0; while [ -n "$PEER" ] && [ ! -f "$LOG.$PEER" ] && [ $i -lt 250 ]; do sleep 0.02; i=$((i+1)); done
+sleep 0.2; printf '%s-\n' "$ID" >> "$LOG"; printf '{"decision":"allow"}'`))
+		h.Env = map[string]string{"ID": spec.id, "PEER": spec.peer, "LOG": log}
 		h.Background = spec.parallel
 		if spec.id == "d" {
 			h.Wait = []string{"b", "c"} // end of a parallel block
