@@ -11,8 +11,25 @@ race:
 	go test -race ./...
 lint:
 	golangci-lint run ./...
+# Go fuzzes one target per run. CI uses FUZZTIME=200000x.
+FUZZTIME ?= 30s
+FUZZ_TARGETS := \
+	FuzzParse:./internal/normalize/apiargs \
+	FuzzNormalize:./internal/normalize/native \
+	FuzzNativeEditableBundlePreservesNeighbours:./internal/normalize/native \
+	FuzzNormalizeREST:./internal/normalize/rest \
+	FuzzNormalizeGraphQL:./internal/normalize/graphql \
+	FuzzMutationVariableLocatorIsolation:./internal/normalize/graphql \
+	FuzzRedactString:./internal/redact \
+	FuzzTrustStore:./internal/config \
+	FuzzContentMinimization:./internal/logging \
+	FuzzRepositoryLess:./internal/policy
+
 fuzz:
-	go test -run '^$$' -fuzz FuzzParse -fuzztime 30s ./internal/normalize/apiargs/
+	@set -e; for t in $(FUZZ_TARGETS); do \
+		echo "fuzz $${t%%:*}"; \
+		go test -run '^$$' -fuzz "^$${t%%:*}$$" -fuzztime $(FUZZTIME) $${t#*:}; \
+	done
 bench:
 	go test -run '^$$' -bench . -benchmem ./...
 schema:

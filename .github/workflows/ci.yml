@@ -75,17 +75,7 @@ jobs:
       - name: Fuzz smoke
         # Iteration-bounded: a time-bounded -fuzztime can fail with "context
         # deadline exceeded" when a worker is slow to stop on a loaded runner.
-        run: |
-          go test -run '^$' -fuzz '^FuzzParse$' -fuzztime 200000x ./internal/normalize/apiargs
-          go test -run '^$' -fuzz '^FuzzNormalize$' -fuzztime 200000x ./internal/normalize/native
-          go test -run '^$' -fuzz '^FuzzNormalizeREST$' -fuzztime 200000x ./internal/normalize/rest
-          go test -run '^$' -fuzz '^FuzzNormalizeGraphQL$' -fuzztime 200000x ./internal/normalize/graphql
-          go test -run '^$' -fuzz '^FuzzRedactString$' -fuzztime 200000x ./internal/redact
-          go test -run '^$' -fuzz '^FuzzNativeEditableBundlePreservesNeighbours$' -fuzztime 200000x ./internal/normalize/native
-          go test -run '^$' -fuzz '^FuzzMutationVariableLocatorIsolation$' -fuzztime 200000x ./internal/normalize/graphql
-          go test -run '^$' -fuzz '^FuzzTrustStore$' -fuzztime 200000x ./internal/config
-          go test -run '^$' -fuzz '^FuzzContentMinimization$' -fuzztime 200000x ./internal/logging
-          go test -run '^$' -fuzz '^FuzzRepositoryLess$' -fuzztime 200000x ./internal/policy
+        run: make fuzz FUZZTIME=200000x
       - name: Build
         run: make build
       - name: Cross-compile release targets
