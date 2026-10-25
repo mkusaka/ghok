@@ -251,3 +251,33 @@ func TestTransformEnvEvidenceAndRedaction(t *testing.T) {
 		})
 	}
 }
+
+func TestTransformRepositoryMatchRequiresKnownRepository(t *testing.T) {
+	for _, tc := range []struct {
+		name, repo string
+		args       []string
+		applied    bool
+	}{
+		{"repo-less api outside repo", "", []string{"api", "rate_limit"}, false},
+		{"repo-less api in other repo", "other/project", []string{"api", "rate_limit"}, false},
+		{"implicit repo in matched repo", "acme/project", []string{"pr", "list"}, true},
+		{"implicit repo in other repo", "other/project", []string{"pr", "list"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSandbox(t)
+			token := "ghs" + "_repository_fixture"
+			if tc.repo != "" {
+				s.env["GH_REPO"] = tc.repo
+			}
+			s.configure(func(c *config.Config) {
+				tr := envTransformFixture(s, "credentials", map[string]any{"GH_TOKEN": token})
+				tr.Match = config.Match{Repositories: config.StringList{"acme/*"}}
+				c.Transforms = []config.Transform{tr}
+			})
+			s.gh(nil, tc.args...).code(t, 0)
+			if got := envMap(s.onlyRecord(tc.args, nil).Env)["GH_TOKEN"] == token; got != tc.applied {
+				t.Fatalf("transform applied = %v, want %v", got, tc.applied)
+			}
+		})
+	}
+}

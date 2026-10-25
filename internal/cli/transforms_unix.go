@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -18,8 +19,21 @@ import (
 	"github.com/mkusaka/ghok/internal/model"
 	"github.com/mkusaka/ghok/internal/policy"
 	"github.com/mkusaka/ghok/internal/protocol"
+	"github.com/mkusaka/ghok/internal/resolve"
 	"github.com/mkusaka/ghok/internal/transforms"
 )
+
+// localTargets fills a copy of result from env and local git only (no API).
+func localTargets(inv model.Invocation, result model.Result) (model.Result, *model.ResolvedContext) {
+	result.Operations = slices.Clone(result.Operations)
+	for i := range result.Operations {
+		result.Operations[i].Unresolved = slices.Clone(result.Operations[i].Unresolved)
+	}
+	r := &resolve.Resolver{Env: inv.Env, Cwd: inv.Cwd}
+	r.Fill(context.Background(), &result, nil, false)
+	local := r.Local()
+	return result, &local
+}
 
 type transformedRequest struct {
 	invocation model.Invocation
@@ -48,8 +62,11 @@ func runTransforms(ctx context.Context, c *config.Config, runner *hooks.Runner, 
 	for _, t := range c.Transforms {
 		subject := policy.Subject{Result: out.result, Argv: out.result.Source.Argv, Phase: config.PhasePre, Token: policy.TokenKind(out.invocation.Env), Env: out.invocation.Env}
 		yes, _ := policy.Matches(t.Match, t.Unless, subject)
-		if !yes {
-			yes, _ = policy.MatchMaybe(t.Match, t.Unless, subject)
+		if maybe, _ := policy.MatchMaybe(t.Match, t.Unless, subject); !yes && maybe {
+			// Transforms can swap credentials, so an unknown repository must not
+			// select one: fill targets from env/local git, then require a definite match.
+			subject.Result, subject.Context = localTargets(out.invocation, out.result)
+			yes, _ = policy.Matches(t.Match, t.Unless, subject)
 		}
 		if !yes {
 			continue
