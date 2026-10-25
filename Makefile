@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?=
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: build test race lint fuzz bench schema fmt cross ci
+.PHONY: build test race lint fuzz bench schema fmt cross
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ghok ./cmd/ghok
 fmt:
@@ -12,14 +12,6 @@ cross:
 	@set -e; for os in darwin linux; do for arch in amd64 arm64; do \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -o "$(CROSS_DIR)/ghok_$${os}_$${arch}" ./cmd/ghok; \
 	done; done
-# Everything CI checks, as CI runs it (scripts/push-main.sh runs this).
-ci:
-	$(MAKE) fmt
-	GOFLAGS=-p=1 $(MAKE) test race
-	$(MAKE) fuzz FUZZTIME=200000x
-	$(MAKE) build cross
-	GOOS=linux CGO_ENABLED=0 $(MAKE) lint
-	GOOS=darwin CGO_ENABLED=0 $(MAKE) lint
 test:
 	go test ./...
 race:

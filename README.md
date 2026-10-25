@@ -1142,8 +1142,6 @@ make test
 make race
 make fuzz                      # every fuzz target, FUZZTIME each (default 30s)
 make bench
-make ci                        # every CI check, as CI runs it
-scripts/push-main.sh           # push HEAD to main after make ci passes on it
 ```
 
 By default E2E builds ghok/fakegh with the local Go toolchain, dependencies
