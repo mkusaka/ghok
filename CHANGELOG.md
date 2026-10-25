@@ -12,6 +12,7 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - Transforms with `repositories`/`hosts` criteria apply only on a definite match. Targets are filled from env and local git first, so a token-minting transform no longer runs for requests outside the listed repositories (for example `gh api rate_limit`).
 - Command and REST operations without a repository (`gh api rate_limit`, gists) never match `repositories` in rules, hooks or transforms, and are not treated as unresolved writes under `protectedRepositories`. GraphQL documents keep matching against the current repository.
+- `gh api` endpoints with `{owner}`/`{repo}` placeholders on unmapped routes count as targeting the current repository, not as repository-less.
 
 ## [v0.0.21] - 2026-10-22
 

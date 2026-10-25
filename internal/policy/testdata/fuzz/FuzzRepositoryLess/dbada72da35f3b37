@@ -1,0 +1,2 @@
+go test fuzz v1
+string("api\x00repos/{owner}0/0/0")

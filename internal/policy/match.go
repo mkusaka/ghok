@@ -140,7 +140,8 @@ func RepositoryLess(level model.Level, op model.Operation) bool {
 		return false
 	}
 	for _, u := range op.Unresolved {
-		if u.Field == "target.repository" || u.Field == "target.owner" {
+		// An endpoint placeholder ({owner}, {repo}) is filled from the current repository.
+		if u.Field == "target.repository" || u.Field == "target.owner" || u.Field == "endpoint" {
 			return false
 		}
 	}
