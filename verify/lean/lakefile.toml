@@ -1,0 +1,5 @@
+name = "ghok-proofs"
+defaultTargets = ["Ghok"]
+
+[[lean_lib]]
+name = "Ghok"

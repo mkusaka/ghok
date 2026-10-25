@@ -35,3 +35,9 @@ go.work.sum
 # Build output
 /bin/
 /dist/
+
+# Proof build output (verify/)
+/verify/lean/.lake/
+/verify/rocq/*.vo*
+/verify/rocq/*.glob
+/verify/rocq/.*.aux

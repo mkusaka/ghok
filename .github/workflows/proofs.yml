@@ -1,0 +1,93 @@
+name: proofs
+
+on:
+  push:
+    branches: [main]
+    paths: &proof-paths
+      - "verify/**"
+      - ".github/workflows/proofs.yml"
+  pull_request:
+    branches: [main]
+    paths: *proof-paths
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: proofs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lean:
+    name: Lean
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install elan
+        run: verify/install-elan.sh
+        shell: bash
+      - name: Check Lean proofs
+        # lake picks the toolchain pinned in verify/lean/lean-toolchain.
+        run: lake build
+        working-directory: verify/lean
+        shell: bash
+
+  rocq:
+    name: Rocq
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check Rocq proofs
+        env:
+          ROCQ_IMAGE: rocq/rocq-prover:9.3@sha256:c357e8864f80359db21725ea8371347a75a1cb439545b47219d7ad5683ba1782
+        # The image's user cannot write the bind mount, so build a copy.
+        run: docker run --rm -v "$PWD/verify/rocq:/src:ro" "$ROCQ_IMAGE" sh -c 'cp -r /src /tmp/w && /tmp/w/build.sh'
+        shell: bash
+
+  bend:
+    name: Bend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {}
+    env:
+      BEND_VERSION: 2.0.39 # bump together with BEND_SHA256
+      BEND_SHA256: 6cf462fd8f70b094a4950ebb709a9c4ffd8f1d1189d9cedf1fd63cd5d041c7ab
+      BEND_NO_TELEMETRY: "1"
+      # bend --verdict builds its BendTT kernel with exactly this Lean.
+      ELAN_TOOLCHAIN: leanprover/lean4:v4.34.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install elan
+        run: verify/install-elan.sh
+        shell: bash
+      - name: Install Bend
+        run: |
+          archive="bend-${BEND_VERSION}-linux-x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$archive" "https://github.com/bendlang/bend/releases/download/v${BEND_VERSION}/$archive"
+          echo "$BEND_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "BEND_HOME=$RUNNER_TEMP/bend" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/bend/bin" >> "$GITHUB_PATH"
+          elan toolchain install "$ELAN_TOOLCHAIN"
+        shell: bash
+      - name: Check Bend proofs
+        # --verdict rechecks each file with the BendTT kernel (proved in Lean).
+        run: |
+          set -euo pipefail
+          for f in policy match config hooks decide; do
+            out="$(bend "$f.bend" --verdict)"
+            echo "$f: $out"
+            grep -qx 'ALL PROOFS CHECK' <<<"$out"
+          done
+        working-directory: verify/bend
+        shell: bash
