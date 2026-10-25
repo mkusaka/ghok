@@ -12,6 +12,7 @@ race:
 lint:
 	golangci-lint run ./...
 # Go fuzzes one target per run. CI uses FUZZTIME=200000x.
+# Name:pkg@N fixes N for filesystem-bound targets (~100-300 execs/s).
 FUZZTIME ?= 30s
 FUZZ_TARGETS := \
 	FuzzParse:./internal/normalize/apiargs \
@@ -23,12 +24,16 @@ FUZZ_TARGETS := \
 	FuzzRedactString:./internal/redact \
 	FuzzTrustStore:./internal/config \
 	FuzzContentMinimization:./internal/logging \
-	FuzzRepositoryLess:./internal/policy
+	FuzzRepositoryLess:./internal/policy \
+	FuzzLayeredConfig:./internal/config@20000x \
+	FuzzTrustLifecycle:./internal/config@5000x
 
 fuzz:
 	@set -e; for t in $(FUZZ_TARGETS); do \
+		pkg=$${t#*:}; time=$(FUZZTIME); \
+		case $$pkg in *@*) time=$${pkg#*@}; pkg=$${pkg%@*};; esac; \
 		echo "fuzz $${t%%:*}"; \
-		go test -run '^$$' -fuzz "^$${t%%:*}$$" -fuzztime $(FUZZTIME) $${t#*:}; \
+		go test -run '^$$' -fuzz "^$${t%%:*}$$" -fuzztime $$time $$pkg; \
 	done
 bench:
 	go test -run '^$$' -bench . -benchmem ./...
