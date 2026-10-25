@@ -57,19 +57,14 @@ jobs:
           test "$(go env GOOS)" = "$EXPECTED_OS"
           test "$(go env GOARCH)" = "$EXPECTED_ARCH"
       - name: Check formatting
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            printf '%s\n' "$unformatted"
-            exit 1
-          fi
+        run: make fmt
       - name: Test
-        run: go test ./...
+        run: make test
         env:
           # Keep subprocess version probes from competing with other test packages.
           GOFLAGS: -p=1
       - name: Race test
-        run: go test -race ./...
+        run: make race
         env:
           GOFLAGS: -p=1
       - name: Fuzz smoke
@@ -79,15 +74,7 @@ jobs:
       - name: Build
         run: make build
       - name: Cross-compile release targets
-        env:
-          CGO_ENABLED: '0'
-        run: |
-          mkdir -p "$RUNNER_TEMP/ghok-cross"
-          for os in darwin linux; do
-            for arch in amd64 arm64; do
-              GOOS="$os" GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/ghok-cross/ghok_${os}_${arch}" ./cmd/ghok
-            done
-          done
+        run: make cross CROSS_DIR="$RUNNER_TEMP/ghok-cross"
 
   lint:
     name: golangci-lint

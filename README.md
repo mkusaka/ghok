@@ -1088,17 +1088,10 @@ go build ./...
 make lint                      # golangci-lint at the version ci.yml pins (includes govet)
 make test
 make race
-make fuzz                      # existing target: FuzzParse, 30s
+make fuzz                      # every fuzz target, FUZZTIME each (default 30s)
 make bench
-```
-
-Other fuzz targets (run separately, at least 30s for a full local check):
-
-```sh
-go test -run '^$' -fuzz '^FuzzNormalize$' -fuzztime 30s ./internal/normalize/native
-go test -run '^$' -fuzz '^FuzzNormalizeREST$' -fuzztime 30s ./internal/normalize/rest
-go test -run '^$' -fuzz '^FuzzNormalizeGraphQL$' -fuzztime 30s ./internal/normalize/graphql
-go test -run '^$' -fuzz '^FuzzRedactString$' -fuzztime 30s ./internal/redact
+make ci                        # every CI check, as CI runs it
+scripts/push-main.sh           # push HEAD to main after make ci passes on it
 ```
 
 By default E2E builds ghok/fakegh with the local Go toolchain, dependencies
