@@ -44,7 +44,8 @@ FUZZ_TARGETS := \
 	FuzzContentMinimization:./internal/logging \
 	FuzzRepositoryLess:./internal/policy \
 	FuzzLayeredConfig:./internal/config@20000x \
-	FuzzTrustLifecycle:./internal/config@5000x
+	FuzzTrustLifecycle:./internal/config@5000x \
+	FuzzTrustPathMatch:./internal/config@20000x
 
 fuzz:
 	@set -e; for t in $(FUZZ_TARGETS); do \
