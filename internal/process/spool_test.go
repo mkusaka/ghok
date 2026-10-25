@@ -250,10 +250,11 @@ func TestSpoolPumpCancellation(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			r, w := spoolTestPipe(t)
-			var producer chan error
+			var producer chan struct{}
 			if blockedWrite {
-				producer = make(chan error, 1)
-				go func() { _, err := w.Write(bytes.Repeat([]byte{1}, 2*1024*1024)); producer <- err }()
+				producer = make(chan struct{})
+				// The write fails once the reader closes; only its completion matters.
+				go func() { _, _ = w.Write(bytes.Repeat([]byte{1}, 2*1024*1024)); close(producer) }()
 			}
 			limit := int64(0)
 			if blockedWrite {
