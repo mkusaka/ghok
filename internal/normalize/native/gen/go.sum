@@ -159,6 +159,8 @@ github.com/cli/cli/v2 v2.102.1 h1:uphBKnUnSwZQ4DcyipFH7/B3eHavd8UbQQ7sz7vD1PU=
 github.com/cli/cli/v2 v2.102.1/go.mod h1:c46FLOYM7TIRYGQlB75MFzUPrCkqa+dbrVLrbE8SLs4=
 github.com/cli/cli/v2 v2.103.0 h1:iSwyy7dCdv8AUMi+myP8XrMgo4ZalGUX47i8vBih+zg=
 github.com/cli/cli/v2 v2.103.0/go.mod h1:eUotmoESvJ7YjwRY9Cl9aglN4cMjRWF+WrmjJiA6h70=
+github.com/cli/cli/v2 v2.103.2 h1:FfS9tCch+UQMiX20RdAfv6QCZ1fmvixPy1qdIMpjHxE=
+github.com/cli/cli/v2 v2.103.2/go.mod h1:Z9vL4bFrEfOM7VDixVr5PgNtKvDEOc7clWhuXBeX/xk=
 github.com/cli/go-gh/v2 v2.16.1 h1:t8s29LToBmYjXeDXUnK7Wdm7NkYSyzGZK3t4Doa6GX0=
 github.com/cli/go-gh/v2 v2.16.1/go.mod h1:OaJTFtHJapQq670h/3L0vqm4NwZGoJmSAVctWiY+3pQ=
 github.com/cli/go-gh/v2 v2.17.0 h1:F24s1Ow/6pgWO0FXXSTi7l4YLkcuS94XPv7npEGkrQc=
@@ -193,6 +195,8 @@ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/digitorus/pkcs7 v0.0.0-20230713084857-e76b763bdc49/go.mod h1:SKVExuS+vpu2l9IoOc0RwqE7NYnb0JlcFHFnEJkVDzc=
 github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352 h1:ge14PCmCvPjpMQMIAH7uKg0lrtNSOdpYsRXlwk3QbaE=
 github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352/go.mod h1:SKVExuS+vpu2l9IoOc0RwqE7NYnb0JlcFHFnEJkVDzc=
+github.com/digitorus/pkcs7 v0.0.0-20260914070511-d678ea5ea03f h1:LBDTasGDT7gkpSl3tIq+V4Yy0nr+l+ZmI6VN9MY9FU0=
+github.com/digitorus/pkcs7 v0.0.0-20260914070511-d678ea5ea03f/go.mod h1:OQvyvldkvDCxGsUPLSibXqM4B/Pz5RaXQP4CPo5LXs4=
 github.com/digitorus/timestamp v0.0.0-20250524132541-c45532741eea h1:ALRwvjsSP53QmnN3Bcj0NpR8SsFLnskny/EIMebAk1c=
 github.com/digitorus/timestamp v0.0.0-20250524132541-c45532741eea/go.mod h1:GvWntX9qiTlOud0WkQ6ewFm0LPy5JUR1Xo0Ngbd1w6Y=
 github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5QvfrDyIgxBk=
