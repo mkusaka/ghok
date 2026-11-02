@@ -10,6 +10,7 @@ import (
 )
 
 var hookID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var extensionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 var matchEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Validate aggregates independent failures with paths suitable for diagnostics.
@@ -210,6 +211,20 @@ func (c *Config) Validate() error {
 		match(p+".match", t.Match)
 		outcomeOnlyPost(p+".match", t.Match)
 		unless(p, t.Unless, false)
+	}
+	extensions := make(map[string]bool)
+	for i, e := range c.Extensions {
+		p := fmt.Sprintf("extensions[%d]", i)
+		if !extensionName.MatchString(e.Name) {
+			add(p+".name", "must match ^[A-Za-z0-9][A-Za-z0-9._-]*$")
+		}
+		if extensions[e.Name] {
+			add(p+".name", "duplicate extension "+e.Name)
+		}
+		extensions[e.Name] = true
+		if e.Effect != "" {
+			enum(p+".effect", e.Effect, "read", "write", "unknown")
+		}
 	}
 	for i, d := range c.Delegates {
 		p := fmt.Sprintf("delegates[%d]", i)

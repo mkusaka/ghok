@@ -26,6 +26,9 @@ func Normalize(inv model.Invocation) (res model.Result) {
 		}
 	}()
 
+	if res, ok := native.DeclaredExtension(inv, inv.Argv); ok {
+		return res
+	}
 	expanded, alias, reason := native.ExpandAlias(inv.Argv, inv.Aliases)
 	if reason != model.UnknownNone {
 		res = model.NewUnknown(model.LevelL1, reason, "alias could not be expanded safely")

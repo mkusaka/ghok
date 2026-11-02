@@ -99,6 +99,12 @@ func invocation(c *config.Config, args []string, env map[string]string, cwd stri
 		}
 		return data, nil
 	}
+	if len(c.Extensions) > 0 {
+		inv.Extensions = make(map[string]model.Effect, len(c.Extensions))
+		for _, e := range c.Extensions {
+			inv.Extensions[e.Name] = model.Effect(e.Effect)
+		}
+	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !native.IsBuiltinCommand(args[0]) {
 		// Failed alias loading leaves a non-built-in command explicitly unknown.
 		inv.Aliases, _ = config.LoadGhAliases(env)

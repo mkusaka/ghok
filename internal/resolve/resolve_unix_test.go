@@ -310,3 +310,15 @@ printf '[{"number":42}]'`)
 		t.Fatalf("branch query failed: %+v diagnostics=%v", res, diagnostics)
 	}
 }
+
+// argv naming an unreadable target (declared extensions, invalid -R) must not
+// inherit the cwd repository.
+func TestArgvUnresolvedRepositoryIsNotInherited(t *testing.T) {
+	r := Resolver{Cwd: fixture(t, originConfig)}
+	res := model.Result{Classification: model.Classification{Level: model.LevelL1}, Operations: []model.Operation{{Family: "extension.stack", Action: "extension.stack", Effect: model.EffectWrite,
+		Unresolved: []model.Unresolved{{Field: "target.repository", Reason: "extension arguments are not analyzed", Source: "argv"}}}}}
+	r.Fill(t.Context(), &res, []string{"target.repository"}, false)
+	if op := res.Operations[0]; op.Target.Repository != "" || !hasUnresolved(op.Unresolved, "target.repository") {
+		t.Fatalf("%+v", op)
+	}
+}

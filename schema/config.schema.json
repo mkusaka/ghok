@@ -481,6 +481,32 @@
       },
       "type": "array"
     },
+    "extensions": {
+      "description": "Installed gh extensions to classify as extension.\u003cname\u003e (user config only). Finer decisions belong in hooks.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "effect": {
+            "description": "Declared effect for every call; default unknown keeps unknownMutation/protectedUnknown handling.",
+            "enum": [
+              "read",
+              "write",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Extension short name as gh runs it (gh-dash -\u003e dash).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "hooks": {
       "additionalProperties": false,
       "properties": {

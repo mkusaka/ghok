@@ -144,8 +144,9 @@ func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, a
 		t := &op.Target
 		inherited := make(map[string]bool)
 		// Node IDs identify their own repositories. The cwd is not evidence for
-		// the repository of an arbitrary node, even when it supplies the API host.
-		if t.NodeID == "" && res.Classification.Level != model.LevelL3 {
+		// the repository of an arbitrary node, even when it supplies the API host,
+		// nor for argv that names a target ghok could not read.
+		if t.NodeID == "" && res.Classification.Level != model.LevelL3 && !argvUnresolved(op.Unresolved, "target.repository") {
 			if t.Repository == "" && (hasUnresolved(op.Unresolved, "target.repository") || requested["target.repository"] || hasUnresolved(op.Unresolved, "target.owner")) {
 				t.Repository = local.context.Repository
 				inherited["target.repository"] = true

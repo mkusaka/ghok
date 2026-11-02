@@ -19,6 +19,8 @@ type Invocation struct {
 	// Aliases are gh aliases (name -> expansion) as stored in gh's config.
 	// Expansions starting with "!" are shell aliases.
 	Aliases map[string]string
+	// Extensions are user-declared gh extensions (name -> declared effect).
+	Extensions map[string]Effect
 	// TemporaryFiles are private rewritten transports removed after execution.
 	TemporaryFiles []string
 }

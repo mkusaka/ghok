@@ -256,7 +256,7 @@ are not mutation-free.
 | --- | --- |
 | `unknown-command` | Command absent from L1 registry, or a recognized command whose runtime effects are not normalized (Copilot, selected codespace integrations, hidden completion, telemetry sender). |
 | `unknown-flag` | Root-only unrecognized flag leaves command identity unknown. Known leaves generally retain intent with heuristic confidence instead. |
-| `extension` | `extension exec` forwards to external code without flag parsing. Direct unregistered extension spellings use `unknown-command`. |
+| `extension` | `extension exec` forwards to external code without flag parsing; also declared extensions (`extension.<name>`) whose effect is unknown. Undeclared direct extension spellings use `unknown-command`. |
 | `shell-alias` | Configured alias begins with `!`; no expansion/execution is attempted for analysis. |
 | `alias-loop` | Alias full-argv cycle or more than 64 expansion steps. |
 | `unknown-endpoint` | Unmapped REST write/unknown route, opaque absolute REST URL, or non-literal relative GraphQL endpoint routed as REST on a known GHES host. |
@@ -419,7 +419,13 @@ model gh's registration order or installed-extension precedence over aliases.
 
 `extension exec` and other DisableFlagParsing commands retain forwarded options as
 arguments. Direct unknown commands may be extensions or newer gh commands; no extension
-executable is analyzed. Copilot, codespace code/Jupyter/SSH integration and official
+executable is analyzed. Extensions declared in user config (`extensions`) normalize
+to `extension.<name>` for both `gh <name>` and `gh extension exec <name>`, before
+alias expansion and over official install stubs, with the declared effect (default
+unknown), heuristic confidence, `origin.command: [<name>]` and an argv-sourced
+unresolved `target.repository` (the resolver does not inherit the cwd repository
+for argv-sourced unresolved targets); forwarded arguments stay only in argv.
+Built-ins still shadow direct spellings. Copilot, codespace code/Jupyter/SSH integration and official
 extension install stubs (`aw`, `stack`, `webhook`) have unknown effects even with exact
 identity. Clone/checkout and auth/config/install operations are conservative writes;
 downloads and codespace selection are GitHub reads although they can write local files.

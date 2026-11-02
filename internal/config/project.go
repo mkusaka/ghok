@@ -15,7 +15,7 @@ import (
 )
 
 // projectForbidden are the top-level sections a project .ghok.yaml may not set.
-var projectForbidden = []string{"runtime", "logging"}
+var projectForbidden = []string{"runtime", "logging", "extensions"}
 
 // LoadEffective never executes hooks. Valid project policy always applies; only
 // content-trusted project hooks are active. Project failures retain user config.

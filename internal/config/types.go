@@ -17,6 +17,7 @@ type Config struct {
 	Hooks      HookList      `yaml:"hooks" json:"hooks"`
 	Transforms TransformList `yaml:"transforms" json:"transforms"`
 	Delegates  []Delegate    `yaml:"delegates,omitempty" json:"delegates,omitempty" doc:"Ordered read-only execution delegates; first definite match wins. Off unless configured."`
+	Extensions []Extension   `yaml:"extensions,omitempty" json:"extensions,omitempty" doc:"Installed gh extensions to classify as extension.<name> (user config only). Finer decisions belong in hooks."`
 	Runtime    Runtime       `yaml:"runtime" json:"runtime"`
 	Logging    Logging       `yaml:"logging" json:"logging"`
 	Trust      Trust         `yaml:"trust,omitempty" json:"trust,omitempty" doc:"Project hook trust manifests and user-trusted repository paths."`
@@ -59,6 +60,14 @@ type Policy struct {
 	ProtectedUnknown      string   `yaml:"protectedUnknown" json:"protectedUnknown" enum:"allow,deny,audit" doc:"Handling of unclassified/unresolved writes that may target a protected repository."`
 	// Rules are declarative deny/allow/audit rules evaluated without hooks.
 	Rules []Rule `yaml:"rules" json:"rules"`
+}
+
+// Extension declares an installed gh extension. Both `gh <name>` (unless a
+// built-in command shadows it) and `gh extension exec <name>` normalize to
+// family/action extension.<name> with the remaining argv in parameters.args.
+type Extension struct {
+	Name   string `yaml:"name" json:"name" required:"true" doc:"Extension short name as gh runs it (gh-dash -> dash)."`
+	Effect string `yaml:"effect,omitempty" json:"effect,omitempty" enum:"read,write,unknown" doc:"Declared effect for every call; default unknown keeps unknownMutation/protectedUnknown handling."`
 }
 
 type Rule struct {

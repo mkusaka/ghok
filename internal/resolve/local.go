@@ -350,6 +350,15 @@ func resolveLocal(cwd string, env map[string]string) localInfo {
 	return out
 }
 
+func argvUnresolved(fields []model.Unresolved, name string) bool {
+	for _, field := range fields {
+		if field.Field == name && field.Source == "argv" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUnresolved(fields []model.Unresolved, name string) bool {
 	for _, field := range fields {
 		if field.Field == name {

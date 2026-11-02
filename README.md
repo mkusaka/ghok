@@ -161,6 +161,32 @@ to prevent recursion.
 `ghok doctor` checks executable existence/permissions. See the complete
 [delegate contract](docs/delegates.md) and [Bun/ghro example](examples/delegates.yaml).
 
+### gh extensions
+
+ghok never analyzes extension executables. Declare the installed extensions you
+want to target in user `config.yaml` (projects cannot, so a repository cannot
+relax its own policy):
+
+```yaml
+extensions:
+  - name: dash          # effect defaults to unknown
+    effect: read
+  - name: stack         # also covers gh's official install stub of the same name
+```
+
+`gh dash -R o/r` and `gh extension exec dash -R o/r` then both normalize to
+family/action `extension.dash` with `origin.command: [dash]`; forwarded
+arguments are not copied into `parameters`. The declared effect applies to every call; leaving
+it `unknown` keeps `unknownMutation`/`protectedUnknown` handling. Built-in
+commands still win over a direct spelling (only `extension exec` reaches an
+extension named `label`). Per-subcommand decisions belong in a pre-hook matched
+by `operation: extension.stack`, which reads `invocation.argv`. The target is
+recorded as unresolved from argv, so repository/host rules and
+`protectedRepositories` match conservatively (the cwd repository is not assumed);
+an extension declared `effect: write` is therefore denied by a protected-repository
+policy unless a rule or hook decides otherwise.
+Undeclared extensions stay `unknown-command`.
+
 ### Exit status
 
 | Origin | Code | Meaning |

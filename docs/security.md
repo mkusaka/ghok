@@ -132,7 +132,7 @@ for HOME or unrelated child directories. The nearest discovered repository's
 valid `.ghok.yaml` contributes declarative policy: explicitly set values can
 only tighten observe to enforce or allow to audit to deny, while rules and
 protected repositories append. Attempted weakening is ignored with a note.
-Projects cannot set runtime or logging, even empty sections. `trust.include` is
+Projects cannot set runtime, logging or extensions, even empty sections. `trust.include` is
 project-only; it is forbidden in user config. User-only `trust.repositories`
 matches exact repository roots and all their linked worktrees;
 `trust.directories` matches a directory itself and descendants on path boundaries,

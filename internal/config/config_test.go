@@ -295,7 +295,7 @@ func TestProjectTrust(t *testing.T) {
 	if err != nil || c.Policy.UnknownMutation != UnknownAllow || c.Policy.ProtectedUnknown != UnknownAllow {
 		t.Fatalf("omitted policy: %+v, %v", c, err)
 	}
-	for _, section := range []string{"runtime: {}", "logging: {}", "<<: {runtime: {}}", "<<: {logging: {}}"} {
+	for _, section := range []string{"runtime: {}", "logging: {}", "extensions: [{name: dash, effect: read}]", "<<: {runtime: {}}", "<<: {logging: {}}"} {
 		writeFixture(t, project, "version: 1\n"+section)
 		if c, notes, err := LoadEffective(global, cwd, env); err != nil || c.Policy.Mode != ModeObserve || len(c.Hooks) != 1 || !strings.Contains(strings.Join(notes, "\n"), "cannot set") {
 			t.Fatalf("restricted project %s affected user config: %+v, %v, %v", section, c, notes, err)

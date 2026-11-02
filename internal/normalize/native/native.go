@@ -229,6 +229,11 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 			Detail: "gh command not yet classified by ghok", Origin: model.Origin{Command: strings.Fields(c.path)},
 		}, model.ConfidenceExact, nil)
 	}
+	if c.path == "extension exec" && len(args) > 0 {
+		if effect, ok := inv.Extensions[args[0]]; ok {
+			return extensionResult(argv, args[0], effect)
+		}
+	}
 	var p parsedArgs
 	if c.disableFlagParsing {
 		p = parsedArgs{positionals: args, dashIndex: -1}
