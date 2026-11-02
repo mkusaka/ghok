@@ -263,7 +263,7 @@ func Normalize(inv model.Invocation, argv []string) model.Result {
 	confidence := model.ConfidenceExact
 	if len(p.unknown) > 0 {
 		confidence = model.ConfidenceHeuristic
-		appendDetail(&op, "unknown flags: "+strings.Join(p.unknown, ", ")+"; gh v2.102.0 rejects these before execution; a newer gh may accept them")
+		appendDetail(&op, "unknown flags: "+strings.Join(p.unknown, ", ")+"; gh v2.103.3 rejects these before execution; a newer gh may accept them")
 		if p.ambiguous {
 			unresolved(&op, "target.selector", "unknown flag arity makes positional arguments ambiguous", "argv")
 		}

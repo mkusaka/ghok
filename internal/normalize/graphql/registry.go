@@ -8,7 +8,7 @@ import (
 	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
-//go:generate go run ./generate -date 2026-10-15 -sha256 3ed095654b22b1a8e7a88af36af2b28cb6d9613da332e9c57303e30476958d42 -output schema_mutations.go
+//go:generate go run ./generate -date 2026-11-03 -sha256 0d71ca68a4e951599b2ea541a81cc259a843608fc22b8eb1713a1d03551b149e -output schema_mutations.go
 
 // Curated identities override the generated defaults. nodeID is only needed
 // when the curated target differs from the schema's primary ID selection.

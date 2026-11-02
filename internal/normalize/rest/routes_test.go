@@ -129,8 +129,8 @@ func TestGeneratedTargetsAndLiteralPrecedence(t *testing.T) {
 	res = classify(t, knownInv(), "repos/o/r/issues/comments")
 	requireOperation(t, res, "comment", "comment.list", model.EffectRead)
 	// Both paths accept strings; literal precedence must not rely on type rejection.
-	res = classify(t, knownInv(), "agents/automations/available-tools")
-	op = requireOperation(t, res, "rest.agent-automations", "rest.agent-automations.list-available-automation-tools", model.EffectRead)
+	res = classify(t, knownInv(), "agents/repos/o/r/automations/available-tools")
+	op = requireOperation(t, res, "rest.agent-automations", "rest.agent-automations.list-available-repo-automation-tools", model.EffectRead)
 	if op.Parameters["automation_id"] != nil {
 		t.Fatal(op.Parameters)
 	}

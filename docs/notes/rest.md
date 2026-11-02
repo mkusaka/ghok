@@ -4,11 +4,11 @@
 
 `rest.Normalize(inv model.Invocation, req model.APIRequest) model.Result` accepts the shared parser's effective method. It uses only `Invocation.Env`, `ReadFile`, and captured `Stdin`; no process environment, filesystem, git, or network access. The existing dispatcher already calls it. No shared contracts or dependencies changed.
 
-The snapshot contains 1,242 OpenAPI operations; 206 operationId overrides retain canonical policy/hook names (205 prior operations plus `repos/merge-upstream`), with 1,036 operations using default `rest.*` identities. All 206 prior route spellings remain supported: contents root listing shares `repos/get-content` with nonempty contents paths. Matching requires the full decoded segment sequence and exact method. Integer schema parameters require positive decimals without overflow; string IDs such as gist IDs stay strings. Workflow IDs also accept `.yml`/`.yaml` filenames. More literal segments win over captures. Terminal slash-bearing captures remain restricted to contents paths and git refs. Candidates are indexed by method, first literal segment, and segment count; terminal captures have a separate bucket.
+The snapshot contains 1,254 OpenAPI operations; 206 operationId overrides retain canonical policy/hook names (205 prior operations plus `repos/merge-upstream`), with 1,048 operations using default `rest.*` identities. All 206 prior route spellings remain supported: contents root listing shares `repos/get-content` with nonempty contents paths. Matching requires the full decoded segment sequence and exact method. Integer schema parameters require positive decimals without overflow; string IDs such as gist IDs stay strings. Workflow IDs also accept `.yml`/`.yaml` filenames. More literal segments win over captures. Terminal slash-bearing captures remain restricted to contents paths and git refs. Candidates are indexed by method, first literal segment, and segment count; terminal captures have a separate bucket.
 
 ## Generation and override curation
 
-Source: [`github/rest-api-description`, `ad351b19702b757bfd03a8ee85bcafe717878331`](https://github.com/github/rest-api-description/blob/ad351b19702b757bfd03a8ee85bcafe717878331/descriptions/api.github.com/api.github.com.json), upstream commit date **2026-10-13**. `routes_gen.go` records that SHA/date and each operation's method, path, operationId, path-parameter names/types, tags, and deprecated flag. The stdlib-only generator resolves component parameter/schema references and scalar unions; no runtime or generator module dependencies are added.
+Source: [`github/rest-api-description`, `43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97`](https://github.com/github/rest-api-description/blob/43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97/descriptions/api.github.com/api.github.com.json), upstream commit date **2026-11-02**. `routes_gen.go` records that SHA/date and each operation's method, path, operationId, path-parameter names/types, tags, and deprecated flag. The stdlib-only generator resolves component parameter/schema references and scalar unions; no runtime or generator module dependencies are added.
 
 From the repository root:
 
@@ -21,7 +21,7 @@ For offline regeneration from the same revision:
 ```sh
 cd internal/normalize/rest
 go run ./gen -spec /path/to/api.github.com.json \
-  -ref ad351b19702b757bfd03a8ee85bcafe717878331 -date 2026-10-13
+  -ref 43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97 -date 2026-11-02
 ```
 
 The network command fetches only the pinned raw JSON; output order is deterministic. `-ref` requires a full SHA and `-date` the source commit date. Local input provenance is the developer's responsibility. Normal builds/tests never fetch or run the generator.

@@ -1,4 +1,4 @@
-# Native normalization (gh v2.102.0)
+# Native normalization (gh v2.103.3)
 
 ## Design and supported behavior
 
@@ -197,17 +197,17 @@ go test ./internal/normalize/native/... -run TestRegistryClassifiesEveryCommand 
 ```
 
 The generator is a **separate Go module** under `internal/normalize/native/gen`.
-It requires `github.com/cli/cli/v2 v2.102.0`, Cobra v1.10.2 and pflag v1.0.10. Its
+It requires `github.com/cli/cli/v2 v2.103.3`, Cobra v1.10.2 and pflag v1.0.10. Its
 `github.com/cli/cli/v2/ghok-native-gen` module prefix permits importing gh's internal
-config/telemetry packages; none enters ghok's runtime module graph. gh v2.102.0 requires
+config/telemetry packages; none enters ghok's runtime module graph. gh v2.103.3 requires
 Go 1.27.0 for generation (Go's toolchain auto-download may be used); ghok's root Go
 version does not change. First-time module/toolchain downloads may need the network.
 Normal builds/tests/lint use the checked-in snapshot, exclude the nested module, and
 never regenerate or fetch gh.
 
-Pinned upstream tag **v2.102.0**, commit
-`fc4b137cdef0a6bd28fd461b7cf9c84a5812a8cd`, module sum
-`h1:SmsvpLB02sqhBK90/mOGAtvhwehAvBu2SjO5dBgY9xw=`.
+Pinned upstream tag **v2.103.3**, commit
+`63837fb778d6a39f02be0ce76ff89f2bc8d74bdc`, module sum
+`h1:m+r+e8mWixbrj/DomGY3+1nbne3VpXAsQ1y+y7BngBQ=`.
 The generated header records the exact release and module sum, read from Go build info;
 replaced or unchecksummed modules are refused.
 
@@ -332,6 +332,13 @@ The table gives base intent; specific flag-driven overrides follow it.
 | `gpg-key list` | `gpg-key.list` | `gpg-key.list` | read |
 | `help` | `help` | `help` | read |
 | `issue` | `help` | `help` | read |
+| `issue artifact` | `help` | `help` | read |
+| `issue artifact create` | `issue.artifact` | `issue.artifact.create` | write |
+| `issue artifact delete` | `issue.artifact` | `issue.artifact.delete` | write |
+| `issue artifact download` | `issue.artifact` | `issue.artifact.download` | read |
+| `issue artifact edit` | `issue.artifact` | `issue.artifact.edit` | write |
+| `issue artifact list` | `issue.artifact` | `issue.artifact.list` | read |
+| `issue artifact view` | `issue.artifact` | `issue.artifact.view` | read |
 | `issue close` | `issue.close` | `issue.close` | write |
 | `issue comment` | `issue.comment` | `issue.comment` | write |
 | `issue create` | `issue.create` | `issue.create` | write |
