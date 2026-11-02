@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.24] - 2026-11-02
+
 ### Added
 
 - User-config `extensions: [{name, effect}]` classifies installed gh extensions as
@@ -312,7 +314,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.23...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.24...HEAD
+[v0.0.24]: https://github.com/mkusaka/ghok/compare/v0.0.23...v0.0.24
 [v0.0.23]: https://github.com/mkusaka/ghok/compare/v0.0.22...v0.0.23
 [v0.0.22]: https://github.com/mkusaka/ghok/compare/v0.0.21...v0.0.22
 [v0.0.21]: https://github.com/mkusaka/ghok/compare/v0.0.20...v0.0.21
