@@ -813,7 +813,7 @@ baseline request construction before [typed route matching](../internal/normaliz
 
 Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97/descriptions/api.github.com/api.github.com.json),
 commit `43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97` (2026-11-02):
-**1,254 operations**, **206 operationId overrides**, and **1,048 default namespaced
+**1,254 operations**, **211 operationId overrides**, and **1,043 default namespaced
 operations**. Generated metadata includes path-parameter types, tags, and
 deprecation; matching a typed route gives exact confidence, not API validation.
 
@@ -924,7 +924,7 @@ gh validates pagination before method inference, so it remains a will-run write.
 ### L2 family/action table
 
 The canonical table below retains all 206 legacy route spellings plus upstream
-branch merge, covering 206 operationId overrides (contents root and file view
+branch merge and the issue artifact routes, covering 211 operationId overrides (contents root and file view
 share `repos/get-content`). Other snapshot routes use the defaults above.
 Body refinements can replace these base family/actions. Integer **schema types**
 require positive decimals without overflow; a name ending in `_id` does not make
@@ -971,6 +971,11 @@ Conventional owner/repo/org, PR/issue numbers, ref/branch, and SHA selectors
 | POST | `/repos/{owner}/{repo}/issues` | `issue.create` | `issue.create` |
 | GET | `/repos/{owner}/{repo}/issues/{issue_number}` | `issue.view` | `issue.view` |
 | PATCH | `/repos/{owner}/{repo}/issues/{issue_number}` | `issue.edit` | `issue.edit` |
+| GET | `/repos/{owner}/{repo}/issues/{issue_number}/artifacts` | `issue.artifact` | `issue.artifact.list` |
+| POST | `/repos/{owner}/{repo}/issues/{issue_number}/artifacts` | `issue.artifact` | `issue.artifact.create` |
+| GET | `/repos/{owner}/{repo}/issues/{issue_number}/artifacts/{artifact_number}` | `issue.artifact` | `issue.artifact.view` |
+| PATCH | `/repos/{owner}/{repo}/issues/{issue_number}/artifacts/{artifact_number}` | `issue.artifact` | `issue.artifact.edit` |
+| DELETE | `/repos/{owner}/{repo}/issues/{issue_number}/artifacts/{artifact_number}` | `issue.artifact` | `issue.artifact.delete` |
 | PUT | `/repos/{owner}/{repo}/issues/{issue_number}/lock` | `issue.lock` | `issue.lock` |
 | DELETE | `/repos/{owner}/{repo}/issues/{issue_number}/lock` | `issue.unlock` | `issue.unlock` |
 | GET | `/repos/{owner}/{repo}/issues/comments` | `comment` | `comment.list` |
@@ -1439,7 +1444,7 @@ can deny either category.
 | Area | Supported | Partial / deliberately not inferred | Unsupported / unknown |
 | --- | --- | --- | --- |
 | Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; normalized prose on mapped commands; plain alias chains. | Context lookup, interactive/generated text, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
-| REST | All 1,254 pinned public OpenAPI operations; 206 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
+| REST | All 1,254 pinned public OpenAPI operations; 211 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
 | GraphQL | AST selection/variables/aliases/fragments/directives; 278 schema-backed writes including 46 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
 
 Normalization is extensible by editing the existing static registries; it does
