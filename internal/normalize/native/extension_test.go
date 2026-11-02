@@ -42,6 +42,37 @@ func TestDeclaredExtension(t *testing.T) {
 	if res, ok := DeclaredExtension(inv, []string{"stack", "push"}); !ok || res.Operations[0].Action != "extension.stack" {
 		t.Fatalf("%v %+v", ok, res)
 	}
+	// Root flags precede the command, as in Cobra Find; default alias co is
+	// registered after extensions.
+	inv.Extensions["co"] = model.EffectWrite
+	for want, argv := range map[string][]string{"extension.dash": {"--help", "dash", "push"}, "extension.co": {"co", "--help"}} {
+		if res, ok := DeclaredExtension(inv, argv); !ok || res.Operations[0].Action != want {
+			t.Fatalf("%v: %v %+v", argv, ok, res)
+		}
+	}
+	if op := direct.Operations[0]; len(op.Unresolved) != 2 || op.Unresolved[1].Field != "target.host" || op.Unresolved[1].Source != "argv" {
+		t.Fatalf("target must stay argv-unresolved: %+v", op.Unresolved)
+	}
+}
+
+func TestDeclaredExtensionAliases(t *testing.T) {
+	inv := model.Invocation{
+		Extensions: map[string]model.Effect{"dash": model.EffectWrite},
+		Aliases:    map[string]string{"s": "dash", "dash": "pr list"},
+	}
+	// An alias chain reaching a declared name stops there; a same-named alias
+	// makes it ambiguous (installed extension or alias), so it stays unknown.
+	expanded, alias, reason := ExpandAlias([]string{"s", "x"}, ExtensionAliases(inv))
+	res, ok := DeclaredExtension(inv, expanded)
+	if reason != model.UnknownNone || alias != "s" || !slices.Equal(expanded, []string{"dash", "x"}) || !ok ||
+		res.Operations[0].Family != model.FamilyUnknown || res.Operations[0].UnknownReason != model.UnknownExtension {
+		t.Fatalf("%v %q %v %+v", expanded, alias, ok, res)
+	}
+	delete(inv.Aliases, "dash")
+	expanded, _, _ = ExpandAlias([]string{"s"}, ExtensionAliases(inv))
+	if res, ok := DeclaredExtension(inv, expanded); !ok || res.Operations[0].Action != "extension.dash" {
+		t.Fatalf("%+v", res)
+	}
 }
 
 // Stubs are the only top-level hidden DisableFlagParsing commands besides cobra

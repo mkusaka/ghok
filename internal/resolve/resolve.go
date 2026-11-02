@@ -159,7 +159,7 @@ func (r *Resolver) Fill(ctx context.Context, res *model.Result, need []string, a
 				t.Owner, _, _ = strings.Cut(t.Repository, "/")
 			}
 		}
-		if t.Host == "" && (t.NodeID != "" || t.Repository != "" || hasUnresolved(op.Unresolved, "target.host") || requested["target.host"]) {
+		if t.Host == "" && !argvUnresolved(op.Unresolved, "target.host") && (t.NodeID != "" || t.Repository != "" || hasUnresolved(op.Unresolved, "target.host") || requested["target.host"]) {
 			t.Host = local.context.Host
 			inherited["target.host"] = true
 		}

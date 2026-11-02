@@ -26,17 +26,16 @@ func Normalize(inv model.Invocation) (res model.Result) {
 		}
 	}()
 
-	if res, ok := native.DeclaredExtension(inv, inv.Argv); ok {
-		return res
-	}
-	expanded, alias, reason := native.ExpandAlias(inv.Argv, inv.Aliases)
+	expanded, alias, reason := native.ExpandAlias(inv.Argv, native.ExtensionAliases(inv))
 	if reason != model.UnknownNone {
 		res = model.NewUnknown(model.LevelL1, reason, "alias could not be expanded safely")
 		res.Source = model.Source{Kind: "unknown", Argv: inv.Argv, Alias: alias}
 		return res
 	}
 
-	if len(expanded) > 0 && expanded[0] == "api" {
+	if ext, ok := native.DeclaredExtension(inv, expanded); ok {
+		res = ext
+	} else if len(expanded) > 0 && expanded[0] == "api" {
 		req, err := apiargs.Parse(expanded[1:])
 		switch {
 		case errors.Is(err, apiargs.ErrHelp):

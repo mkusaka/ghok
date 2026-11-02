@@ -420,12 +420,14 @@ model gh's registration order or installed-extension precedence over aliases.
 `extension exec` and other DisableFlagParsing commands retain forwarded options as
 arguments. Direct unknown commands may be extensions or newer gh commands; no extension
 executable is analyzed. Extensions declared in user config (`extensions`) normalize
-to `extension.<name>` for both `gh <name>` and `gh extension exec <name>`, before
-alias expansion and over official install stubs, with the declared effect (default
-unknown), heuristic confidence, `origin.command: [<name>]` and an argv-sourced
-unresolved `target.repository` (the resolver does not inherit the cwd repository
-for argv-sourced unresolved targets); forwarded arguments stay only in argv.
-Built-ins still shadow direct spellings. Copilot, codespace code/Jupyter/SSH integration and official
+to `extension.<name>` for `gh <name>` (after root flags, and where gh aliases
+expand to it) and `gh extension exec <name>`, with the declared effect (default
+unknown), heuristic confidence, `origin.command: [<name>]` and argv-sourced
+unresolved `target.repository`/`target.host` (the resolver never fills
+argv-sourced unresolved targets from the cwd); forwarded arguments stay only in
+argv. Built-ins shadow direct spellings; declared extensions shadow the default
+`co` alias and official install stubs. A gh alias with the same name as a declared
+extension yields an `extension` unknown, because installation decides which runs. Copilot, codespace code/Jupyter/SSH integration and official
 extension install stubs (`aw`, `stack`, `webhook`) have unknown effects even with exact
 identity. Clone/checkout and auth/config/install operations are conservative writes;
 downloads and codespace selection are GitHub reads although they can write local files.

@@ -174,18 +174,25 @@ extensions:
   - name: stack         # also covers gh's official install stub of the same name
 ```
 
-`gh dash -R o/r` and `gh extension exec dash -R o/r` then both normalize to
-family/action `extension.dash` with `origin.command: [dash]`; forwarded
-arguments are not copied into `parameters`. The declared effect applies to every call; leaving
-it `unknown` keeps `unknownMutation`/`protectedUnknown` handling. Built-in
-commands still win over a direct spelling (only `extension exec` reaches an
-extension named `label`). Per-subcommand decisions belong in a pre-hook matched
-by `operation: extension.stack`, which reads `invocation.argv`. The target is
-recorded as unresolved from argv, so repository/host rules and
-`protectedRepositories` match conservatively (the cwd repository is not assumed);
-an extension declared `effect: write` is therefore denied by a protected-repository
-policy unless a rule or hook decides otherwise.
-Undeclared extensions stay `unknown-command`.
+`gh dash -R o/r`, `gh extension exec dash -R o/r`, root-flag spellings such as
+`gh --help dash`, and gh aliases that expand to `dash` all normalize to
+family/action `extension.dash` with `origin.command: [dash]`; forwarded arguments
+are not copied into `parameters`. The declared effect applies to every call;
+leaving it `unknown` keeps `unknownMutation`/`protectedUnknown` handling.
+Precedence follows gh: built-in commands win over a direct spelling (only
+`extension exec` reaches an extension named `label`), while declared extensions
+win over the default `co` alias and official install stubs. If a gh alias has the
+same name as a declared extension, the call stays unknown: which one runs depends
+on whether the extension is installed, which ghok does not check.
+
+The target repository and host are recorded as unresolved from argv and are never
+filled from the cwd, so repository/host rules and `protectedRepositories` match
+conservatively. Hooks matched by `operation: extension.<name>` read
+`invocation.argv` and can **add** denials for specific subcommands; like every
+pre-hook they cannot lift a policy deny (`unknownMutation: deny`, protected
+repositories, rules). Choose the declared effect and policy so the calls you want
+are allowed, then narrow them with hooks. Undeclared extensions stay
+`unknown-command`.
 
 ### Exit status
 

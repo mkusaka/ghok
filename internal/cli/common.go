@@ -105,7 +105,9 @@ func invocation(c *config.Config, args []string, env map[string]string, cwd stri
 			inv.Extensions[e.Name] = model.Effect(e.Effect)
 		}
 	}
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !native.IsBuiltinCommand(args[0]) {
+	// Declared extensions also need aliases: a same-named alias makes the
+	// target ambiguous, even behind root flags or default aliases like co.
+	if len(c.Extensions) > 0 || len(args) > 0 && !strings.HasPrefix(args[0], "-") && !native.IsBuiltinCommand(args[0]) {
 		// Failed alias loading leaves a non-built-in command explicitly unknown.
 		inv.Aliases, _ = config.LoadGhAliases(env)
 	}
