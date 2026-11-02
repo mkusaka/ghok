@@ -8,6 +8,26 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Added
+
+- User-config `extensions: [{name, effect}]` classifies installed gh extensions as
+  `extension.<name>` for `gh <name>` (also behind root flags and gh aliases) and
+  `gh extension exec <name>`, following gh's precedence (built-ins, then extensions,
+  then aliases and official stubs such as `stack`). The effect defaults to unknown;
+  a same-named gh alias keeps the call unknown. Targets stay unresolved, so
+  repository/host rules and `protectedRepositories` match conservatively. Project
+  configs cannot set `extensions`.
+- `gh issue artifact` commands (`issue.artifact.*`) and the matching REST issue
+  artifact routes.
+
+### Changed
+
+- Snapshots follow gh v2.103.3, the REST OpenAPI description at `43bf9878`
+  (1,254 operations) and the GraphQL schema of 2026-11-03.
+- A repository or host that argv names but ghok cannot read (for example an
+  invalid `-R` value) is no longer filled from the current git repository; it
+  stays unresolved and matches conservatively.
+
 ## [v0.0.23] - 2026-10-26
 
 ### Added
