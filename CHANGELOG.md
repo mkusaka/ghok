@@ -8,6 +8,11 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- `ghok doctor` uses gh 2.103.3, the release the command registry is generated
+  from, as the verified baseline; gh older than 2.103 is reported as a warning.
+
 ## [v0.0.24] - 2026-11-02
 
 ### Added

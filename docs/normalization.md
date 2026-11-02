@@ -27,7 +27,7 @@ cannot be combined with `--no-resolve`. The deprecated `--resolve` remains a
 no-op for compatibility. Commands can still read explicitly supplied API files
 or non-TTY stdin for analysis. Explain leads with the policy decision and hook
 selection, then operations with each unresolved field/reason once; normalize
-retains its JSON schema. The implementation's CLI/API baseline is **gh 2.102.0**,
+retains its JSON schema. The implementation's CLI/API baseline is **gh 2.103.3**,
 not an assertion of coverage for every future command, REST route, or GitHub
 Enterprise Server version.
 

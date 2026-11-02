@@ -1,7 +1,7 @@
 # Compatibility and transparency
 
 Supported release targets: **macOS and Linux, amd64 and arm64**. The command,
-flag, API-field, alias and resolver baseline is **GitHub CLI 2.102.0**, with Go
+flag, API-field, alias and resolver baseline is **GitHub CLI 2.103.3**, with Go
 1.26.5 recorded in go.mod. ghok does not fork gh or alter its authentication.
 New/unknown syntax remains uncertain (a known native command can retain its
 identity with heuristic confidence); a doctor version check is informational,

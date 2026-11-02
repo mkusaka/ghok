@@ -85,8 +85,11 @@ grep -rnE '<old gh ver>|<old rest sha>|<old graphql sha>|<old dates>|<old counts
 
 Update pins, commits, module sums, dates and counts in `docs/normalization.md`
 and `docs/notes/{native,rest,graphql,cli}.md`, the gh version in the unknown-flag
-message in `internal/normalize/native/native.go`, and the command/route tables for
-anything curated in step 3. Leave "Source inspection at vX" citations and past
+message in `internal/normalize/native/native.go`, the `ghok doctor` baseline
+(`ghBaseline`/`ghBaselineMinor` in `internal/install/doctor.go` and its tests), the
+"baseline is gh X" sentences in `README.md`, `docs/compatibility.md` and
+`docs/normalization.md`, and the command/route tables for anything curated in
+step 3. Leave "Source inspection at vX" citations and past
 benchmark/smoke records alone unless you re-verified them. CHANGELOG is written
 at release time, not here.
 

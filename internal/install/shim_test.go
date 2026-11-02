@@ -23,7 +23,7 @@ func enableFixture(t *testing.T, name string) EnableOptions {
 	t.Helper()
 	root := t.TempDir()
 	self := testSelf(t, root, name)
-	real := executable(t, filepath.Join(root, "real", "gh"), "printf 'gh version 2.102.0 (2026-10-01)\\n'")
+	real := executable(t, filepath.Join(root, "real", "gh"), "printf 'gh version 2.103.3 (2026-10-26)\\n'")
 	bin := filepath.Join(root, "local", "bin")
 	return EnableOptions{BinDir: bin, Self: self, StateDir: filepath.Join(root, "state"), PathEnv: bin + ":" + filepath.Dir(real)}
 }

@@ -153,7 +153,7 @@ func Checks(o DoctorOptions) []Check {
 			version.Status, version.Detail = ghVersionStatus(out)
 		}
 		if version.Status == StatusWarn {
-			version.Fix = "Use GitHub CLI 2.102.0 or newer; 2.102.0 is the verified normalization baseline."
+			version.Fix = "Use GitHub CLI " + ghBaseline + " or newer; " + ghBaseline + " is the verified normalization baseline."
 		}
 	}
 	checks = append(checks, version)
@@ -220,6 +220,13 @@ func execEntryCheck(stateDir string, checks []Check, now time.Time) *Check {
 
 var ghVersionRE = regexp.MustCompile(`(?m)^gh version ([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+][^ ]*)?(?: |$)`)
 
+// ghBaseline is the gh release the native registry was generated from
+// (internal/normalize/native/gen/go.mod); older minors warn.
+const (
+	ghBaseline      = "2.103.3"
+	ghBaselineMinor = 103
+)
+
 func ghVersionStatus(out string) (Status, string) {
 	m := ghVersionRE.FindStringSubmatch(out)
 	if m == nil {
@@ -233,10 +240,10 @@ func ghVersionStatus(out string) (Status, string) {
 		}
 		version[i] = n
 	}
-	if version[0] < 2 || version[0] == 2 && version[1] < 102 {
-		return StatusWarn, "gh " + strings.Join(m[1:4], ".") + " predates the verified 2.102.0 baseline"
+	if version[0] < 2 || version[0] == 2 && version[1] < ghBaselineMinor {
+		return StatusWarn, "gh " + strings.Join(m[1:4], ".") + " predates the verified " + ghBaseline + " baseline"
 	}
-	return StatusInfo, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]) + "; verified baseline is 2.102.0"
+	return StatusInfo, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]) + "; verified baseline is " + ghBaseline
 }
 
 // Bounded diagnostics cannot grow stdout indefinitely or wait for inherited

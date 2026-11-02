@@ -216,7 +216,7 @@ hook execution failure still exits **1**, not 77/78; usage errors exit 2.
 ## Install
 
 Install [GitHub CLI](https://cli.github.com/) first. Normalization is based on
-**gh 2.102.0**; other versions may add syntax that becomes unknown. Build and
+**gh 2.103.3**; other versions may add syntax that becomes unknown. Build and
 test with the Go version in [go.mod](go.mod).
 
 ### Homebrew (macOS / Linux)
