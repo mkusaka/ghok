@@ -25,7 +25,7 @@ Queries emit one read operation, including introspection. Subscriptions are unkn
 
 ## Mutation schema snapshot
 
-`schema_mutations.go` embeds all **278** mutations from the [public GitHub schema](https://docs.github.com/public/fpt/schema.docs.graphql), fetched on **2026-11-03**, pinned by raw-content SHA256 **`0d71ca68a4e951599b2ea541a81cc259a843608fc22b8eb1713a1d03551b149e`**. It contains 1,161 input fields and 350 scalar ID candidates. Each mutation records its input type, all field type signatures (named/list/non-null), candidate ID names and name-inferred object kinds, primary ID, description first line and deprecation. Empty kind means unknown; `subjectId` does not identify one concrete kind. Bare `id` joins scalar `ID`/`ID!` fields ending in `Id`; list IDs are parameters, not singular targets.
+`schema_mutations.go` embeds all **284** mutations from the [public GitHub schema](https://docs.github.com/public/fpt/schema.docs.graphql), fetched on **2026-11-15**, pinned by raw-content SHA256 **`46f1d455d72ab784c6cb2b86e9b023df195dcfd2ed92099108b0faa5faa5d1fc`**. It contains 1,185 input fields and 356 scalar ID candidates. Each mutation records its input type, all field type signatures (named/list/non-null), candidate ID names and name-inferred object kinds, primary ID, description first line and deprecation. Empty kind means unknown; `subjectId` does not identify one concrete kind. Bare `id` joins scalar `ID`/`ID!` fields ending in `Id`; list IDs are parameters, not singular targets.
 
 Regenerate the current pin from the repository root:
 
@@ -38,8 +38,8 @@ The directive verifies the downloaded content against the pinned SHA before pars
 ```sh
 go run ./internal/normalize/graphql/generate \
   -schema /path/to/schema.graphql \
-  -date 2026-11-03 \
-  -sha256 0d71ca68a4e951599b2ea541a81cc259a843608fc22b8eb1713a1d03551b149e \
+  -date 2026-11-15 \
+  -sha256 46f1d455d72ab784c6cb2b86e9b023df195dcfd2ed92099108b0faa5faa5d1fc \
   -output internal/normalize/graphql/schema_mutations.go
 ```
 

@@ -8,6 +8,14 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- Command registry regenerated from gh 2.104.0 (adds `repo delete
+  --accept-cascading-deletion-of-private-forks`); `ghok doctor` now uses gh 2.104.0
+  as the verified baseline and warns below 2.104.
+- REST routes refreshed to 1,281 OpenAPI operations and the GraphQL snapshot to
+  284 mutations.
+
 ## [v0.0.25] - 2026-11-02
 
 ### Changed

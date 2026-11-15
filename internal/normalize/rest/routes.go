@@ -10,7 +10,7 @@ import (
 	"github.com/mkusaka/ghok/internal/normalize/actions"
 )
 
-//go:generate go run ./gen -ref 43bf9878f3ce3e63e4ef2017ca085b4e6ca01f97 -date 2026-11-02
+//go:generate go run ./gen -ref 4754642742db86eba8971da648439698b46ac2ec -date 2026-11-13
 
 type pathParameter struct {
 	name, types string
