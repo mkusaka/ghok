@@ -226,9 +226,9 @@ Overflow invalidates even an otherwise valid retained JSON prefix: unseen bytes
 cannot establish a valid single document. Stderr alone is not a failure.
 
 Warnings never create a `warn` hook decision. They are credential-redacted at
-display/log boundaries. When gh runs, pre-hook warnings print in selection
-order after rule and transform warnings; post-hook warnings print in selection
-order after gh output. Enforced denial suppresses execution-only warning output.
+display/log boundaries. Pre-hook warnings print in selection order after rule
+and transform warnings; post-hook warnings print in selection order after gh
+output. An enforced denial prints first and the pre-phase warnings follow it.
 Terminal warnings use the same sanitizer and per-entry 40-line/4-KiB/
 500-character bounds as denials; JSON and logs retain structured values without
 terminal escaping/truncation. `hooks test` text/JSON exposes warnings but does
@@ -692,7 +692,7 @@ An optional string `warning` reports a non-blocking advisory, with or without
 edits, only for a successful transform. For example:
 `{"schemaVersion":1,"warning":"Check the release window."}`.
 Failed transforms do not contribute warnings. Wrapper output orders rule
-warnings, transform-result warnings, then pre-hook warnings, only when gh runs;
+warnings, transform-result warnings, then pre-hook warnings, after any denial;
 management explain/hooks-test reports them as diagnostics without running gh.
 Warnings are redacted and terminal-sanitized like hook warnings.
 

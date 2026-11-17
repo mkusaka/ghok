@@ -87,7 +87,7 @@ func TestContinueOnErrorRunsGhAndPreservesStatus(t *testing.T) {
 	}
 }
 
-func TestContinueOnErrorSuppressesWarningWhenDenied(t *testing.T) {
+func TestContinueOnErrorWarnsAfterDenial(t *testing.T) {
 	s := newSandbox(t)
 	s.configure(func(c *config.Config) {
 		c.Policy.Mode = config.ModeEnforce
@@ -105,7 +105,8 @@ func TestContinueOnErrorSuppressesWarningWhenDenied(t *testing.T) {
 	got := s.gh(nil, "version")
 	got.code(t, 77)
 	s.absentRecord()
-	if want := "ghok: denied by hook gate\n  - hook gate: blocking review\n"; string(got.stderr) != want {
+	if want := "ghok: denied by hook gate\n  - hook gate: blocking review\n" +
+		"ghok: warning from hook advice (continue-on-error)\n  nonblocking review\n"; string(got.stderr) != want {
 		t.Fatalf("stderr=%q, want=%q", got.stderr, want)
 	}
 	logs := s.logs()

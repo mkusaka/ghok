@@ -729,10 +729,10 @@ For a non-blocking pre check, set `continueOnError: true`. A returned deny or
 failure under `onError: deny` retains its real `outcome`/`decision`, but becomes
 `effective: abstain` with `continuedOnError: true`. Dependents count it as
 satisfied and receive its real result in `previous`. It cannot skip later hooks
-or block gh. If gh runs, stderr prints
+or block gh. Stderr prints
 `ghok: warning from hook <id> (continue-on-error)` followed by the message, reason
-or error, using the denial sanitizer and stderr-tail/redactInput rules. Another enforced denial suppresses
-the warning, not the logged result. `hooks test` shows continued results in text
+or error, using the denial sanitizer and stderr-tail/redactInput rules. If another
+enforced denial blocks gh, the warning follows the denial. `hooks test` shows continued results in text
 and JSON. Post hooks reject the option; transforms must use `onError: allow`.
 
 Exit zero with empty stdout means abstain; nonzero exit, timeout, or invalid
@@ -856,17 +856,19 @@ policy:
 `operations[].parameters.admin` in a hook instead. Successful hooks may return
 `{"schemaVersion":1,"decision":"abstain","warning":"Review the release window."}`;
 `allow` also accepts `warning`, but `deny` ignores it (even with
-`continueOnError`). Successful transforms may return `warning` alongside edits
+`continueOnError`). When a request is denied, warnings from other rules, transforms
+and hooks print after the denial, so a deny rule's terse reason can sit beside an
+advisory hook's longer guidance. Successful transforms may return `warning` alongside edits
 or alone. See the [dynamic read-only hook](examples/hooks/warn-merge.sh), which
 uses POSIX sh, jq, read-only `gh api` labels and local time. Hook-internal gh
 calls inherit the verified nested token and do not recursively run policy/hooks.
 
-Only when gh will run, stderr prints `ghok: warning from rule <id>`,
+Stderr prints `ghok: warning from rule <id>`,
 `ghok: warning from transform <id>`, then `ghok: warning from hook <id>`,
 in rule configuration, transform result and pre-hook selection order, respectively.
 Post-hook warnings print after gh output in post-hook selection order and never
-change its status. Enforced denials suppress execution-only warnings, not their
-diagnostic records. Warnings use credential redaction and the terminal sanitizer:
+change its status. An enforced denial prints first; the pre-phase warnings
+follow it. Warnings use credential redaction and the terminal sanitizer:
 40 lines/4 KiB per entry and 500 Unicode characters per line, with visible
 truncation; JSON/log values are not terminal-escaped or display-truncated.
 Decision-level logs retain warned invocations even when the decision is allow.

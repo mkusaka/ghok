@@ -241,6 +241,7 @@ func wrapper(args []string, argv0, via string) int {
 			process.Result{ExitCode: -1, Signal: caught}.Exit()
 		}
 		printDenials(os.Stderr, []denial{*transformed.denial}, redactor.String)
+		printWarnings(os.Stderr, record.Warnings, redactor.String)
 		logRecord()
 		return 78
 	}
@@ -335,12 +336,14 @@ func wrapper(args []string, argv0, via string) int {
 	if decision.Decision == "deny" {
 		attachHookStderr(decision.Denials, pre, cfg.Hooks)
 		printDenials(os.Stderr, decision.Denials, redactor.String)
-		logRecord()
-		return decision.ExitCode
 	}
 	printWarnings(os.Stderr, evaluation.Warnings, redactor.String)
 	printWarnings(os.Stderr, transformWarnings, redactor.String)
 	printHookWarnings(os.Stderr, pre, cfg.Hooks, redactor.String)
+	if decision.Decision == "deny" {
+		logRecord()
+		return decision.ExitCode
+	}
 	if decision.RelabelPolicy {
 		logPolicy := *record.Policy
 		logPolicy.Decision = protocol.DecisionAllow

@@ -118,7 +118,7 @@ func TestWarningsRunGhInOrderAndKeepDecisionLogs(t *testing.T) {
 	}
 }
 
-func TestWarningsDoNotChangeDenialBytes(t *testing.T) {
+func TestWarningsFollowUnchangedDenial(t *testing.T) {
 	s := newSandbox(t)
 	configure := func(warn bool) {
 		s.configure(func(c *config.Config) {
@@ -137,8 +137,12 @@ func TestWarningsDoNotChangeDenialBytes(t *testing.T) {
 	configure(true)
 	warned := s.gh(nil, "version")
 	warned.code(t, 77)
-	if !bytes.Equal(baseline.stderr, warned.stderr) || !bytes.Equal(baseline.stdout, warned.stdout) {
-		t.Fatalf("denial changed: baseline=%q warned=%q", baseline.stderr, warned.stderr)
+	want := string(baseline.stderr) +
+		"ghok: warning from rule reminder\n  rule advice\n" +
+		"ghok: warning from transform annotation\n  transform advice\n" +
+		"ghok: warning from hook advice\n  hook advice\n"
+	if string(warned.stderr) != want || !bytes.Equal(baseline.stdout, warned.stdout) {
+		t.Fatalf("stderr=%q, want=%q", warned.stderr, want)
 	}
 	s.absentRecord()
 }

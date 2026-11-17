@@ -252,10 +252,10 @@ Print the JSON contracts with `ghok schema hook-input` / `ghok schema hook-respo
 
 Successful allow/abstain hooks may return `warning`; deny ignores it even with
 `continueOnError`. Successful transforms also accept `warning` with or without
-edits. There is no `warn` hook/policy outcome. Only when gh runs, stderr emits
+edits. There is no `warn` hook/policy outcome. Stderr emits
 rule, transform, then pre-hook warnings in configuration/result/selection order;
-post warnings follow gh output and never change its status. Enforced denials
-suppress execution-only warnings. Credential redaction and terminal bounds
+post warnings follow gh output and never change its status. An enforced denial
+prints first; pre-phase warnings follow it. Credential redaction and terminal bounds
 (40 lines/4 KiB, 500 characters/line) apply; structured JSON/log warnings retain
 `source`, `id`, `text` without terminal escaping. Decision logs keep warned
 allowed records. Explain text/`--json` and hooks-test text/JSON expose warnings;
@@ -295,10 +295,10 @@ Typed arrays are omitted when empty, never `null`; absent arrays mean empty.
 - Pre-only `continueOnError: true` makes a returned deny or `onError: deny` failure
   non-blocking: real `outcome`/`decision` stay, `effective` becomes `abstain`,
   `continuedOnError: true` is logged/shown by `hooks test`. Dependents run and see
-  the real result in `previous`. If gh runs, a sanitized/redacted
+  the real result in `previous`. A sanitized/redacted
   `ghok: warning from hook <id> (continue-on-error)` prints its message/reason/error
   and the same stderr tail as an error denial (withheld for `redactInput` hooks).
-  Another enforced denial suppresses the warning. Post hooks reject this option;
+  If another enforced denial blocks gh, it follows the denial. Post hooks reject this option;
   transforms use `onError: allow`. `hooks list` shows the setting.
 - Post hooks can be limited to gh's outcome: `match: {result: failure}` (non-zero exit,
   signal or start failure) or `match: {exitCode: [1]}`; test with

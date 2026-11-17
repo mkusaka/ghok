@@ -75,10 +75,11 @@ updates are source changes; there is no runtime normalizer-plugin loader.
    denial exits 77; hook-error/config-only denial exits 78. Observe records would-deny.
    A pre denial skips pending hooks, not running siblings; aggregation waits for
    those hooks. Pre `continueOnError` records a real denial as effective abstain,
-   satisfies dependents and warns only when gh runs.
+   satisfies dependents and warns.
    Pre-only warn rules allow with advisory text; successful transforms and
-   allow/abstain hooks may also warn. If gh runs, emit rules, transforms, then
-   pre-hook warnings in deterministic configuration/result/selection order.
+   allow/abstain hooks may also warn. Emit rules, transforms, then pre-hook
+   warnings in deterministic configuration/result/selection order, after any
+   enforced denial.
 10. Select post-hooks and the first definite trusted read-only delegate. With no
     delegate, exec if no post-hooks and stdin replay needs no live pump;
     otherwise supervise, deliver post result, log, and reproduce child status.

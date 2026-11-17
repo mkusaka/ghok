@@ -8,6 +8,13 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- Rule, transform and pre-hook warnings (including continue-on-error ones) now
+  print after an enforced denial instead of being suppressed, so advisory hook
+  guidance reaches the caller alongside the denial reason. A denying response's
+  own `warning` is still ignored, and the denial lines are unchanged.
+
 ## [v0.0.26] - 2026-11-15
 
 ### Changed
