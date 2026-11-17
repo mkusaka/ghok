@@ -4,7 +4,7 @@ module github.com/cli/cli/v2/ghok-native-gen
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/cli/cli/v2 v2.104.0
