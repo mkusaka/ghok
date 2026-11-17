@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.27] - 2026-11-17
+
 ### Changed
 
 - Rule, transform and pre-hook warnings (including continue-on-error ones) now
@@ -338,7 +340,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.26...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.27...HEAD
+[v0.0.27]: https://github.com/mkusaka/ghok/compare/v0.0.26...v0.0.27
 [v0.0.26]: https://github.com/mkusaka/ghok/compare/v0.0.25...v0.0.26
 [v0.0.25]: https://github.com/mkusaka/ghok/compare/v0.0.24...v0.0.25
 [v0.0.24]: https://github.com/mkusaka/ghok/compare/v0.0.23...v0.0.24
