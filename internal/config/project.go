@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // projectForbidden are the top-level sections a project .ghok.yaml may not set.

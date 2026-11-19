@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/mkusaka/ghok/internal/config"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // The committed schema files must match the tagged Go contracts.

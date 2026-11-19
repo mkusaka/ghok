@@ -25,7 +25,7 @@ import (
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/protocol"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 var ghokBinary, fakeBinary string

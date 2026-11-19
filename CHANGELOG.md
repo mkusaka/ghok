@@ -8,6 +8,14 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- YAML parsing moved from `go.yaml.in/yaml/v3` to `go.yaml.in/yaml/v4`. Config
+  decoding behaves the same, but YAML error messages change wording (for example
+  `yaml: construct errors: line 1: cannot construct ...` instead of
+  `yaml: unmarshal errors:\n  line 1: cannot unmarshal ...`), and some syntax
+  errors report a different line number.
+
 ## [v0.0.28] - 2026-11-19
 
 ### Added

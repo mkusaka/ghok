@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // HookList holds the hooks of both phases, written as one list per phase:

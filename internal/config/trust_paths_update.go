@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/mkusaka/ghok/internal/textdiff"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // TrustRepositoryRoot resolves an existing directory to its checkout root,

@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // FuzzLayeredConfig checks the invariants of user → .ghok.yaml → .ghok.local.yaml

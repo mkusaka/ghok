@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Config is ~/.config/ghok/config.yaml (version 1).

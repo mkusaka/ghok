@@ -14,7 +14,7 @@ import (
 
 	"github.com/mkusaka/ghok/internal/config"
 	"github.com/mkusaka/ghok/internal/install"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func TestNoConfigExecPreservesStreamsWithoutLogs(t *testing.T) {
