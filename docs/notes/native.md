@@ -1,4 +1,4 @@
-# Native normalization (gh v2.104.0)
+# Native normalization (gh v2.105.0)
 
 ## Design and supported behavior
 
@@ -197,17 +197,17 @@ go test ./internal/normalize/native/... -run TestRegistryClassifiesEveryCommand 
 ```
 
 The generator is a **separate Go module** under `internal/normalize/native/gen`.
-It requires `github.com/cli/cli/v2 v2.104.0`, Cobra v1.10.2 and pflag v1.1.0. Its
+It requires `github.com/cli/cli/v2 v2.105.0`, Cobra v1.10.2 and pflag v1.1.0. Its
 `github.com/cli/cli/v2/ghok-native-gen` module prefix permits importing gh's internal
-config/telemetry packages; none enters ghok's runtime module graph. gh v2.104.0 requires
+config/telemetry packages; none enters ghok's runtime module graph. gh v2.105.0 requires
 Go 1.27.0 for generation (Go's toolchain auto-download may be used); ghok's root Go
 version does not change. First-time module/toolchain downloads may need the network.
 Normal builds/tests/lint use the checked-in snapshot, exclude the nested module, and
 never regenerate or fetch gh.
 
-Pinned upstream tag **v2.104.0**, commit
-`3d5a9e355a837f2f5ee78d7484c118cc1342ad1a`, module sum
-`h1:kAfnjCK+aKJFTCZZQ2OFli+gjsPqHSC108eiv93DWp4=`.
+Pinned upstream tag **v2.105.0**, commit
+`e1219499a578b69e3437adaa31cd60614e23c802`, module sum
+`h1:H+VDgY19lmnkzSR6+sXiVD/oP8/cDMpX/8a9kFG8hmM=`.
 The generated header records the exact release and module sum, read from Go build info;
 replaced or unchecksummed modules are refused.
 
@@ -307,6 +307,13 @@ The table gives base intent; specific flag-driven overrides follow it.
 | `discussion list` | `discussion.list` | `discussion.list` | read |
 | `discussion view` | `discussion.view` | `discussion.view` | read |
 | `environment` | `help` | `help` | read |
+| `event` | `help` | `help` | read |
+| `event listen` | `event.listen` | `event.listen` | write |
+| `event subscription` | `help` | `help` | read |
+| `event subscription create` | `event.subscription.create` | `event.subscription.create` | write |
+| `event subscription delete` | `event.subscription.delete` | `event.subscription.delete` | write |
+| `event subscription list` | `event.subscription.list` | `event.subscription.list` | read |
+| `event subscription view` | `event.subscription.view` | `event.subscription.view` | read |
 | `exit-codes` | `help` | `help` | read |
 | `extension` | `help` | `help` | read |
 | `extension browse` | `extension.browse` | `extension.browse` | read |

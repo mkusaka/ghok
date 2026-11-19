@@ -8,7 +8,7 @@ The snapshot contains 1,281 OpenAPI operations; 211 operationId overrides retain
 
 ## Generation and override curation
 
-Source: [`github/rest-api-description`, `4754642742db86eba8971da648439698b46ac2ec`](https://github.com/github/rest-api-description/blob/4754642742db86eba8971da648439698b46ac2ec/descriptions/api.github.com/api.github.com.json), upstream commit date **2026-11-02**. `routes_gen.go` records that SHA/date and each operation's method, path, operationId, path-parameter names/types, tags, and deprecated flag. The stdlib-only generator resolves component parameter/schema references and scalar unions; no runtime or generator module dependencies are added.
+Source: [`github/rest-api-description`, `bbd57e64767616df3b37792a1186166334043761`](https://github.com/github/rest-api-description/blob/bbd57e64767616df3b37792a1186166334043761/descriptions/api.github.com/api.github.com.json), upstream commit date **2026-11-02**. `routes_gen.go` records that SHA/date and each operation's method, path, operationId, path-parameter names/types, tags, and deprecated flag. The stdlib-only generator resolves component parameter/schema references and scalar unions; no runtime or generator module dependencies are added.
 
 From the repository root:
 
@@ -21,7 +21,7 @@ For offline regeneration from the same revision:
 ```sh
 cd internal/normalize/rest
 go run ./gen -spec /path/to/api.github.com.json \
-  -ref 4754642742db86eba8971da648439698b46ac2ec -date 2026-11-13
+  -ref bbd57e64767616df3b37792a1186166334043761 -date 2026-11-17
 ```
 
 The network command fetches only the pinned raw JSON; output order is deterministic. `-ref` requires a full SHA and `-date` the source commit date. Local input provenance is the developer's responsibility. Normal builds/tests never fetch or run the generator.

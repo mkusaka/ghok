@@ -27,7 +27,7 @@ cannot be combined with `--no-resolve`. The deprecated `--resolve` remains a
 no-op for compatibility. Commands can still read explicitly supplied API files
 or non-TTY stdin for analysis. Explain leads with the policy decision and hook
 selection, then operations with each unresolved field/reason once; normalize
-retains its JSON schema. The implementation's CLI/API baseline is **gh 2.104.0**,
+retains its JSON schema. The implementation's CLI/API baseline is **gh 2.105.0**,
 not an assertion of coverage for every future command, REST route, or GitHub
 Enterprise Server version.
 
@@ -434,8 +434,8 @@ downloads and codespace selection are GitHub reads although they can write local
 This taxonomy is not local-filesystem isolation.
 
 Regenerate with `go generate ./internal/normalize/native`. The development-only
-`gen` module pins cli/cli **v2.104.0**, commit
-`3d5a9e355a837f2f5ee78d7484c118cc1342ad1a`; the generated header records its module
+`gen` module pins cli/cli **v2.105.0**, commit
+`e1219499a578b69e3437adaa31cd60614e23c802`; the generated header records its module
 sum. Generator dependencies and its Go 1.27.0 requirement do not enter ghok's root
 module. Builds/tests stay offline and use the checked-in snapshot. For a new release,
 bump `gen/go.mod`, tidy that module, regenerate, and fix
@@ -515,6 +515,13 @@ canonical commands' semantics rather than having duplicate curation.
 | `discussion list` | `discussion.list` | `discussion.list` | read |
 | `discussion view` | `discussion.view` | `discussion.view` | read |
 | `environment` | `help` | `help` | read |
+| `event` | `help` | `help` | read |
+| `event listen` | `event.listen` | `event.listen` | write |
+| `event subscription` | `help` | `help` | read |
+| `event subscription create` | `event.subscription.create` | `event.subscription.create` | write |
+| `event subscription delete` | `event.subscription.delete` | `event.subscription.delete` | write |
+| `event subscription list` | `event.subscription.list` | `event.subscription.list` | read |
+| `event subscription view` | `event.subscription.view` | `event.subscription.view` | read |
 | `exit-codes` | `help` | `help` | read |
 | `extension` | `help` | `help` | read |
 | `extension browse` | `extension.browse` | `extension.browse` | read |
@@ -751,6 +758,7 @@ repeating every descendant.
 | `codespace ls`, `cs ls` | `codespace list` |
 | `config ls` | `config list` |
 | `discussion ls` | `discussion list` |
+| `event subscription ls` | `event subscription list` |
 | `ext`, `extensions` | `extension` |
 | `ext ls`, `extension ls`, `extensions ls` | `extension list` |
 | `ext uninstall`, `extension uninstall`, `extensions uninstall` | `extension remove` |
@@ -819,14 +827,14 @@ effect. Native root-option command discovery is not equivalent to API dispatch.
 [parameter builder](../internal/normalize/rest/params.go) reproduce supported
 baseline request construction before [typed route matching](../internal/normalize/rest/routes.go).
 
-Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/4754642742db86eba8971da648439698b46ac2ec/descriptions/api.github.com/api.github.com.json),
-commit `4754642742db86eba8971da648439698b46ac2ec` (2026-11-13):
+Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/bbd57e64767616df3b37792a1186166334043761/descriptions/api.github.com/api.github.com.json),
+commit `bbd57e64767616df3b37792a1186166334043761` (2026-11-17):
 **1,281 operations**, **211 operationId overrides**, and **1,070 default namespaced
 operations**. Generated metadata includes path-parameter types, tags, and
 deprecation; matching a typed route gives exact confidence, not API validation.
 
 Regenerate with `go generate ./internal/normalize/rest`. Offline:
-`cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref 4754642742db86eba8971da648439698b46ac2ec -date 2026-11-13`.
+`cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref bbd57e64767616df3b37792a1186166334043761 -date 2026-11-17`.
 Upgrade the SHA/date in `routes.go`'s directive, regenerate, and curate
 `overrides.go` by exact operationId. Never edit `routes_gen.go`. Preserve existing
 shared canonical names; `TestOverrideContract` detects absent keys, effect mismatches,
@@ -1182,7 +1190,7 @@ JSON numbers use Go JSON decoding (`float64` internally); typed fields use `int`
 [normalizer](../internal/normalize/graphql/graphql.go) use gqlparser/v2 parsing,
 not regex extraction. The [semantic registry](../internal/normalize/graphql/registry.go)
 has 39 curated mutations; the [schema snapshot](../internal/normalize/graphql/schema_mutations.go)
-contains all 284 public mutations captured on 2026-11-15, including input types,
+contains all 285 public mutations captured on 2026-11-19, including input types,
 field type signatures, candidate target IDs, descriptions and deprecation.
 The snapshot provides default write classification, not full schema validation.
 Regeneration and override curation are described in [GraphQL notes](notes/graphql.md#mutation-schema-snapshot).
@@ -1359,7 +1367,7 @@ with `effect: write` to restrict the rule to writes. Curated actions such as
 
 A field absent from the snapshot still uses family `unknown`, action
 `graphql.mutation.<field>`, effect write and reason `unknown-mutation`, with detail
-`not in schema snapshot (2026-11-15)`. For example, `deleteRepository` remains
+`not in schema snapshot (2026-11-19)`. For example, `deleteRepository` remains
 absent and subject to unknown-mutation handling.
 
 ### L3 limitations
@@ -1453,7 +1461,7 @@ can deny either category.
 | --- | --- | --- | --- |
 | Native | All 243 static baseline registry paths and 57 built-in alias spellings; registered flag/selector extraction; normalized prose on mapped commands; plain alias chains. | Context lookup, interactive/generated text, runtime effects, enum/complete Cobra validation; heuristic unknown flags on known leaves. | Unregistered/newer commands, external extension effects, shell aliases, alias failures, several runtime integrations. |
 | REST | All 1,281 pinned public OpenAPI operations; 211 canonical operationId overrides; supported API argv/body/query construction, host/path encoding and body-driven refinements. | Unavailable bodies/context, combined query/body collisions, gh-config transport remapping, GHES version/validation/outcome. | GHES-only/newer routes, full request validation, redirects, unusual/malformed paths, arbitrary absolute URL semantics; writes on unregistered routes retain unknown family. |
-| GraphQL | AST selection/variables/aliases/fragments/directives; 284 schema-backed writes including 46 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
+| GraphQL | AST selection/variables/aliases/fragments/directives; 285 schema-backed writes including 46 curated mappings, generated target-ID selection. | Unavailable variables/node lookup, ambiguous IDs, schema/version drift, nonstandard transport acceptance, execution beyond syntactic selection. | Full schema/type/authorization validation, batching/subscriptions, multiple stdin-consumer fidelity; snapshot-absent fields remain unknown writes. |
 
 Normalization is extensible by editing the existing static registries; it does
 not load runtime normalizer plugins. Context resolution is a separate layer and
