@@ -8,6 +8,22 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.28] - 2026-11-19
+
+### Added
+
+- `gh event listen` and `gh event subscription create|list|view|delete` (gh 2.105.0)
+  are classified: `event.listen`, `event.subscription.create` and
+  `event.subscription.delete` are writes (they create or delete a server-side
+  subscription); `event.subscription.list` and `event.subscription.view` are reads.
+
+### Changed
+
+- Command registry regenerated from gh 2.105.0; `ghok doctor` now uses gh 2.105.0
+  as the verified baseline and warns below 2.105.
+- REST routes refreshed from rest-api-description bbd57e6 (still 1,281 operations)
+  and the GraphQL snapshot to 285 mutations (adds `setIssueStatus`).
+
 ## [v0.0.27] - 2026-11-17
 
 ### Changed
@@ -340,7 +356,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.27...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.28...HEAD
+[v0.0.28]: https://github.com/mkusaka/ghok/compare/v0.0.27...v0.0.28
 [v0.0.27]: https://github.com/mkusaka/ghok/compare/v0.0.26...v0.0.27
 [v0.0.26]: https://github.com/mkusaka/ghok/compare/v0.0.25...v0.0.26
 [v0.0.25]: https://github.com/mkusaka/ghok/compare/v0.0.24...v0.0.25
