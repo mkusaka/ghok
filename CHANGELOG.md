@@ -8,6 +8,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+## [v0.0.31] - 2026-11-26
+
 ### Changed
 
 - Upstream snapshots refreshed: gh v2.106.0 (new `auth logout --no-revoke` flag;
@@ -382,7 +384,8 @@ release notes. Mark changes that require users to update config, hooks or script
 
 - First release: transparent `gh` wrapper with pre/post hooks, policy (observe/enforce), L1/L2/L3 normalization, JSON hook protocol, management CLI (`shim`, `doctor`, `explain`, `normalize`, `hooks`, `config`), JSONL logging with redaction, Homebrew tap.
 
-[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.30...HEAD
+[Unreleased]: https://github.com/mkusaka/ghok/compare/v0.0.31...HEAD
+[v0.0.31]: https://github.com/mkusaka/ghok/compare/v0.0.30...v0.0.31
 [v0.0.30]: https://github.com/mkusaka/ghok/compare/v0.0.29...v0.0.30
 [v0.0.29]: https://github.com/mkusaka/ghok/compare/v0.0.28...v0.0.29
 [v0.0.28]: https://github.com/mkusaka/ghok/compare/v0.0.27...v0.0.28
