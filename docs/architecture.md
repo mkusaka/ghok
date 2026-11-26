@@ -213,9 +213,8 @@ chain and resumes with the original request and environment; it does not retain 
 partially transformed invocation. Request/environment edits are atomic and later
 entries win. Selection and command environment use the state before each entry,
 without self-retriggering; environment-only edits preserve original execution argv.
-Final matching and token kind use the edited environment. gh and POST processes
-receive it; PRE processes retain the original environment while their input
-describes the edited token kind. Set values enter the shared redactor before
+Final matching and token kind use the edited environment. gh, PRE and POST
+processes receive it. Set values enter the shared redactor before
 diagnostics; only sorted changed names and attribution are logged.
 Inactive project transforms never become policy gates.
 

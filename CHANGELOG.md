@@ -8,6 +8,13 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- Pre hooks now run with the environment edited by request transforms, like gh
+  and post hooks. A `gh` call inside a pre hook therefore uses the swapped
+  credential (for example a `gain-token` App token) instead of the original one.
+  `ghok hooks test --phase pre` does the same.
+
 ## [v0.0.29] - 2026-11-19
 
 ### Changed

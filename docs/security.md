@@ -256,8 +256,8 @@ not replacement prose. These controls do not sandbox trusted transform code.
 Credential swaps are trusted-code execution: transforms may set/unset
 `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`.
 The resulting token kind and environment are used for final matching/policy.
-gh and POST processes receive the edited environment; PRE processes retain the original environment.
-PRE input still describes the post-edit token kind. Names-only diagnostics report
+gh, PRE and POST processes receive the edited environment.
+Names-only diagnostics report
 sorted `invocation.envChanged` and logging `env`/`envBy`; transform environment
 values never appear in explain/hooks-test output, even with `--show-secrets`.
 All set values, not only recognized token prefixes, enter the shared redactor

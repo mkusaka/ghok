@@ -100,7 +100,7 @@ Only sorted changed names (`invocation.envChanged`, logging `env`/`envBy`) are
 reported. Each transform is selected using the request/environment before that
 entry; edits affect later entries, never re-trigger the same entry.
 Final `tokenKind`, `match.token` and `match.env` reflect the edited environment.
-gh and POST processes receive the edited environment; PRE processes retain the original environment.
+gh, PRE and POST processes receive the edited environment.
 
 Project transforms require per-hook or user-configured path trust, just like project hooks;
 inactive transforms are ignored, never gates. A failed `onError: deny` transform

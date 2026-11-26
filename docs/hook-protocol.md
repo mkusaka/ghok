@@ -722,7 +722,7 @@ selection and command environment use the state before that entry, so an edit
 cannot re-trigger its own transform. Later transforms see prior successful edits.
 Final `invocation.tokenKind`, `match.token` and `match.env` use the edited
 environment, including tokenKind in PRE hook input.
-gh and POST processes receive the edited environment; PRE processes retain the original environment.
+gh, PRE and POST processes receive the edited environment.
 
 `invocation.envChanged` is an optional sorted list of changed names, never values.
 JSONL `transformed.env` and `transformed.envBy` contain only sorted changed

@@ -310,6 +310,11 @@ func wrapper(args []string, argv0, via string) int {
 		record.Diagnostics = append(record.Diagnostics, "stdin not analyzed (nothing could act on it)")
 	}
 	record.Policy = input.Policy
+	// Hooks run with the final (transformed) environment, like gh itself.
+	runner.Env = opts.Env
+	if token := helperEnv["GHOK_NESTED_TOKEN"]; token != "" {
+		runner.Env = append(append([]string(nil), opts.Env...), "GHOK_NESTED_TOKEN="+token)
+	}
 	pre := runner.Run(ctx, config.PhasePre, runner.Select(config.PhasePre, subject), input)
 	post := runner.Select(config.PhasePost, subject)
 	// All helper children are reaped before relinquishing signal ownership.
@@ -392,10 +397,6 @@ func wrapper(args []string, argv0, via string) int {
 	// Candidates were selected before gh ran; apply match.result/exitCode now.
 	subject.Outcome = input.Result
 	post = runner.Select(config.PhasePost, subject)
-	runner.Env = opts.Env
-	if token := helperEnv["GHOK_NESTED_TOKEN"]; token != "" {
-		runner.Env = append(append([]string(nil), opts.Env...), "GHOK_NESTED_TOKEN="+token)
-	}
 	aggregate := runner.Run(ctx, config.PhasePost, post, input)
 	if caught := stopHelpers(); caught != 0 {
 		record.Diagnostics = append(record.Diagnostics, "post-hooks interrupted by "+signalName(caught))

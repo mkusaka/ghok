@@ -74,7 +74,7 @@ func TestTransformEnvExecution(t *testing.T) {
 					}
 				}
 				pre, post := recordedHookEnv(t, s, "pre"), recordedHookEnv(t, s, "post")
-				if pre["GH_TOKEN"] != "" || pre["REMOVE_ME"] != "original" || post["GH_TOKEN"] != token {
+				if pre["GH_TOKEN"] != token || pre["REMOVE_ME"] != "" || post["GH_TOKEN"] != token {
 					t.Fatalf("PRE/POST process environments incorrect: pre=%v post=%v", pre, post)
 				}
 			}

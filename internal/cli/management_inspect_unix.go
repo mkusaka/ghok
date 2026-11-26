@@ -256,10 +256,7 @@ func managementHooksTest(args []string, phase string, exitCode int, asJSON bool,
 	// hook test remains usable on machines without gh. No original gh is started.
 	a.real, _ = realGh(a.config, a.env)
 	r := a.redactor
-	hookEnv := os.Environ()
-	if phase == config.PhasePost {
-		hookEnv = environmentList(a.env)
-	}
+	hookEnv := environmentList(a.env)
 	runner := hooks.Runner{Hooks: a.config.Hooks, BaseDir: a.config.Dir, Concurrency: a.config.Runtime.HookConcurrency, Env: hookEnv, RealGh: a.real, Redact: r.String, Redactor: r, Source: "test"}
 	if exitCode < 0 || exitCode > 255 {
 		return managementUsageError("--exit-code must be 0-255")

@@ -392,8 +392,8 @@ other valid names are unrestricted. Invalid edits are `invalid-response`.
 Request/environment edits are atomic; later entries win. Selection and command
 environment use state before each transform; no self-retriggering.
 Final `tokenKind`, `match.token` and `match.env` reflect edited environment.
-gh and POST processes receive the edited environment; PRE processes retain the original environment.
-PRE input still describes post-edit tokenKind. Environment-only edits preserve
+gh, PRE and POST processes receive the edited environment.
+Environment-only edits preserve
 original execution argv. Sorted `invocation.envChanged` and logging `env`/`envBy`
 report names/attribution only. Environment values are never shown in explain or
 hooks test, even with `--show-secrets`; all set values enter the shared redactor
