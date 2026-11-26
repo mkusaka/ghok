@@ -223,8 +223,8 @@ var ghVersionRE = regexp.MustCompile(`(?m)^gh version ([0-9]+)\.([0-9]+)\.([0-9]
 // ghBaseline is the gh release the native registry was generated from
 // (internal/normalize/native/gen/go.mod); older minors warn.
 const (
-	ghBaseline      = "2.105.0"
-	ghBaselineMinor = 105
+	ghBaseline      = "2.106.0"
+	ghBaselineMinor = 106
 )
 
 func ghVersionStatus(out string) (Status, string) {

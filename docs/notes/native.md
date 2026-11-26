@@ -1,4 +1,4 @@
-# Native normalization (gh v2.105.0)
+# Native normalization (gh v2.106.0)
 
 ## Design and supported behavior
 
@@ -197,17 +197,17 @@ go test ./internal/normalize/native/... -run TestRegistryClassifiesEveryCommand 
 ```
 
 The generator is a **separate Go module** under `internal/normalize/native/gen`.
-It requires `github.com/cli/cli/v2 v2.105.0`, Cobra v1.10.2 and pflag v1.1.0. Its
+It requires `github.com/cli/cli/v2 v2.106.0`, Cobra v1.10.2 and pflag v1.1.0. Its
 `github.com/cli/cli/v2/ghok-native-gen` module prefix permits importing gh's internal
-config/telemetry packages; none enters ghok's runtime module graph. gh v2.105.0 requires
+config/telemetry packages; none enters ghok's runtime module graph. gh v2.106.0 requires
 Go 1.27.0 for generation (Go's toolchain auto-download may be used); ghok's root Go
 version does not change. First-time module/toolchain downloads may need the network.
 Normal builds/tests/lint use the checked-in snapshot, exclude the nested module, and
 never regenerate or fetch gh.
 
-Pinned upstream tag **v2.105.0**, commit
-`e1219499a578b69e3437adaa31cd60614e23c802`, module sum
-`h1:H+VDgY19lmnkzSR6+sXiVD/oP8/cDMpX/8a9kFG8hmM=`.
+Pinned upstream tag **v2.106.0**, commit
+`529111a21612ff1e29dc45e567a157df24e0e243`, module sum
+`h1:3ktvKs7ZtaC3qLziY7S9wRUMpD1DO6OMNjZ//VhSMVw=`.
 The generated header records the exact release and module sum, read from Go build info;
 replaced or unchecksummed modules are refused.
 

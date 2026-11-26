@@ -8,6 +8,13 @@ release notes. Mark changes that require users to update config, hooks or script
 
 ## [Unreleased]
 
+### Changed
+
+- Upstream snapshots refreshed: gh v2.106.0 (new `auth logout --no-revoke` flag;
+  `auth.logout` stays a write since it now revokes the token by default), REST
+  OpenAPI `869757e` (2026-11-26, no operation changes) and the GraphQL schema of
+  2026-11-27 (one new input field). `ghok doctor` baseline is gh 2.106.0.
+
 ## [v0.0.30] - 2026-11-26
 
 ### Changed

@@ -27,7 +27,7 @@ cannot be combined with `--no-resolve`. The deprecated `--resolve` remains a
 no-op for compatibility. Commands can still read explicitly supplied API files
 or non-TTY stdin for analysis. Explain leads with the policy decision and hook
 selection, then operations with each unresolved field/reason once; normalize
-retains its JSON schema. The implementation's CLI/API baseline is **gh 2.105.0**,
+retains its JSON schema. The implementation's CLI/API baseline is **gh 2.106.0**,
 not an assertion of coverage for every future command, REST route, or GitHub
 Enterprise Server version.
 
@@ -434,8 +434,8 @@ downloads and codespace selection are GitHub reads although they can write local
 This taxonomy is not local-filesystem isolation.
 
 Regenerate with `go generate ./internal/normalize/native`. The development-only
-`gen` module pins cli/cli **v2.105.0**, commit
-`e1219499a578b69e3437adaa31cd60614e23c802`; the generated header records its module
+`gen` module pins cli/cli **v2.106.0**, commit
+`529111a21612ff1e29dc45e567a157df24e0e243`; the generated header records its module
 sum. Generator dependencies and its Go 1.27.0 requirement do not enter ghok's root
 module. Builds/tests stay offline and use the checked-in snapshot. For a new release,
 bump `gen/go.mod`, tidy that module, regenerate, and fix
@@ -827,14 +827,14 @@ effect. Native root-option command discovery is not equivalent to API dispatch.
 [parameter builder](../internal/normalize/rest/params.go) reproduce supported
 baseline request construction before [typed route matching](../internal/normalize/rest/routes.go).
 
-Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/bbd57e64767616df3b37792a1186166334043761/descriptions/api.github.com/api.github.com.json),
-commit `bbd57e64767616df3b37792a1186166334043761` (2026-11-17):
+Routes are generated from GitHub's [public OpenAPI description](https://github.com/github/rest-api-description/blob/869757e24bdc58c7170ae45b2f8910823d8e371f/descriptions/api.github.com/api.github.com.json),
+commit `869757e24bdc58c7170ae45b2f8910823d8e371f` (2026-11-26):
 **1,281 operations**, **211 operationId overrides**, and **1,070 default namespaced
 operations**. Generated metadata includes path-parameter types, tags, and
 deprecation; matching a typed route gives exact confidence, not API validation.
 
 Regenerate with `go generate ./internal/normalize/rest`. Offline:
-`cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref bbd57e64767616df3b37792a1186166334043761 -date 2026-11-17`.
+`cd internal/normalize/rest && go run ./gen -spec /path/to/api.github.com.json -ref 869757e24bdc58c7170ae45b2f8910823d8e371f -date 2026-11-26`.
 Upgrade the SHA/date in `routes.go`'s directive, regenerate, and curate
 `overrides.go` by exact operationId. Never edit `routes_gen.go`. Preserve existing
 shared canonical names; `TestOverrideContract` detects absent keys, effect mismatches,
@@ -1190,7 +1190,7 @@ JSON numbers use Go JSON decoding (`float64` internally); typed fields use `int`
 [normalizer](../internal/normalize/graphql/graphql.go) use gqlparser/v2 parsing,
 not regex extraction. The [semantic registry](../internal/normalize/graphql/registry.go)
 has 39 curated mutations; the [schema snapshot](../internal/normalize/graphql/schema_mutations.go)
-contains all 285 public mutations captured on 2026-11-19, including input types,
+contains all 285 public mutations captured on 2026-11-27, including input types,
 field type signatures, candidate target IDs, descriptions and deprecation.
 The snapshot provides default write classification, not full schema validation.
 Regeneration and override curation are described in [GraphQL notes](notes/graphql.md#mutation-schema-snapshot).
@@ -1367,7 +1367,7 @@ with `effect: write` to restrict the rule to writes. Curated actions such as
 
 A field absent from the snapshot still uses family `unknown`, action
 `graphql.mutation.<field>`, effect write and reason `unknown-mutation`, with detail
-`not in schema snapshot (2026-11-19)`. For example, `deleteRepository` remains
+`not in schema snapshot (2026-11-27)`. For example, `deleteRepository` remains
 absent and subject to unknown-mutation handling.
 
 ### L3 limitations

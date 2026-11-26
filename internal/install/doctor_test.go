@@ -87,7 +87,7 @@ func TestDoctorHealthyAndRecursionRisks(t *testing.T) {
 			t.Errorf("%+v", c)
 		}
 	}
-	if c := checkNamed(t, checks, "gh-version"); c.Status != StatusInfo || !strings.Contains(c.Detail, "2.105.0") {
+	if c := checkNamed(t, checks, "gh-version"); c.Status != StatusInfo || !strings.Contains(c.Detail, "2.106.0") {
 		t.Errorf("%+v", c)
 	}
 	if c := checkNamed(t, checks, "platform-process"); !strings.Contains(c.Detail, "stdin tty=false") || !strings.Contains(c.Detail, "foreground process group") {
@@ -283,7 +283,7 @@ func TestDoctorVersionTimeoutAndFailure(t *testing.T) {
 		status       Status
 	}{
 		{"printf 'gh version 2.39.0 (2023-01-01)\\n'", "predates", StatusWarn},
-		{"printf 'gh version 2.105.0 (2026-01-01)\\n'", "2.105.0", StatusInfo},
+		{"printf 'gh version 2.106.0 (2026-01-01)\\n'", "2.106.0", StatusInfo},
 		{"printf unexpected", "Unrecognized", StatusWarn},
 		{"exit 42", "exit status 42", StatusWarn},
 		{"exec /bin/sleep 20", "timed out", StatusWarn},
@@ -344,8 +344,8 @@ func TestVersionBoundaries(t *testing.T) {
 		status  Status
 	}{
 		{"gh version 1.999.0 (date)\n", StatusWarn},
-		{"gh version 2.104.999 (date)\n", StatusWarn},
-		{"gh version 2.105.0 (date)\n", StatusInfo},
+		{"gh version 2.105.999 (date)\n", StatusWarn},
+		{"gh version 2.106.0 (date)\n", StatusInfo},
 		{"gh version 3.0.0 (date)\n", StatusInfo},
 		{"gh version 999999999999999999999999999.0.0\n", StatusWarn},
 	} {
